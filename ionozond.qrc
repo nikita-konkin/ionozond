@@ -1,0 +1,15 @@
+<!DOCTYPE RCC><RCC version="1.0">
+    <qresource prefix="/img">
+        <file alias="cal.png">res/img/cal.png</file>
+        <file alias="kservices.png">res/img/kservices.png</file>
+        <file alias="play_green.png">res/img/play_green.png</file>
+        <file alias="stop_red.png">res/img/stop_red.png</file>
+    </qresource>
+    <qresource prefix="/ico">
+        <file alias="dsChirp.ico">res/ico/dsChirp.ico</file>
+    </qresource>
+    <qresource prefix="/ini">
+        <file alias="config.ini">res/ini/config.ini</file>
+        <file alias="schedule.ini">res/ini/schedule.ini</file>
+    </qresource>
+</RCC>

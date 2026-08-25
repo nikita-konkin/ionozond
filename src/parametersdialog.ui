@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ParametersDialog</class>
+ <widget class="QDialog" name="ParametersDialog">
+  <property name="geometry">
+   <rect><x>0</x><y>0</y><width>940</width><height>540</height></rect>
+  </property>
+  <property name="windowTitle"><string>Параметры</string></property>
+  <property name="windowIcon">
+   <iconset resource="../ionozond.qrc"><normaloff>:/img/kservices.png</normaloff>:/img/kservices.png</iconset>
+  </property>
+  <layout class="QGridLayout" name="gridLayout">
+   <item row="0" column="0">
+    <widget class="QTabWidget" name="tbwParams">
+     <property name="currentIndex"><number>0</number></property>
+
+     <!-- ===================== Основное ===================== -->
+     <widget class="QWidget" name="tabBaseParams">
+      <attribute name="title"><string>Основное</string></attribute>
+      <layout class="QGridLayout" name="gridLayout_2">
+
+       <item row="0" column="0"><widget class="QLabel" name="lblSoundApp">
+        <property name="text"><string>Программа зондирования:</string></property></widget></item>
+       <item row="0" column="1" colspan="3"><widget class="QLineEdit" name="edtSoundApp"/></item>
+       <item row="0" column="4"><widget class="QPushButton" name="btnSoundApp">
+        <property name="text"><string>Обзор...</string></property></widget></item>
+
+       <item row="1" column="0"><widget class="QLabel" name="lblPyConfigFile">
+        <property name="text"><string>Конфигурация:</string></property></widget></item>
+       <item row="1" column="1" colspan="3"><widget class="QLineEdit" name="edtPyConfig"/></item>
+       <item row="1" column="4"><widget class="QPushButton" name="btnPyConfig">
+        <property name="text"><string>Обзор...</string></property></widget></item>
+
+       <item row="2" column="0"><widget class="QLabel" name="lblIGDir">
+        <property name="text"><string>Каталог для ионограмм:</string></property></widget></item>
+       <item row="2" column="1" colspan="3"><widget class="QLineEdit" name="edtIGDir"/></item>
+       <item row="2" column="4"><widget class="QPushButton" name="btnIGDir">
+        <property name="text"><string>Обзор...</string></property></widget></item>
+
+       <item row="3" column="0"><widget class="QLabel" name="lblBaseParams">
+        <property name="text"><string>&lt;b&gt;Основные&lt;/b&gt;</string></property></widget></item>
+       <item row="3" column="2"><widget class="QCheckBox" name="chbFilter">
+        <property name="styleSheet"><string notr="true">font-weight: bold;</string></property>
+        <property name="text"><string>Фильтрация</string></property></widget></item>
+
+       <item row="4" column="0"><widget class="QLabel" name="lblSampleRate">
+        <property name="text"><string>Частота дискретизации (кГц):</string></property></widget></item>
+       <item row="4" column="1"><widget class="QComboBox" name="cmbSampleRate"/></item>
+       <item row="4" column="2"><widget class="QLabel" name="lblFilterLen">
+        <property name="text"><string>полоса фильтра:</string></property></widget></item>
+       <item row="4" column="3"><widget class="QLineEdit" name="edtFilterLen"/></item>
+
+       <item row="5" column="0"><widget class="QLabel" name="lblDec">
+        <property name="text"><string>Коэффициент децимации:</string></property></widget></item>
+       <item row="5" column="1"><widget class="QLineEdit" name="edtDec"/></item>
+       <item row="5" column="2"><widget class="QLabel" name="lblFilterPointsCount">
+        <property name="text"><string>количество отсчетов:</string></property></widget></item>
+       <item row="5" column="3"><widget class="QLineEdit" name="edtFilterPointsCount"/></item>
+
+       <item row="6" column="0"><widget class="QLabel" name="lblFftCount">
+        <property name="text"><string>Количество точек БПФ:</string></property></widget></item>
+       <item row="6" column="1"><widget class="QComboBox" name="cmbFftCount"/></item>
+
+       <item row="7" column="0"><widget class="QLabel" name="lblTimeSource">
+        <property name="enabled"><bool>false</bool></property>
+        <property name="text"><string>Источник точного времени:</string></property></widget></item>
+       <item row="7" column="1"><widget class="QComboBox" name="cmbTimeSource">
+        <property name="enabled"><bool>false</bool></property></widget></item>
+
+       <item row="8" column="0"><widget class="QLabel" name="lblNtpServerName">
+        <property name="enabled"><bool>false</bool></property>
+        <property name="text"><string>    ntp-сервер:</string></property></widget></item>
+       <item row="8" column="1"><widget class="QLineEdit" name="edtNtpServerName">
+        <property name="enabled"><bool>false</bool></property></widget></item>
+
+       <item row="9" column="0"><widget class="QLabel" name="lblColors">
+        <property name="text"><string>&lt;b&gt;Цветовая схема&lt;/b&gt;</string></property></widget></item>
+
+       <item row="10" column="0"><widget class="QLabel" name="lblIgColormap">
+        <property name="text"><string>Цвета:</string></property></widget></item>
+       <item row="10" column="1"><widget class="QImageComboBox" name="cmbIgColormap"/></item>
+
+       <item row="11" column="0"><widget class="QCheckBox" name="chbColorGradient">
+        <property name="text"><string>Градиент</string></property></widget></item>
+
+       <item row="12" column="0"><widget class="QLabel" name="lblIg">
+        <property name="text"><string>&lt;b&gt;Ионограмма&lt;/b&gt;</string></property></widget></item>
+       <item row="12" column="2"><widget class="QCheckBox" name="chbDirectSignalCutting">
+        <property name="styleSheet"><string notr="true">font-weight: bold;</string></property>
+        <property name="text"><string>Вырезание прямого сигнала</string></property></widget></item>
+
+       <item row="13" column="0"><widget class="QLabel" name="lblIgVerticalScale">
+        <property name="text"><string>Вертикальная шкала:</string></property></widget></item>
+       <item row="13" column="1"><widget class="QComboBox" name="cmbIgVerticalScale"/></item>
+       <item row="13" column="2"><widget class="QLabel" name="lblLfsrPolynomeDegree">
+        <property name="text"><string>степень порождающего многочлена
+m-последовательности:</string></property></widget></item>
+       <item row="13" column="3"><widget class="QLineEdit" name="edtLfsrPolynomeDegree"/></item>
+
+       <item row="14" column="0"><widget class="QLabel" name="lblIgListCount">
+        <property name="text"><string>Количество в ленте:</string></property></widget></item>
+       <item row="14" column="1"><widget class="QComboBox" name="cmbIgListCount"/></item>
+       <item row="14" column="2"><widget class="QLabel" name="lblImpulseLength">
+        <property name="text"><string>длительность импульса (мс):</string></property></widget></item>
+       <item row="14" column="3"><widget class="QLineEdit" name="edtImpulseLength"/></item>
+
+       <item row="15" column="0" colspan="5">
+        <spacer name="vspBase">
+         <property name="orientation"><enum>Qt::Vertical</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>20</width><height>10</height></size></property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+
+     <!-- ===================== Суточный ход ===================== -->
+     <widget class="QWidget" name="tabVariationParams">
+      <attribute name="title"><string>Суточный ход</string></attribute>
+      <layout class="QGridLayout" name="gridLayout_3">
+
+       <item row="0" column="0" colspan="2"><widget class="QLabel" name="lblSnrVarParams">
+        <property name="text"><string>&lt;b&gt;Отношение "сигнал/шум"&lt;/b&gt;</string></property></widget></item>
+
+       <item row="1" column="0"><widget class="QLabel" name="lblSnrVarTimePeriod">
+        <property name="text"><string>период (ч):</string></property></widget></item>
+       <item row="1" column="1"><widget class="QSpinBox" name="spbSnrVarPeriod">
+        <property name="maximum"><number>240</number></property></widget></item>
+
+       <item row="2" column="0"><widget class="QLabel" name="lblSnrVarTimeBand">
+        <property name="text"><string>усреднение по времени (мин):</string></property></widget></item>
+       <item row="2" column="1"><widget class="QSpinBox" name="spbSnrVarTimeBand">
+        <property name="maximum"><number>1440</number></property></widget></item>
+
+       <item row="3" column="0"><widget class="QLabel" name="lblSnrVarFreqBand">
+        <property name="text"><string>усреднение по частоте (кГц):</string></property></widget></item>
+       <item row="3" column="1"><widget class="QSpinBox" name="spbSnrVarFreqBand">
+        <property name="maximum"><number>25000</number></property></widget></item>
+
+       <item row="4" column="0" colspan="2"><widget class="QCheckBox" name="chbSnrAutoMax">
+        <property name="text"><string>автоматическое определение максимума</string></property></widget></item>
+
+       <item row="5" column="0" colspan="2"><widget class="QLabel" name="lblPdpVarParams">
+        <property name="text"><string>&lt;b&gt;Профиль задержки мощности&lt;/b&gt;</string></property></widget></item>
+
+       <item row="6" column="0"><widget class="QLabel" name="lblPdpVarPeriod">
+        <property name="text"><string>период (ч):</string></property></widget></item>
+       <item row="6" column="1"><widget class="QSpinBox" name="spbPdpVarPeriod">
+        <property name="maximum"><number>240</number></property></widget></item>
+
+       <item row="7" column="0"><widget class="QLabel" name="lblPdpVarTimeBand">
+        <property name="text"><string>усреднение по времени (мин):</string></property></widget></item>
+       <item row="7" column="1"><widget class="QSpinBox" name="spbPdpVarTimeBand">
+        <property name="maximum"><number>1440</number></property></widget></item>
+
+       <item row="8" column="0" colspan="2"><widget class="QCheckBox" name="chbPdpAutoMax">
+        <property name="text"><string>автоматическое определение максимума</string></property></widget></item>
+
+       <item row="9" column="0" colspan="2">
+        <spacer name="vspVar">
+         <property name="orientation"><enum>Qt::Vertical</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+
+   <item row="1" column="0">
+    <widget class="QDialogButtonBox" name="btbOkCancel">
+     <property name="orientation"><enum>Qt::Horizontal</enum></property>
+     <property name="standardButtons"><set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set></property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>QImageComboBox</class>
+   <extends>QComboBox</extends>
+   <header>common.h</header>
+  </customwidget>
+ </customwidgets>
+ <resources>
+  <include location="../ionozond.qrc"/>
+ </resources>
+ <connections/>
+</ui>

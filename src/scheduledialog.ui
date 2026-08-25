@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ScheduleDialog</class>
+ <widget class="QDialog" name="ScheduleDialog">
+  <property name="geometry">
+   <rect><x>0</x><y>0</y><width>1000</width><height>440</height></rect>
+  </property>
+  <property name="windowTitle"><string>Расписание</string></property>
+  <property name="windowIcon">
+   <iconset resource="../ionozond.qrc"><normaloff>:/img/cal.png</normaloff>:/img/cal.png</iconset>
+  </property>
+  <layout class="QGridLayout" name="gridLayout">
+   <item row="0" column="0">
+    <layout class="QHBoxLayout" name="layRxStation">
+     <item>
+      <widget class="QLabel" name="lblRxStation">
+       <property name="text"><string>Принимающая станция:</string></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="cmbRxStation">
+       <property name="minimumWidth"><number>160</number></property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="hspRx">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+
+   <item row="1" column="0">
+    <widget class="QTableWidget" name="tblSchedule">
+     <property name="styleSheet"><string notr="true">border: 0 px;</string></property>
+    </widget>
+   </item>
+
+   <item row="1" column="1">
+    <layout class="QVBoxLayout" name="layButtons">
+     <item>
+      <widget class="QPushButton" name="btnAdd">
+       <property name="text"><string>Добавить</string></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btnDelete">
+       <property name="text"><string>Удалить</string></property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="vspButtons">
+       <property name="orientation"><enum>Qt::Vertical</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+
+   <item row="2" column="0" colspan="2">
+    <widget class="QDialogButtonBox" name="buttonBox">
+     <property name="orientation"><enum>Qt::Horizontal</enum></property>
+     <property name="standardButtons"><set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set></property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources>
+  <include location="../ionozond.qrc"/>
+ </resources>
+ <connections/>
+</ui>

@@ -1,0 +1,8 @@
+# Keep line endings stable across Windows and the Linux build container.
+* text=auto eol=lf
+
+*.png  binary
+*.ico  binary
+*.lfs  binary
+*.lfp  binary
+*.pdf  binary

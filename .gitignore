@@ -1,0 +1,17 @@
+# build output
+build/
+build-*/
+*.o
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+Makefile
+.qmake.stash
+
+# test artefacts
+tests/out/
+*.lfp
+
+# third-party sources recovered from an operator backup: GPL-3.0, not ours to
+# redistribute. Kept locally for cross-checking the format work only.
+reference/

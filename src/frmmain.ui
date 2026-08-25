@@ -1,0 +1,286 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>frmMain</class>
+ <widget class="QMainWindow" name="frmMain">
+  <property name="geometry">
+   <rect><x>0</x><y>0</y><width>1600</width><height>1000</height></rect>
+  </property>
+  <property name="windowTitle">
+   <string>Визуализация и анализ данных зондирования ионосферы</string>
+  </property>
+  <property name="windowIcon">
+   <iconset resource="../ionozond.qrc"><normaloff>:/ico/dsChirp.ico</normaloff>:/ico/dsChirp.ico</iconset>
+  </property>
+  <widget class="QWidget" name="widget">
+   <layout class="QHBoxLayout" name="horizontalLayout">
+    <property name="leftMargin"><number>0</number></property>
+    <property name="topMargin"><number>0</number></property>
+    <property name="rightMargin"><number>0</number></property>
+    <property name="bottomMargin"><number>0</number></property>
+    <item>
+     <widget class="QSplitter" name="splitter">
+      <property name="orientation"><enum>Qt::Horizontal</enum></property>
+
+      <!-- ================= work part ================= -->
+      <widget class="QFrame" name="fraWorkPart">
+       <property name="frameShape"><enum>QFrame::StyledPanel</enum></property>
+       <layout class="QVBoxLayout" name="verticalLayout">
+        <property name="leftMargin"><number>2</number></property>
+        <property name="topMargin"><number>2</number></property>
+        <property name="rightMargin"><number>2</number></property>
+        <property name="bottomMargin"><number>2</number></property>
+        <item>
+         <widget class="QSplitter" name="splWorkPart">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QTextEdit" name="txtConsole">
+          <property name="styleSheet">
+           <string notr="true">background-color: rgb(0, 0, 0);
+color: rgb(0, 255, 0);</string>
+          </property>
+          <property name="readOnly"><bool>true</bool></property>
+          <property name="minimumHeight"><number>110</number></property>
+          <property name="maximumHeight"><number>220</number></property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+
+      <!-- ================= control part ================= -->
+      <widget class="QFrame" name="fraControlPart">
+       <property name="maximumWidth"><number>210</number></property>
+       <property name="styleSheet">
+        <string notr="true">background-color: rgb(0, 0, 0);</string>
+       </property>
+       <property name="frameShape"><enum>QFrame::NoFrame</enum></property>
+       <layout class="QVBoxLayout" name="verticalLayout_2">
+        <property name="leftMargin"><number>0</number></property>
+        <property name="topMargin"><number>0</number></property>
+        <property name="rightMargin"><number>0</number></property>
+        <property name="bottomMargin"><number>0</number></property>
+        <property name="spacing"><number>0</number></property>
+
+        <!-- clock -->
+        <item>
+         <widget class="QFrame" name="fraClock">
+          <property name="styleSheet">
+           <string notr="true">background-color: rgb(0, 0, 0);</string>
+          </property>
+          <layout class="QVBoxLayout" name="verticalLayout_3">
+           <property name="spacing"><number>2</number></property>
+           <property name="leftMargin"><number>2</number></property>
+           <property name="topMargin"><number>2</number></property>
+           <property name="rightMargin"><number>2</number></property>
+           <property name="bottomMargin"><number>2</number></property>
+           <item>
+            <widget class="QLabel" name="lblTime">
+             <property name="text">
+              <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=" font-size:14pt; font-weight:600; color:#ffffff;"&gt;Время (UTC) &lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="Line" name="hlnClock">
+             <property name="styleSheet">
+              <string notr="true">background-color: rgb(255, 255, 255);</string>
+             </property>
+             <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="DigitalClock" name="lcdClock">
+             <property name="minimumHeight"><number>50</number></property>
+             <property name="styleSheet">
+              <string notr="true">color: rgb(0, 255, 0);
+background-color: rgb(0, 0, 0);</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+
+        <!-- control buttons -->
+        <item>
+         <widget class="QFrame" name="fraControl">
+          <layout class="QVBoxLayout" name="verticalLayout_7">
+           <property name="spacing"><number>2</number></property>
+           <property name="leftMargin"><number>2</number></property>
+           <property name="topMargin"><number>2</number></property>
+           <property name="rightMargin"><number>2</number></property>
+           <property name="bottomMargin"><number>2</number></property>
+           <item>
+            <widget class="QLabel" name="lblControl">
+             <property name="styleSheet">
+              <string notr="true">color: rgb(255, 255, 255);</string>
+             </property>
+             <property name="text">
+              <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=" font-size:14pt; font-weight:600; color:#ffffff;"&gt;Управление&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="Line" name="hlnControl">
+             <property name="styleSheet">
+              <string notr="true">background-color: rgb(255, 255, 255);</string>
+             </property>
+             <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="hloControl">
+             <item>
+              <widget class="QPushButton" name="btnStartStop">
+               <property name="minimumSize"><size><width>56</width><height>56</height></size></property>
+               <property name="maximumSize"><size><width>56</width><height>56</height></size></property>
+               <property name="text"><string/></property>
+               <property name="icon">
+                <iconset resource="../ionozond.qrc"><normaloff>:/img/play_green.png</normaloff>:/img/play_green.png</iconset>
+               </property>
+               <property name="iconSize"><size><width>48</width><height>48</height></size></property>
+               <property name="flat"><bool>true</bool></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="btnParams">
+               <property name="minimumSize"><size><width>56</width><height>56</height></size></property>
+               <property name="maximumSize"><size><width>56</width><height>56</height></size></property>
+               <property name="text"><string/></property>
+               <property name="icon">
+                <iconset resource="../ionozond.qrc"><normaloff>:/img/kservices.png</normaloff>:/img/kservices.png</iconset>
+               </property>
+               <property name="iconSize"><size><width>48</width><height>48</height></size></property>
+               <property name="flat"><bool>true</bool></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="btnSchedule">
+               <property name="minimumSize"><size><width>56</width><height>56</height></size></property>
+               <property name="maximumSize"><size><width>56</width><height>56</height></size></property>
+               <property name="text"><string/></property>
+               <property name="icon">
+                <iconset resource="../ionozond.qrc"><normaloff>:/img/cal.png</normaloff>:/img/cal.png</iconset>
+               </property>
+               <property name="iconSize"><size><width>48</width><height>48</height></size></property>
+               <property name="flat"><bool>true</bool></property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
+
+        <!-- sessions -->
+        <item>
+         <widget class="QFrame" name="fraSessions">
+          <layout class="QVBoxLayout" name="verticalLayout_8">
+           <property name="spacing"><number>2</number></property>
+           <property name="leftMargin"><number>2</number></property>
+           <property name="topMargin"><number>2</number></property>
+           <property name="rightMargin"><number>2</number></property>
+           <property name="bottomMargin"><number>2</number></property>
+           <item>
+            <widget class="QLabel" name="lblSessions">
+             <property name="text">
+              <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=" font-size:14pt; font-weight:600; color:#ffffff;"&gt;Сеансы&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="Line" name="hlnSessions">
+             <property name="styleSheet">
+              <string notr="true">background-color: rgb(255, 255, 255);</string>
+             </property>
+             <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+
+        <!-- cpu -->
+        <item>
+         <widget class="QFrame" name="fraCPU">
+          <layout class="QVBoxLayout" name="verticalLayout_4">
+           <property name="spacing"><number>2</number></property>
+           <property name="leftMargin"><number>2</number></property>
+           <property name="topMargin"><number>2</number></property>
+           <property name="rightMargin"><number>2</number></property>
+           <property name="bottomMargin"><number>2</number></property>
+           <item>
+            <widget class="QLabel" name="lblCPU">
+             <property name="text">
+              <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=" font-size:14pt; font-weight:600; color:#ffffff;"&gt;ЦПУ&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="Line" name="hlnCPU">
+             <property name="styleSheet">
+              <string notr="true">background-color: rgb(255, 255, 255);</string>
+             </property>
+             <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+
+        <!-- drive -->
+        <item>
+         <widget class="QFrame" name="fraDrive">
+          <layout class="QVBoxLayout" name="verticalLayout_5">
+           <property name="spacing"><number>2</number></property>
+           <property name="leftMargin"><number>2</number></property>
+           <property name="topMargin"><number>2</number></property>
+           <property name="rightMargin"><number>2</number></property>
+           <property name="bottomMargin"><number>2</number></property>
+           <item>
+            <widget class="QLabel" name="lblDrive">
+             <property name="text">
+              <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=" font-size:14pt; font-weight:600; color:#ffffff;"&gt;Диск&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="Line" name="line">
+             <property name="styleSheet">
+              <string notr="true">background-color: rgb(255, 255, 255);</string>
+             </property>
+             <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+
+        <!-- keep the sections stacked at the top -->
+        <item>
+         <spacer name="vspControlPart">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property>
+         </spacer>
+        </item>
+
+       </layout>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>DigitalClock</class>
+   <extends>QLCDNumber</extends>
+   <header>common.h</header>
+  </customwidget>
+ </customwidgets>
+ <resources>
+  <include location="../ionozond.qrc"/>
+ </resources>
+ <connections/>
+</ui>
