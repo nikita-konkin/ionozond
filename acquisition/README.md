@@ -2,62 +2,83 @@
 
 The sounder: the half that drives the radio and writes `.lfs` captures.
 
-This directory is where chirpsounder belongs. It is empty in the working tree
-because the code currently lives elsewhere — bringing it in is the next step,
-and there are two paths to carry:
+**Both sounders live in their own repositories.** This directory holds the
+integration notes and is where they are referenced (submodule or checkout), not
+where their code is vendored. That separation is deliberate — see *Licensing*
+below.
 
-## Two sounders, on purpose
+## The two sounders
 
-**`chirpsounder2/`** — the current one. Python 3, `digital_rf`, no GNU Radio
-out-of-tree module. This is the main acquisition path.
+### chirpsounder2 — the main path
 
-**`chirpsounder1/`** — the original, kept deliberately because it is
-substantially lighter on CPU and memory and runs where the newer one will not:
-a laptop at a remote site, an older receiver machine. The intent is to *port*
-it to current Python and current libraries rather than freeze it — same
-algorithm, same low footprint, maintainable.
+<https://github.com/nikita-konkin/chirpsounder2>, a fork of
+<https://github.com/jvierine/chirpsounder2>. Python 3, `digital_rf`, no GNU
+Radio out-of-tree module. **MIT licensed.**
 
-Both must produce the same `.lfs` files, so an archive stays readable whichever
-recorded it.
+What it needs from this project:
 
-## Writing `.lfs`
+- an **`.lfs` writer**, so its captures are readable by the console and the
+  existing archive tooling — see [`../docs/lfs-format.md`](../docs/lfs-format.md)
+- optionally an **`.lfp` writer**, so derived products exist without a second
+  pass over the archive — see [`../docs/lfp-format.md`](../docs/lfp-format.md)
 
-In the original `gr-juha`, the writer lived inside the C++ `chirp_downconvert`
-GNU Radio block — which is the only reason the OOT module was needed at all.
-In Python it is a `struct.pack` of the 512-byte header followed by
-`.tofile()` on a `complex64` array: roughly 40 lines, no compiled dependency.
+Note it already carries a `web/` directory; worth checking what that does
+before deciding how much the Qt console should overlap with it.
 
-See [`../docs/lfs-format.md`](../docs/lfs-format.md) for the layout.
+### chirpsounder1 — the low-resource alternative
 
-### Settle the version split first
+Not yet created. A **port** of the original sounder rather than a frozen copy:
+same algorithm and same small footprint, on current Python and libraries. Kept
+because it runs where chirpsounder2 will not — a laptop at a remote site, an
+older receiver machine.
 
-There are currently **three inconsistent definitions** of the header in the
-existing toolchain:
+Its ancestor is `gr-juha`: GNU Radio 3.7, Python 2, a C++ out-of-tree module.
+Copies of the originals are in `reference/` at the top of this repository
+(kept locally for cross-checking, not redistributed).
 
-| Definition | `format_ver` | `header_size` |
-|---|---|---|
-| C++ writer (`gr-juha`) — produced the whole existing archive | 1.0 | 498 |
-| Python writer (`chirpsounder/lfs_header.py`) | 1.1 | 512 |
-| the console | accepts **only** 1.0 / 498 | |
+Porting notes:
 
-The two writers disagree about the version *and* about what `header_size`
-counts: the C++ side stores the bytes after the 14-byte preamble, the Python
-side stores the whole struct. Anything the Python writer produces is silently
-refused by the console.
+- **Python 2 → 3.** `chirp.py`, `chirp_config.py`, `lfs_header.py`, `os_time.py`
+  are the whole application layer.
+- **Drop the OOT module for writing.** In `gr-juha` the `.lfs` writer lives
+  inside the C++ `chirp_downconvert` block, which is the only reason the module
+  is needed in order to record. In Python it is a `struct.pack` of the 512-byte
+  header plus `.tofile()` on a `complex64` array.
+- **Keep the dechirp in C or numpy, not GNU Radio,** if the low footprint is to
+  survive. The dechirp is a complex multiply by a swept phasor followed by a
+  decimating filter, and that is where the resource advantage actually lives.
 
-Before either sounder is made the standard producer:
+## ⚠ Licensing: the two generations are not compatible
 
-1. pick one meaning for `header_size` and document it
-2. agree a version number both sides emit
-3. make readers **fail loudly** on an unknown version rather than mis-parse
+| Component | Licence |
+|---|---|
+| `jvierine/chirpsounder2` and forks of it | **MIT** |
+| `gr-juha` — the v1 sounder | **GPL-3.0** |
+| this project (console, `.lfp`, tooling) | ours to choose |
 
-The sidecar format was designed to avoid repeating this — see
-[`../docs/lfp-format.md`](../docs/lfp-format.md), which uses two integer
-version fields with a stated compatibility rule.
+A `chirpsounder1` that is a port of `gr-juha` inherits **GPL-3.0**. It cannot
+be MIT like its sibling, and it cannot be folded into this repository without
+raising the question of whether the console becomes a derivative work.
 
-## Writing `.lfp` at acquisition time
+This is the reason the sounders stay in their own repositories:
 
-Better still, have the sounder emit the derived-products sidecar as it records,
-so no separate pass over the archive is ever needed. The console already reads
-sidecars in preference to captures; `python/lfp.py` shows the structure and
-`src/lfpfile.cpp` is the reference implementation.
+```
+nikita-konkin/chirpsounder2    MIT       fork of upstream, the main path
+nikita-konkin/chirpsounder1    GPL-3.0   port of gr-juha, the light path
+nikita-konkin/ionozond         ours      console, formats, tooling
+```
+
+The console talks to both through the file formats only — it writes
+`chirp_config.py` and reads `.lfs`. That is an interface, not a dependency, so
+nothing here needs to inherit either licence.
+
+## Must hold
+
+Captures from chirpsounder1 and chirpsounder2 must be byte-compatible, so an
+archive stays readable whichever recorded it.
+
+Settle the header version split before either becomes the standard producer:
+the C++ writer emits `format_ver 1.0 / header_size 498`, the Python writer
+emits `1.1 / 512`, and they disagree about what `header_size` even counts. The
+console accepts only the former. See
+[`../docs/lfs-format.md`](../docs/lfs-format.md).

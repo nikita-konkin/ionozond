@@ -19,7 +19,7 @@ transmitter sweep  ──▶  receiver  ──▶  .lfs capture  ──▶  .lfp
 |---|---|
 | `src/` | the console: Qt5 + Qwt application, the DSP, the file formats |
 | `*.pro` | build targets — `ionozond` (console), `dsChirp_viewer` (capture browser), `lfp_build` (archive tool) |
-| `acquisition/` | the sounder — see `acquisition/README.md` |
+| `acquisition/` | integration notes for the two sounders, which live in their own repos |
 | `python/` | `lfp.py` reader, `spectrum_oracle.py` verification oracle |
 | `tools/` | command-line utilities and their build scripts |
 | `docs/` | format specifications, deployment, provenance |
@@ -92,4 +92,5 @@ rather than reproduced, and is marked `DSCHIRP_FIX_GRADIENT_TYPO` in the source.
 from an operator backup. They are **third-party, GPL-3.0**, kept only so the
 format work can be checked against the code that produced the archive. They are
 not ours to relicense and should be excluded from any public release —
-`acquisition/` is where our own sounder code belongs.
+the sounders live in their own repositories, for licensing reasons set out in
+`acquisition/README.md`.
