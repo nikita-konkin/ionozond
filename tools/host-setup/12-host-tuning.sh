@@ -167,9 +167,11 @@ else
                 say "  *** more CPU spent on packets."
             fi
             say
-            say "  The radio must agree too. Re-probe and check the frame size"
-            say "  grew past 1472:"
-            say "      uhd_usrp_probe --args=\"addr=USRP_IP\" 2>&1 | grep 'frame size'"
+            say "  The radio has to agree, and a NIC that accepts a large MTU"
+            say "  does not always carry it reliably. Re-run the receive test:"
+            say "  it reports the negotiated frame size and re-measures the"
+            say "  ladder, so a jumbo frame that breaks throughput shows up."
+            say "      sudo bash 13-usrp-rx-test.sh <usrp-ip>"
         fi
     fi
 fi

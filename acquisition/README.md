@@ -102,6 +102,20 @@ nothing here needs to inherit either licence.
 Captures from chirpsounder1 and chirpsounder2 must be byte-compatible, so an
 archive stays readable whichever recorded it.
 
+Settle the **coordinate encoding** too. The operator types station positions
+into `chirp_config.py` and both sounders pack them into the header verbatim:
+
+```python
+rx_station = {'name':'yoshkar-ola','lat':56.38,'lon':47.53}
+```
+
+Those are degrees and minutes — 56°38′ N, 47°53′ E — while every reader treats
+them as decimal degrees. A GPS fix at that site confirms it: the `DD.MM`
+reading lands 1.3 km away, the decimal reading 34.6 km. See
+[`../docs/lfs-format.md`](../docs/lfs-format.md). Whichever convention wins,
+both sounders must use it, and the field's meaning must be stated where the
+operator enters it rather than left to be guessed.
+
 Settle the header version split before either becomes the standard producer:
 the C++ writer emits `format_ver 1.0 / header_size 498`, the Python writer
 emits `1.1 / 512`, and they disagree about what `header_size` even counts. The

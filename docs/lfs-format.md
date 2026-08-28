@@ -53,6 +53,61 @@ real captures.
 
 `start_epoch` agrees with the broken-down fields; either may be used.
 
+## ⚠ Coordinates are degrees and minutes, and everything reads them as degrees
+
+`rx_latitude = 56.38`, `rx_longitude = 47.53` are **not** decimal degrees. They
+are degrees and minutes written as `DD.MM`: 56°38′ N, 47°53′ E. Yoshkar-Ola,
+which is what `rx_name` says, sits at 56.6388 N / 47.8908 E — that is
+56°38.3′ N, 47°53.4′ E. The header value is the city's position to the nearest
+minute.
+
+Two independent checks, on the path `cyprus1` → `yoshkar-ola`:
+
+| reading | position | distance from a GPS fix taken at the receiving site |
+|---|---|---|
+| decimal degrees | 56.3800 N, 47.5300 E | **34.6 km** |
+| `DD.MM` | 56.6333 N, 47.8833 E | **1.3 km** |
+
+The GPS fix came from the FireFly GPSDO in the site's own N210
+(`$GPGGA,...,5637.3262,N,04753.1006,E,...`), so it is a direct measurement of
+where the receiver actually stands.
+
+The second check is the data. `earthDistanceKm` feeds `rayDistanceKm`, which
+assumes reflection at 100 km, so the leading edge of a one-hop echo should sit
+a little *above* the ray distance:
+
+| reading | ray distance | measured leading edge at 2655 km is |
+|---|---|---|
+| decimal degrees | 2599.0 km | +56.0 km above |
+| `DD.MM` | 2634.1 km | **+20.9 km above** |
+
+Nothing converts. The operator types the numbers into the sounder's
+`chirp_config.py`:
+
+```python
+rx_station = {'name':'yoshkar-ola','lat':56.38,'lon':47.53}
+```
+
+and they are packed into the header verbatim. Every reader downstream —
+`earthDistanceKm` here, `earth_distance` in the operators' own `distance.py` —
+then multiplies by `pi/180` as though they were decimal degrees.
+
+**The consequence is contained.** The distance only positions the delay-axis
+window, which is 1680 km wide, so a 35 km error does not hide the echo. It does
+mean the window is placed slightly nearer than the geometry warrants, and any
+virtual-height figure derived from the ground distance inherits the error.
+
+**This is not fixed in the reconstruction.** `earthDistanceKm` reproduces the
+original, and changing it would silently shift every existing display. The
+decision — reinterpret the archive, or normalise new captures to decimal
+degrees — belongs to whoever owns the archive. What `.lfp` should do is store
+decimal degrees explicitly and convert on the way in, so the ambiguity stops
+at the boundary.
+
+Caveats: the transmitter coordinates in this archive are whole degrees
+(`35`, `34`), so they cannot distinguish the two readings, and only one
+receiving station has been checked against a GPS fix.
+
 ## ⚠ The version and `header_size` split
 
 Three definitions exist in the wild and they do not agree:

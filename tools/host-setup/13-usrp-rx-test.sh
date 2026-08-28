@@ -86,8 +86,26 @@ if QG=$(find_uhd_tool query_gpsdo_sensors); then
     echo "  using $QG"
     "$QG" --args "addr=$IP" 2>&1 | sed 's/^/    /'
 elif [ -r "$SCRIPT_DIR/rx_rate_test.py" ] && python3 -c 'import uhd' >/dev/null 2>&1; then
-    python3 "$SCRIPT_DIR/rx_rate_test.py" --args "addr=$IP" \
-        --subdev "$SUBDEV" --sensors 2>&1 | grep -v '^\[INFO\]'
+    SENSOR_OUT=$(python3 "$SCRIPT_DIR/rx_rate_test.py" --args "addr=$IP" \
+        --subdev "$SUBDEV" --sensors 2>&1)
+    printf '%s\n' "$SENSOR_OUT" | grep -v '^\[INFO\]'
+
+    # UHD announces the negotiated frame size while opening the device. It is
+    # the only direct evidence of whether a raised MTU actually took effect on
+    # both ends of the cable.
+    FRAME=$(printf '%s\n' "$SENSOR_OUT" \
+        | awk '/Current recv frame size/{for(i=1;i<=NF;i++) if($i ~ /^[0-9]+$/){print $i; exit}}')
+    if [ -n "${FRAME:-}" ]; then
+        echo
+        echo "  negotiated recv frame size: $FRAME bytes"
+        echo "  that is about $((100000000 / FRAME)) packets per second at 25 MS/s"
+        if [ "$FRAME" -le 1472 ]; then
+            echo "  Standard frames. Raising the MTU cuts the packet rate, and"
+            echo "  with it the time the CPU spends in interrupts:"
+            echo "      sudo SET_MTU=9000 bash 12-host-tuning.sh <iface>"
+            echo "  Only worth doing if the ladder below shows losses."
+        fi
+    fi
 else
     echo "  no way to read the sensors here. Either install python3-uhd:"
     echo "      sudo apt-get install -y python3-uhd"

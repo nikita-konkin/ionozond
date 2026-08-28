@@ -208,7 +208,9 @@ change how the sounder must be configured:
 | RX daughterboard | **LFRX** (0x000f), serial F61D56 |
 | TX daughterboard | **LFTX** (0x000e), serial F5C310 |
 | RX DSP tuning range | ±50 MHz (100 MHz master clock) |
-| GPSDO | **Jackson-Labs FireFly, rev 0.929** |
+| GPSDO | **Jackson-Labs FireFly, rev 0.929** — `ref_locked` and `gps_locked` both true |
+| position | 56°37.33′ N, 47°53.10′ E (from its own GPGGA) |
+| measured | **25.005 MS/s, zero overflows, at MTU 1500** |
 
 Three things follow from that.
 

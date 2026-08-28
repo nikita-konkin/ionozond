@@ -211,6 +211,20 @@ Binary constants agree exactly with `reference/ionogr_clean__ig_utils1.py`:
 - `VIRT_HEIGHT_WINDOW_MARGIN_KM_DEFAULT = 180`, `VIRT_HEIGHT_WINDOW_KM_DEFAULT = 1500`
 - ionogram window: `rmin = ray_distance(tx→rx) - 180`, `rmax = rmin + 1500 + 180`
 
+`earthDistanceKm` in `src/common.cpp` matches `reference/ionogr_clean__distance.py`
+line for line, down to `EARTH_RADIUS_KM = 6378.137` and `LAY_E_SQR = 40000`
+(reflection at 100 km, since `sqrt(d² + (2·100)²)`).
+
+**It is fed coordinates in the wrong units, and that is faithful to the
+original.** The header's `lat`/`lon` are degrees and minutes as `DD.MM`, not
+decimal degrees; every reader in the chain multiplies them by `pi/180` anyway.
+Confirmed against a GPS fix taken at the receiving site with the site's own
+GPSDO — 1.3 km from the `DD.MM` reading, 34.6 km from the decimal one — and
+against the measured echo, whose leading edge sits +20.9 km above the `DD.MM`
+ray distance versus +56.0 km above the decimal one. Full evidence in
+[`lfs-format.md`](lfs-format.md). Not corrected here: it would move every
+existing display, and the call belongs to the archive's owner.
+
 ## Structural deviation from the original
 
 The numeric kernel lives in `src/igmath.{h,cpp}` rather than inline in `QRxIonogram`
