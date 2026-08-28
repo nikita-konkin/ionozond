@@ -48,6 +48,31 @@ Porting notes:
   survive. The dechirp is a complex multiply by a swept phasor followed by a
   decimating filter, and that is where the resource advantage actually lives.
 
+## What the receiver hardware requires
+
+From the first host brought up (see
+[`../tools/host-setup/README.md`](../tools/host-setup/README.md) for the full
+probe). Both sounders need these in their configuration, whichever is running:
+
+| setting | value | why |
+|---|---|---|
+| `addr` | `192.168.10.3` | the radio is **not** on the factory `.2` |
+| `subdev` | `A:A` | LFRX frontend `A`, a real input |
+| `clock_source` / `time_source` | `gpsdo` | an internal FireFly GPSDO is fitted |
+| `sample_rate` | `25e6` | matches the archive; 100 MB/s over the link |
+| gain | *none available* | LFRX has no analog gain and no attenuator |
+
+`subdev` is the one that fails silently. LFRX exposes `A`, `B`, `AB` and `BA`;
+`AB` pairs RXA as I with RXB as Q, so with a single antenna it halves the
+amplitude and mirrors the spectrum — a plausible-looking capture that is
+quietly wrong. Set it explicitly rather than relying on UHD's default.
+
+The 25 MS/s figure is the radio's ceiling on gigabit Ethernet, and the
+decimation by 625 happens on the host because the dechirp has to see the whole
+swept band. This is exactly the load that motivates a low-footprint
+chirpsounder1 — on the 2011-vintage laptop at this site, the dechirp is the
+budget.
+
 ## ⚠ Licensing: the two generations are not compatible
 
 | Component | Licence |

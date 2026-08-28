@@ -121,8 +121,12 @@ else
     echo "  test available and it needs UHD:"
     echo
     echo "      sudo apt-get install -y uhd-host"
-    echo "      sudo uhd_images_downloader"
     echo "      uhd_find_devices"
+    echo
+    echo "  Do NOT run uhd_images_downloader as a matter of course. It fails"
+    echo "  on images Ettus no longer serves, and a radio whose firmware"
+    echo "  already matches needs nothing downloaded - which a probe that"
+    echo "  completes successfully proves."
     echo
     echo "  Discovery is a UDP broadcast to port 49152, so it locates the radio"
     echo "  whatever address it holds, as long as it is on this cable."

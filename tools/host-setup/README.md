@@ -91,6 +91,28 @@ one carrying DHCP, mDNS or STP is a switch — meaning the cable is in the wrong
 socket. It also arpings the radio, checks the neighbour table, and runs UHD
 broadcast discovery if UHD is installed.
 
+### 4. Host tuning — before any real capture
+
+```bash
+sudo DRY_RUN=1 bash 12-host-tuning.sh eno1     # see what it would do
+sudo bash 12-host-tuning.sh eno1
+```
+
+Socket buffers, real-time priority for the receive thread, and optionally the
+link MTU. Touches no routing, so it cannot affect a remote session. See
+*The rate the sounder actually needs* below for why the defaults are not enough.
+
+### 5. Prove the receive path
+
+```bash
+sudo bash 13-usrp-rx-test.sh 192.168.10.3
+```
+
+Reads the clock and GPS sensors, then runs a receive rate ladder (5, 12.5,
+25 MS/s) and counts dropped samples and overruns. `uhd_usrp_probe` only proves
+the radio answers control packets; this proves it can actually deliver data at
+the rate the sounder runs at.
+
 ## UHD on Ubuntu 24.04
 
 ```bash
@@ -100,26 +122,29 @@ sudo apt-get install -y uhd-host tcpdump iputils-arping
 Ubuntu 24.04 ships UHD 4.6.0, which still supports the N2xx family — discovery
 reports them as `type: usrp2`.
 
-### The images downloader fails out of the box
+### The images downloader is broken, and it does not matter
 
 A bare `uhd_images_downloader` tries to fetch **every** image set and dies on
-one that is no longer on the server:
+the first one missing from the server — an X410 FPGA image, nothing to do with
+an N210. Narrowing it to the right target does not help, because the N210
+images are gone from that cache too:
 
 ```
-[ERROR] Downloader raised an unhandled exception: URL does not exist:
-https://files.ettus.com/binaries/cache/x4xx/uhd-e547a6b/x4xx_x410_fpga_default-ge547a6b.zip
+[ERROR] URL does not exist: https://files.ettus.com/binaries/cache/
+        usrp2/fpga-6bea23d/usrp2_n210_fpga_default-g6bea23d.zip
 ```
 
-That is an X410 image — nothing to do with an N210. The fix is to ask only for
-what the radio needs:
+Both failures are server-side: the manifest shipped with UHD 4.6 points at
+paths Ettus no longer serves. Nothing on the host can fix it.
 
-```bash
-uhd_images_downloader --list-targets          # see what is available
-sudo uhd_images_downloader -t n210            # just the N2xx images
-```
+**It is almost certainly not needed.** UHD compares firmware and FPGA
+compatibility numbers when it opens a device and refuses outright on a
+mismatch. So a probe that *completes* is proof the images are already right —
+you never have to reason about version numbers yourself.
 
-**Do this only if you need it.** A radio that is already running matched
-firmware needs no download at all — probe first and let it tell you.
+If a future radio does need flashing, get `/usr/share/uhd/images` from a
+working host, or from the images archive matching your UHD version, rather than
+fighting the downloader.
 
 ### Probe before flashing
 
@@ -149,24 +174,72 @@ Reflashing an N210 over Ethernet is safe to interrupt — it recovers — but le
 it finish. This touches the radio, not the host's networking, so it cannot
 affect your session.
 
-## Performance, once it talks
+## The radio on the first host
 
-Only after basic communication works. These are throughput fixes, not
-connectivity fixes.
+What `uhd_usrp_probe` reported, recorded because several of these details
+change how the sounder must be configured:
 
-```bash
-# jumbo frames on the USRP link (the N210 needs them for full rate)
-sudo nmcli connection modify usrp-link 802-3-ethernet.mtu 8000
-sudo nmcli connection up usrp-link
+| | |
+|---|---|
+| model | N210r4, hardware rev 2577 |
+| serial | E4R24NCUP |
+| address | 192.168.10.3 |
+| firmware / FPGA | 12.4 / 11.1 — accepted by UHD 4.6, so no flashing |
+| RX daughterboard | **LFRX** (0x000f), serial F61D56 |
+| TX daughterboard | **LFTX** (0x000e), serial F5C310 |
+| RX DSP tuning range | ±50 MHz (100 MHz master clock) |
+| GPSDO | **Jackson-Labs FireFly, rev 0.929** |
 
-# socket buffers
-sudo sysctl -w net.core.rmem_max=50000000
-sudo sysctl -w net.core.wmem_max=50000000
+Three things follow from that.
+
+**LFRX is the right board and it has no gain.** Direct sampling, DC–30 MHz,
+which covers the HF sounding band exactly. But `Gain Elements: None` — there is
+no analog gain and no attenuator. Level is set entirely outside the radio, by
+the antenna, any preamp, and any pad in front of it. The ADC's digital gain
+scales numbers after conversion; it cannot recover a weak signal or protect
+against a strong one.
+
+**Pick the subdev explicitly: `A:A`.** LFRX presents four frontends — `A`, `B`,
+and the complex pairings `AB` and `BA`. A single antenna on RXA means frontend
+`A`: a real input, which the FPGA downconverter turns into proper complex
+baseband. Left to itself UHD may select `AB`, which takes I from RXA and Q from
+RXB — with nothing on RXB that halves the amplitude and mirrors the spectrum.
+This belongs in the sounder's configuration, not just in test commands.
+
+**The GPSDO is worth more here than in most applications.** The dechirp replica
+has to track the transmitter's sweep, and absolute time decides where the delay
+axis begins — a millisecond of timing error is about 300 km of apparent range.
+A free-running TCXO is parts in 10⁶; a locked GPSDO is parts in 10¹¹. Note the
+mainboard EEPROM says `gpsdo: none` while UHD detected the FireFly anyway and
+switched the references to it: the EEPROM flag was simply never programmed.
+Worth confirming `gps_locked` is true — that needs a GPS antenna with sky view,
+and `13-usrp-rx-test.sh` reads it.
+
+## The rate the sounder actually needs
+
+The captures in the archive were taken at `sample_rate = 25000000` with
+`dec = 625`, giving the 40 kS/s that lands in the `.lfs` file. The decimation
+is **host-side**: the dechirp has to see the whole swept band, so the full rate
+crosses the Ethernet link.
+
+```
+25e6 samples/s x 4 bytes (sc16 over the wire) = 100 MB/s = 800 Mbit/s
 ```
 
-Make the sysctls permanent in `/etc/sysctl.d/` only once they have proven
-useful. Note some USB Ethernet adapters do not support an MTU above 1500; the
-onboard NIC usually does.
+That is the N210's documented maximum over gigabit Ethernet — the sounder runs
+the radio flat out, with no headroom. At that rate the stock settings do not
+hold, which is what `uhd_usrp_probe` was complaining about:
+
+- **receive socket stuck at 212992 bytes.** UHD asked for 50 MB. At 100 MB/s
+  the default holds about 2 ms; one scheduler hiccup loses samples.
+- **`error in pthread_setschedparam`.** UHD could not raise the receive
+  thread's priority, so the kernel is free to preempt it mid-burst.
+- **frame size 1472**, i.e. MTU 1500 — roughly 68000 packets per second.
+
+`12-host-tuning.sh` fixes the first two and offers the third; `13-usrp-rx-test.sh`
+measures whether it worked. Some USB Ethernet adapters cap the MTU at 1500; the
+onboard NIC usually does not. 25 MS/s is reachable without jumbo frames, just
+at a higher cost in CPU — which matters on this host, an i7-2760QM from 2011.
 
 ## Disk
 
