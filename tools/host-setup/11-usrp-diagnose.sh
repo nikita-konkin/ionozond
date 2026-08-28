@@ -51,7 +51,13 @@ echo "--- 2. what is on the far end? --------------------------------------"
 echo "  listening for ${SNIFF_SECONDS}s ..."
 if command -v tcpdump >/dev/null 2>&1; then
     CAP=$(mktemp)
-    timeout "$SNIFF_SECONDS" tcpdump -i "$IFACE" -n -e -l 2>/dev/null | head -40 > "$CAP"
+    # Exclude frames we send ourselves: the host's own mDNS/ARP says nothing
+    # about what is on the far end of the cable.
+    MYMAC=$(cat "/sys/class/net/$IFACE/address" 2>/dev/null)
+    FILTER=""
+    [ -n "$MYMAC" ] && FILTER="not ether src $MYMAC"
+    echo "  (ignoring frames from our own MAC ${MYMAC:-?})"
+    timeout "$SNIFF_SECONDS" tcpdump -i "$IFACE" -n -e -l $FILTER 2>/dev/null | head -40 > "$CAP"
     COUNT=$(wc -l < "$CAP")
     echo "  captured $COUNT frames"
     if [ "$COUNT" -gt 0 ]; then
@@ -59,8 +65,9 @@ if command -v tcpdump >/dev/null 2>&1; then
     fi
     echo
     if [ "$COUNT" -eq 0 ]; then
-        echo "  SILENT link. Consistent with a point-to-point cable to a USRP"
-        echo "  that is powered but idle -- an N210 does not chatter unprompted."
+        echo "  SILENT link (nothing from the far end). Consistent with a"
+        echo "  point-to-point cable to a USRP that is powered but idle --"
+        echo "  an N210 does not chatter unprompted."
     elif grep -qiE 'dhcp|bootp|mdns|ssdp|spanning tree|stp|cdp|lldp' "$CAP"; then
         echo "  *** This looks like a LAN, not a USRP ***"
         echo "  DHCP / mDNS / STP / discovery traffic means a switch is on the"
@@ -94,7 +101,21 @@ echo "--- 5. UHD broadcast discovery --------------------------------------"
 if command -v uhd_find_devices >/dev/null 2>&1; then
     echo "  this finds an N210 even if its IP is not what we expect,"
     echo "  because discovery is a broadcast on the link:"
-    uhd_find_devices 2>&1 | sed 's/^/    /'
+    FOUND=$(uhd_find_devices 2>&1)
+    echo "$FOUND" | sed 's/^/    /'
+    DEV_ADDR=$(echo "$FOUND" | awk -F': *' '/^ *addr:/{print $2; exit}')
+    if [ -n "${DEV_ADDR:-}" ]; then
+        echo
+        echo "  >>> radio found at $DEV_ADDR"
+        if [ "$DEV_ADDR" != "$USRP_IP" ]; then
+            echo "  >>> that is NOT $USRP_IP -- the radio was readdressed at some"
+            echo "  >>> point, which is why ping and arping found nothing."
+        fi
+        echo
+        echo "  next:"
+        echo "      ping -c3 $DEV_ADDR"
+        echo "      uhd_usrp_probe --args=\"addr=$DEV_ADDR\""
+    fi
 else
     echo "  uhd_find_devices NOT INSTALLED -- this is the single most useful"
     echo "  test available and it needs UHD:"

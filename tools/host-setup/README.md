@@ -94,17 +94,56 @@ broadcast discovery if UHD is installed.
 ## UHD on Ubuntu 24.04
 
 ```bash
-sudo apt-get install -y uhd-host
-sudo uhd_images_downloader                     # needs internet — use the WiFi
+sudo apt-get install -y uhd-host tcpdump iputils-arping
 ```
 
-The N210's FPGA image must match the installed UHD version. `uhd_usrp_probe`
-will say so if it does not:
+Ubuntu 24.04 ships UHD 4.6.0, which still supports the N2xx family — discovery
+reports them as `type: usrp2`.
+
+### The images downloader fails out of the box
+
+A bare `uhd_images_downloader` tries to fetch **every** image set and dies on
+one that is no longer on the server:
+
+```
+[ERROR] Downloader raised an unhandled exception: URL does not exist:
+https://files.ettus.com/binaries/cache/x4xx/uhd-e547a6b/x4xx_x410_fpga_default-ge547a6b.zip
+```
+
+That is an X410 image — nothing to do with an N210. The fix is to ask only for
+what the radio needs:
 
 ```bash
-uhd_usrp_probe --args="addr=192.168.10.2"
-sudo uhd_image_loader --args="type=usrp2,addr=192.168.10.2"   # if it complains
+uhd_images_downloader --list-targets          # see what is available
+sudo uhd_images_downloader -t n210            # just the N2xx images
 ```
+
+**Do this only if you need it.** A radio that is already running matched
+firmware needs no download at all — probe first and let it tell you.
+
+### Probe before flashing
+
+```bash
+uhd_usrp_probe --args="addr=192.168.10.3"     # use the address discovery found
+```
+
+If the firmware or FPGA does not match the installed UHD, the probe says so
+explicitly and refuses. Only then:
+
+```bash
+sudo uhd_image_loader --args="type=usrp2,addr=192.168.10.3"
+```
+
+### The radio may not be on the factory address
+
+`uhd_find_devices` uses a UDP broadcast to port 49152, so it finds an N210
+whatever address it holds. On the first host tested here the radio answered on
+**192.168.10.3**, not the factory `192.168.10.2` — ping and arping to `.2`
+found nothing at all while the radio was sitting there perfectly healthy.
+
+There is no need to renumber it. Point the tooling at the address it has;
+changing a USRP's IP means writing its EEPROM, which is a bigger risk than
+using a different number.
 
 Reflashing an N210 over Ethernet is safe to interrupt — it recovers — but let
 it finish. This touches the radio, not the host's networking, so it cannot
