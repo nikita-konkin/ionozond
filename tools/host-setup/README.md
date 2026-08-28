@@ -39,6 +39,20 @@ Run this first and read it before anything else. It reports the interfaces,
 the default route, whether `192.168.10.0/24` collides with a corporate subnet,
 the USB adapter's driver, and whether UHD is installed.
 
+### 1a. Clear any stale profile for that interface
+
+A host may already carry a leftover profile. Check the inventory output for one
+whose `ipv4.method` is `auto` with `never-default:no` — that combination can
+add a default route if anything on the link answers DHCP.
+
+If it is not activated, deleting it changes nothing live:
+
+```bash
+nmcli connection delete USRP        # only if it shows as inactive
+```
+
+Leaving it in place means two profiles competing for the same interface.
+
 ### 2. USRP link — arms a rollback
 
 ```bash

@@ -17,11 +17,12 @@ lsb_release -d 2>/dev/null || cat /etc/os-release | head -2
 echo "kernel   $(uname -r)"
 echo "cpu      $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ //')"
 echo "cores    $(nproc)"
-echo "memory   $(free -h | awk '/^Mem:/{print $2" total, "$7" available"}')"
+# /proc/meminfo rather than `free`, whose labels are localised
+echo "memory   $(awk '/MemTotal/{t=$2}/MemAvailable/{a=$2}END{printf "%.1f GiB total, %.1f GiB available", t/1048576, a/1048576}' /proc/meminfo)"
 
 echo
 echo "--- disk (captures are ~80 MB each, ~23 GB/day/station) -------------"
-df -h / /home /var 2>/dev/null | sort -u
+df -h --output=source,size,used,avail,pcent,target / /home /var 2>/dev/null | awk '!seen[$0]++'
 
 echo
 echo "--- interfaces -----------------------------------------------------"
@@ -30,8 +31,25 @@ echo
 ip -br addr
 
 echo
+echo "--- link UP but no address (cable in, nothing configured) -----------"
+found=0
+for i in $(ls /sys/class/net | grep -v lo); do
+    [ "$(cat /sys/class/net/$i/carrier 2>/dev/null)" = "1" ] || continue
+    if ! ip -4 addr show "$i" 2>/dev/null | grep -q 'inet '; then
+        drv=$(basename "$(readlink -f /sys/class/net/$i/device/driver 2>/dev/null)" 2>/dev/null)
+        spd=$(cat /sys/class/net/$i/speed 2>/dev/null)
+        echo "  $i  driver=${drv:-?}  speed=${spd:-?}   <- candidate USRP link"
+        found=1
+    fi
+done
+[ "$found" = "0" ] && echo "  none"
+
+echo
 echo "--- routing table --------------------------------------------------"
 ip route show
+echo
+echo "default routes, by preference (lowest metric wins):"
+ip route show default | sed 's/^/  /'
 
 echo
 echo "*** DEFAULT ROUTE - this is what carries your remote session ***"
@@ -46,8 +64,11 @@ nmcli -t -f NAME,UUID,TYPE,DEVICE,STATE connection show 2>/dev/null | column -t 
     || nmcli connection show 2>/dev/null
 echo
 echo "autoconnect / metric / never-default per profile:"
-for c in $(nmcli -t -f NAME connection show 2>/dev/null); do
-    printf "  %-24s " "$c"
+# NOTE: `for c in $(nmcli ...)` word-splits on spaces, which mangles profile
+# names like "Проводное подключение 1". Read line by line instead.
+nmcli -t -f NAME connection show 2>/dev/null | while IFS= read -r c; do
+    [ -n "$c" ] || continue
+    printf "  %-26s " "$c"
     nmcli -t -f connection.autoconnect,ipv4.route-metric,ipv4.never-default,ipv4.method \
         connection show "$c" 2>/dev/null | tr '\n' ' '
     echo
