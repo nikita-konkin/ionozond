@@ -15,3 +15,7 @@ tests/out/
 # third-party sources recovered from an operator backup: GPL-3.0, not ours to
 # redistribute. Kept locally for cross-checking the format work only.
 reference/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
