@@ -71,6 +71,26 @@ run the cancel command it prints.
 
 An N210 ships on `192.168.10.2`. The host takes `.1` on the same subnet.
 
+**Give yourself a longer window while debugging.** The default rollback is 7
+minutes, which is right for a single confirmed change but short if you are
+about to investigate:
+
+```bash
+sudo ROLLBACK_SECONDS=1800 bash 10-usrp-link.sh eno1
+```
+
+### 3. If the USRP does not answer
+
+```bash
+sudo bash 11-usrp-diagnose.sh eno1
+```
+
+Read-only. The question it exists to answer is what is actually on the far end
+of the cable: a **silent** link is consistent with a powered, idle USRP, while
+one carrying DHCP, mDNS or STP is a switch — meaning the cable is in the wrong
+socket. It also arpings the radio, checks the neighbour table, and runs UHD
+broadcast discovery if UHD is installed.
+
 ## UHD on Ubuntu 24.04
 
 ```bash
