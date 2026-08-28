@@ -102,6 +102,13 @@ Socket buffers, real-time priority for the receive thread, and optionally the
 link MTU. Touches no routing, so it cannot affect a remote session. See
 *The rate the sounder actually needs* below for why the defaults are not enough.
 
+Note what Ubuntu's `uhd-host` leaves half-done: it installs
+`/etc/security/limits.d/uhd.conf` granting `@usrp` an rtprio limit, but never
+creates the `usrp` group, so the limit applies to nobody. The script creates
+the group and adds you to it. **Both only take effect on a new login** — PAM
+applies limits at session start, so `newgrp` is not enough. Until then, run
+tests under `sudo`, where root is exempt.
+
 ### 5. Prove the receive path
 
 ```bash
@@ -109,9 +116,22 @@ sudo bash 13-usrp-rx-test.sh 192.168.10.3
 ```
 
 Reads the clock and GPS sensors, then runs a receive rate ladder (5, 12.5,
-25 MS/s) and counts dropped samples and overruns. `uhd_usrp_probe` only proves
-the radio answers control packets; this proves it can actually deliver data at
-the rate the sounder runs at.
+25 MS/s) and counts overflows. `uhd_usrp_probe` only proves the radio answers
+control packets; this proves it can actually deliver data at the rate the
+sounder runs at.
+
+It prefers UHD's C++ `benchmark_rate`, but **Ubuntu's `uhd-host` ships the
+utilities without the examples**, so `benchmark_rate` is normally absent. It
+then falls back to `rx_rate_test.py`, which measures the same thing through
+`python3-uhd`:
+
+```bash
+sudo apt-get install -y python3-uhd
+```
+
+Overflows are the verdict — UHD states explicitly when it discarded data. The
+achieved rate is printed as a cross-check, and only counts as a failure below
+90% of the configured rate; a percent or two is the measurement, not the radio.
 
 ## UHD on Ubuntu 24.04
 
