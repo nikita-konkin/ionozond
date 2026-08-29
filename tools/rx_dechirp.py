@@ -40,9 +40,11 @@ import argparse
 import calendar
 import math
 import os
+import queue
 import shutil
 import struct
 import sys
+import threading
 import time
 
 try:
@@ -701,8 +703,6 @@ class Radio:
 
 def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
     """Record and dechirp one sounding. Returns a dict describing what happened."""
-    import queue
-    import threading
 
     uhd = radio.uhd
     sr, dec, spb = radio.sr, radio.dec, radio.spb
@@ -792,30 +792,68 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
         free_q.put(b)
     buf = free_q.get()
     failure = []
-    counters = {"written": 0, "busy": 0.0}
+    counters = {"written": 0, "busy": 0.0, "busy_whiten": 0.0}
 
-    def worker(fh):
+    # Whitening gets its own thread rather than sharing the dechirp's.
+    #
+    # Sharing one makes the two costs add, and on the sounding laptop that is
+    # the difference between working and not: 56 MS/s for the dechirp alone and
+    # 38 for the whitening, which share out to 23 MS/s together -- under the 25
+    # needed -- but pipeline to min(38, 56) = 38. The stages are independent, so
+    # there is no reason to pay the sum.
+    #
+    # The queue is bounded. Unbounded, a dechirp that fell behind would grow it
+    # until the machine swapped, which is a worse failure than dropping the
+    # capture.
+    dech_q = queue.Queue(maxsize=8) if whit is not None else None
+
+    def whiten_worker():
         while True:
             item = full_q.get()
             if item is None:
+                dech_q.put(None)
                 return
             block, count = item
             try:
                 started = time.perf_counter()
+                # Safe to hand the pool buffer straight back afterwards:
+                # feed() copies its carry and the transform allocates.
+                out = whit.feed(block[0, :count])
+                counters["busy_whiten"] += time.perf_counter() - started
+            except Exception as exc:            # keep the receive loop alive
+                failure.append(exc)
+                out = None
+            finally:
+                free_q.put(block)
+            if out is not None and len(out):
+                dech_q.put(out)
+
+    def dechirp_worker(fh):
+        """Second half of the pipeline, or the whole of it when not whitening."""
+        while True:
+            if dech_q is not None:
+                samples = dech_q.get()
+                if samples is None:
+                    return
+                block = None
+            else:
+                item = full_q.get()
+                if item is None:
+                    return
+                block, count = item
                 samples = block[0, :count]
-                if whit is not None:
-                    # Safe to hand the pool buffer straight back afterwards:
-                    # feed() copies its carry and the transform allocates.
-                    samples = whit.feed(samples)
-                out = dech.feed(samples) if len(samples) else samples
+            try:
+                started = time.perf_counter()
+                out = dech.feed(samples)
                 if len(out):
                     out.tofile(fh)
                     counters["written"] += len(out)
                 counters["busy"] += time.perf_counter() - started
-            except Exception as exc:            # keep the receive loop alive
+            except Exception as exc:
                 failure.append(exc)
             finally:
-                free_q.put(block)
+                if block is not None:
+                    free_q.put(block)
 
     wanted = result["wanted"]
     got_total = 0
@@ -835,9 +873,15 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
         fh.flush()
 
         thread = None
+        whiten_thread = None
         if opts.threads:
-            thread = threading.Thread(target=worker, args=(fh,), daemon=True)
+            thread = threading.Thread(target=dechirp_worker, args=(fh,),
+                                      daemon=True)
             thread.start()
+            if whit is not None:
+                whiten_thread = threading.Thread(target=whiten_worker,
+                                                 daemon=True)
+                whiten_thread.start()
 
         while got_total < wanted:
             if stop["now"]:
@@ -886,14 +930,21 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
                 stalled += time.perf_counter() - waited
             else:
                 started = time.perf_counter()
-                out = dech.feed(buf[0, :take])
+                samples = buf[0, :take]
+                if whit is not None:
+                    samples = whit.feed(samples)
+                out = dech.feed(samples) if len(samples) else samples
                 if len(out):
                     out.tofile(fh)
                     counters["written"] += len(out)
                 counters["busy"] += time.perf_counter() - started
 
         if thread is not None:
+            # In order: the sentinel travels down the pipeline, so the dechirp
+            # stage cannot finish before the whitening stage has forwarded it.
             full_q.put(None)
+            if whiten_thread is not None:
+                whiten_thread.join()
             thread.join()
 
     radio.streamer.issue_stream_cmd(
@@ -923,7 +974,10 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
 
     result["got"] = got_total
     result["written"] = counters["written"]
-    result["busy"] = counters["busy"]
+    # Whichever stage is busier is the one that decides whether the sounder
+    # keeps up; reporting only the dechirp would hide a whitener at 100%.
+    result["busy"] = max(counters["busy"], counters["busy_whiten"])
+    result["busy_whiten"] = counters["busy_whiten"]
     result["overflows"] = overflows
     result["short_reads"] = short_reads
     result["stalled"] = stalled
@@ -978,6 +1032,10 @@ def report(result, opts, sr, dec, log):
         occupancy = result["busy"] / result["elapsed"]
         log("  dechirp   busy %.0f%% of the capture (%.1f s of %.1f s)"
             % (100 * occupancy, result["busy"], result["elapsed"]))
+        if result.get("busy_whiten", 0.0) > 0.0:
+            log("  whitening busy %.0f%% of the capture (%.1f s, own thread)"
+                % (100 * result["busy_whiten"] / result["elapsed"],
+                   result["busy_whiten"]))
         if opts.threads:
             log("  receiver  stalled %.2f s waiting for a free buffer"
                 % result["stalled"])
@@ -1325,21 +1383,61 @@ def benchmark(opts):
         print("  whitening: scipy missing, so whiten=1 would refuse to start.")
         print("             sudo apt-get install -y python3-scipy")
     else:
+        print("  %d logical cores; the sounder runs receive, whitening and"
+              % (os.cpu_count() or 1))
+        print("  dechirp as three concurrent stages.")
+        print()
         for workers in sorted({1, 2, opts.fft_workers}):
             w = Whitener(opts.whiten_len, opts.whiten_n, workers=workers)
             d2 = Dechirper(sr, -sr / 2.0, rate, dec)
             d2.feed(w.feed(pool[0]))            # warm the tables
+
+            # Serial: what one thread doing both would manage. Kept because it
+            # is what the two costs add up to, and the gap to the pipelined
+            # figure below is the whole reason the stages are split.
             began = time.time()
             for i in range(blocks):
                 d2.feed(w.feed(pool[i % len(pool)]))
-            both = (blocks * spb) / (time.time() - began)
-            print("  whiten(%d,%d) + dechirp, %d FFT thread%s: %6.2f MS/s   %.2fx"
+            serial = (blocks * spb) / (time.time() - began)
+
+            # Pipelined: the arrangement capture_one actually uses. The
+            # whitener feeds a bounded queue and the dechirp drains it, so the
+            # rate is whichever stage is slower, not the sum of the two.
+            w2 = Whitener(opts.whiten_len, opts.whiten_n, workers=workers)
+            d3 = Dechirper(sr, -sr / 2.0, rate, dec)
+            d3.feed(w2.feed(pool[0]))
+            q = queue.Queue(maxsize=8)
+
+            def drain():
+                while True:
+                    item = q.get()
+                    if item is None:
+                        return
+                    d3.feed(item)
+
+            th = threading.Thread(target=drain, daemon=True)
+            th.start()
+            began = time.time()
+            for i in range(blocks):
+                out = w2.feed(pool[i % len(pool)])
+                if len(out):
+                    q.put(out)
+            q.put(None)
+            th.join()
+            piped = (blocks * spb) / (time.time() - began)
+
+            print("  whiten(%d,%d), %d FFT thread%s"
                   % (opts.whiten_len, opts.whiten_n, workers,
-                     " " if workers == 1 else "s", both / 1e6, both / sr))
+                     " " if workers == 1 else "s"))
+            print("      one thread, costs add : %6.2f MS/s   %.2fx"
+                  % (serial / 1e6, serial / sr))
+            print("      pipelined, own thread : %6.2f MS/s   %.2fx  <-- what runs"
+                  % (piped / 1e6, piped / sr))
         print()
         print("  Whitening is optional and off by default. Enable it only if a")
-        print("  line above clears 1.0x with room to spare -- it buys about 6 dB")
-        print("  against strong carriers, and nothing at all if samples drop.")
+        print("  pipelined line clears 1.0x with room to spare -- it buys about")
+        print("  6 dB against strong carriers, and nothing at all if samples")
+        print("  drop. Receiving needs a core of its own on top of these two.")
     print("-" * 66)
     print()
     print("  %.2fx real time for the dechirp alone." % margin)

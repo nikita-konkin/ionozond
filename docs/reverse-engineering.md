@@ -309,12 +309,33 @@ is untouched. Two things this measurement settled:
   transform: 77 MS/s against scipy's 140 on the same machine. `make_whitener`
   refuses to start without it rather than quietly dropping samples.
 
-Cost is the real constraint. Whitening runs in the same worker thread as the
-dechirp, so the two add: 235 MS/s for the dechirp alone became 56 MS/s for the
-pair on the development machine. **Run `rx_dechirp.py --benchmark` on the
-sounding host before enabling it** — the benchmark now reports the combined
-figure at one and two FFT threads, and whitening buys nothing if the result is
-a capture with holes in it.
+Cost is the real constraint, and it is what forced the pipeline. Measured on
+the sounding laptop with both stages in one thread:
+
+| | throughput | real time |
+|---|---|---|
+| dechirp alone | 56.3 MS/s | 2.25x |
+| + whitening, 1 FFT thread | 19.6 MS/s | 0.78x |
+| + whitening, 2 FFT threads | 22.6 MS/s | 0.90x |
+
+Under 1.0x, so it could not run. But sharing a thread makes the two costs add
+when they need not: solving `1/(1/22.6 - 1/56.3)` puts whitening alone at about
+38 MS/s, and both stages clear 25 individually. `capture_one` now runs the
+whitener in its own thread feeding a bounded queue, so the rate is the slower
+stage rather than the sum — `min(38, 56)` instead of 23. The queue is bounded
+because an unbounded one would grow until the machine swapped if the dechirp
+fell behind, which is a worse failure than dropping the capture. Backpressure
+runs the existing path: the whitener blocks on the queue, `full_q` backs up,
+the receive loop waits for a free buffer.
+
+`--benchmark` reports both arrangements, and the pipelined line is the one that
+decides. **Run it on the sounding host before enabling whitening** — it buys
+nothing if the result is a capture with holes in it, and receiving still needs
+a core of its own on top of the two.
+
+The threaded path was checked against the serial one for bit-identical output;
+both stages are stateful, so the single consumer draining the queue in order is
+load-bearing, not incidental.
 
 ### FFT length — `fft_count`, in the parameters dialog
 
