@@ -541,38 +541,50 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
         cfg.get("whiten", False), cfg.get("whiten_len", 8192),
         cfg.get("whiten_n", 20000))
 
-    # Wait for the chirp in short steps rather than inside one long recv
-    # timeout, so a stop signal is acted on within half a second instead of
-    # whenever the radio happens to return. Stop well clear of t0: the command
-    # has to reach the radio and be queued before the moment it names.
+    # Stream commands name a time in the radio's own base, so the target has to
+    # be expressed in that base -- and which clock is authoritative decides how.
+    #
+    # GPS-locked, the radio holds real UTC and t0 is already in its base. That
+    # is the configuration that produced a correct ionogram, with the host's
+    # clock reading 3.9 s different at the time: correcting for that offset
+    # would have started the sweep 3.9 s late, which at 100 kHz/s is 390 kHz of
+    # beat offset and no trace at all.
+    #
+    # Without GPS there is nothing better than this host, so the offset is
+    # measured and applied. That also covers a radio still counting from boot.
+    offset = radio.offset()
+    if offset is None:
+        log("  *** cannot read the radio's clock; assuming it matches ours")
+        offset = 0.0
+    target = t0 if (radio.gps and radio.clock_set) else t0 + offset
+
+    # Wait in short steps -- so a stop signal is acted on within half a second
+    # rather than whenever the radio next returns -- and measure the remaining
+    # time in the radio's base, not this host's. Waiting until "t0 minus five
+    # seconds" by a host clock 3.9 s adrift leaves only 1.1 s of real lead,
+    # which is how a correctly scheduled capture still managed to miss its own
+    # start.
     LEAD = 5.0
-    while t0 - time.time() > LEAD:
+    while target - (time.time() + offset) > LEAD:
         if stop["now"]:
             result["aborted"] = True
             return result
         time.sleep(0.5)
 
-    # Stream commands are given in the radio's own time base, so the target has
-    # to be translated into it rather than assumed equal to ours. When the
-    # radio is disciplined by GPS its clock is real UTC and the offset is zero;
-    # when it is free-running the offset is whatever it has drifted to. Reading
-    # it each time costs one round trip and removes a whole class of failure --
-    # a clock 3 s ahead of ours turned every timed start into
-    # rx_metadata_error_code.late.
-    offset = radio.offset() or 0.0
-    target = t0 + (0.0 if radio.gps else offset)
     radio_now = time.time() + offset
+    lead = target - radio_now
+
+    if abs(offset) > 1.0:
+        log("  radio clock is %+.3f s from this host; scheduling against %s"
+            % (offset, "the radio (GPS)" if radio.gps and radio.clock_set
+               else "this host"))
 
     cmd = uhd.types.StreamCMD(uhd.types.StreamMode.start_cont)
     timed = False
-    if not radio.clock_set:
-        log("  *** the radio's clock was never set, so no time can be named.")
-        log("  *** Starting now; the sweep will not be aligned to the")
-        log("  *** transmitter and the delay axis is meaningless.")
-    elif target - radio_now < 0.5:
-        log("  *** %.2f s until the start in radio time -- too late to schedule."
-            % (target - radio_now))
-        log("  *** Starting now; the sweep will not be aligned.")
+    if lead < 0.5:
+        log("  *** %.2f s until the start in the radio's clock -- too late to"
+            % lead)
+        log("  *** schedule. Starting now; the sweep will not be aligned.")
     else:
         try:
             cmd.stream_now = False
@@ -584,6 +596,7 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
     if not timed:
         cmd.stream_now = True
         radio.streamer.issue_stream_cmd(cmd)
+    result["lead"] = lead
 
     dech = Dechirper(sr, f0, rate, dec)
     free_q = queue.Queue()
@@ -617,6 +630,7 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
     overflows = 0
     short_reads = 0
     stalled = 0.0
+    waited = 0.0
     began = None
 
     with open(path, "wb") as fh:
@@ -641,6 +655,16 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
             code = str(radio.metadata.error_code).lower()
             if "overflow" in code:
                 overflows += 1
+            elif "timeout" in code and began is None:
+                # Nothing has arrived yet, which before the scheduled start is
+                # the expected state rather than a fault. Treating it as fatal
+                # made a capture give up on its own start. Keep waiting until
+                # the start is comfortably past.
+                waited += timeout
+                if time.time() + offset > target + 15.0:
+                    result["error"] = "no samples by %.0f s after the scheduled start" % 15.0
+                    break
+                continue
             elif "none" not in code and got == 0:
                 result["error"] = str(radio.metadata.error_code)
                 break
