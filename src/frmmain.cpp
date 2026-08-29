@@ -294,8 +294,24 @@ void frmMain::seanseStart()
     }
     CreateActiveSchedule();
 
-    if (!m_soundAppFileName.isEmpty())
-        m_soundProcess->start(m_soundAppFileName, QStringList());
+    /* DSCHIRP_ARGS_TO_SOUNDER: the original launched the sounding program with
+     * no arguments, because gr-juha's chirp.py imported chirp_config from its
+     * own working directory. Passing the two paths the console already knows
+     * means the sounder does not have to guess where either lives, and one
+     * console can drive a sounder installed anywhere. */
+    if (!m_soundAppFileName.isEmpty()) {
+        QStringList args;
+        if (!m_configFileName.isEmpty())
+            args << m_configFileName;
+        args << getBaseSoundParams().dataDir;
+        m_soundProcess->start(m_soundAppFileName, args);
+        console(QString(QLatin1String("launching %1 %2"))
+                    .arg(m_soundAppFileName, args.join(QLatin1Char(' '))),
+                Qt::gray);
+    } else {
+        console(QLatin1String("No sounding program configured -- nothing will "
+                              "run. Set it in the parameters dialog."), Qt::red);
+    }
 
     for (int i = 0; i < m_sessionWidgets.size(); ++i)
         m_sessionWidgets.at(i)->SetActive(true);
@@ -307,7 +323,23 @@ void frmMain::seanseStart()
 void frmMain::seanseStop()
 {
     console(QLatin1String("STOP"), Qt::red);
-    m_soundProcess->kill();
+
+    /* DSCHIRP_FIX_HARD_KILL: the original sent SIGKILL, which lands in the
+     * middle of a sounding and leaves a truncated capture behind. The sounder
+     * handles SIGTERM by finishing the sweep in progress, so ask first and
+     * only insist if it will not go. A sounding is 250 s, so the wait is
+     * generous; the dialog stays responsive because this returns to the event
+     * loop between attempts. */
+    if (m_soundProcess->state() != QProcess::NotRunning) {
+        console(QLatin1String("asking the sounder to finish the current "
+                              "sounding..."), Qt::gray);
+        m_soundProcess->terminate();
+        if (!m_soundProcess->waitForFinished(300000)) {
+            console(QLatin1String("it did not stop; killing it"), Qt::red);
+            m_soundProcess->kill();
+            m_soundProcess->waitForFinished(5000);
+        }
+    }
 
     for (int i = 0; i < m_sessionWidgets.size(); ++i)
         m_sessionWidgets.at(i)->SetActive(false);
@@ -347,11 +379,70 @@ void frmMain::SetCurrentDateTime(const QDateTime &dateTime)
     }
 }
 
+QSessionInfoWidget *frmMain::sessionWidget(const QString &stationName) const
+{
+    for (int i = 0; i < m_sessionWidgets.size(); ++i)
+        if (m_sessionWidgets.at(i)->stationName() == stationName)
+            return m_sessionWidgets.at(i);
+    return 0;
+}
+
+/*
+ * The sounder reports itself on stdout. Lines beginning "STATUS " are for the
+ * session panel and are not echoed; everything else is log text.
+ *
+ *   STATUS <station> waiting   <start-epoch> <stop-epoch>
+ *   STATUS <station> capturing <fraction 0..1> <overflows>
+ *   STATUS <station> writing
+ *   STATUS <station> clean|degraded|failed <overflows> <samples>
+ */
+bool frmMain::handleStatusLine(const QString &line)
+{
+    if (!line.startsWith(QLatin1String("STATUS ")))
+        return false;
+
+    const QStringList f = line.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    if (f.size() < 3)
+        return true;                       /* malformed, but still not log text */
+
+    QSessionInfoWidget *w = sessionWidget(f.at(1));
+    if (!w)
+        return true;
+
+    const QString state = f.at(2);
+    if (state == QLatin1String("waiting") && f.size() >= 5) {
+        w->SetSessionTimes(QDateTime::fromMSecsSinceEpoch(f.at(3).toLongLong() * 1000,
+                                                          Qt::UTC),
+                           QDateTime::fromMSecsSinceEpoch(f.at(4).toLongLong() * 1000,
+                                                          Qt::UTC));
+        w->SetSounderStatus(state, -1.0);
+    } else if (state == QLatin1String("capturing") && f.size() >= 4) {
+        const QString overflows = (f.size() >= 5 && f.at(4).toInt() > 0)
+                                      ? QString(QLatin1String("(%1 lost)")).arg(f.at(4))
+                                      : QString();
+        w->SetSounderStatus(state, f.at(3).toDouble(), overflows);
+    } else {
+        w->SetSounderStatus(state, -1.0);
+    }
+    return true;
+}
+
 void frmMain::ReadConsole()
 {
     const QString text = QString::fromLocal8Bit(m_soundProcess->readAllStandardOutput());
-    if (!text.isEmpty())
-        console(text.trimmed(), Qt::green);
+    if (text.isEmpty())
+        return;
+
+    /* A read can carry several lines, and status lines have to be picked out
+     * of the stream one at a time rather than trimmed as a block. */
+    const QStringList lines = text.split(QLatin1Char('\n'));
+    for (int i = 0; i < lines.size(); ++i) {
+        const QString line = lines.at(i).trimmed();
+        if (line.isEmpty())
+            continue;
+        if (!handleStatusLine(line))
+            console(line, Qt::green);
+    }
 }
 
 void frmMain::ReadConsoleError()

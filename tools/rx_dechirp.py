@@ -415,6 +415,18 @@ class Logger:
                 pass
 
 
+def status(*fields):
+    """One machine-readable line for whatever launched us.
+
+    The console runs the sounder as a child process and reads its stdout, so
+    this is the whole progress channel: space-separated, prefixed STATUS, and
+    flushed, because stdout is a pipe and therefore block-buffered. The console
+    filters these out of the log pane and drives the session widget with them;
+    anything else that reads the output can ignore them.
+    """
+    print("STATUS " + " ".join(str(f) for f in fields), flush=True)
+
+
 class Radio:
     """The receiver, opened once and reused for every sounding.
 
@@ -685,6 +697,7 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
     stalled = 0.0
     waited = 0.0
     began = None
+    last_tick = 0.0
 
     with open(path, "wb") as fh:
         # Before anything else, and flushed: the worker writes through
@@ -729,6 +742,15 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
                 short_reads += 1
             take = min(got, wanted - got_total)
             got_total += take
+
+            # A tick a second is enough for a progress bar and cheap enough
+            # not to matter inside the receive loop.
+            now = time.time()
+            if now - last_tick >= 1.0:
+                last_tick = now
+                status(sounder["name"], "capturing",
+                       "%.4f" % (got_total / float(wanted)),
+                       overflows)
 
             if thread is not None:
                 full_q.put((buf, take))
@@ -1003,6 +1025,7 @@ def run_live(opts, cfg, sounders):
             % (sounder["name"],
                time.strftime("%Y-%m-%d %H:%M:%S", stamp), t0 - time.time(),
                day, name))
+        status(sounder["name"], "waiting", int(t0), int(t0 + dur))
 
         if not enough_disk(outroot, need, floor_bytes, log):
             skips += 1
@@ -1050,6 +1073,7 @@ def run_live(opts, cfg, sounders):
         if products and rc <= 1 and not result["incomplete"]:
             try:
                 began_side = time.time()
+                status(sounder["name"], "writing")
                 out, size = products.build_one(result["path"], quiet=True)
                 raw = os.path.getsize(result["path"])
                 log("  sidecar   %s  %.1f kB  (%.0fx smaller, %.1f s)"
@@ -1057,6 +1081,12 @@ def run_live(opts, cfg, sounders):
                        raw / float(size or 1), time.time() - began_side))
             except Exception as exc:
                 log("  *** sidecar failed: %s" % exc)
+
+        # After the sidecar, so the panel reads capturing -> products -> result
+        # rather than announcing a verdict and then going quiet for a second.
+        status(sounder["name"],
+               {0: "clean", 1: "degraded"}.get(rc, "failed"),
+               result["overflows"], result["got"])
 
         worst = max(worst, rc)
         done += 1

@@ -230,6 +230,12 @@ public:
     void SetCurrentDateTime(const QDateTime &dateTime);
     void SetActive(const bool &active);
 
+    /* Driven by the sounder's own STATUS lines rather than by the clock, so
+     * the panel shows what is actually happening instead of what the schedule
+     * says ought to be. `fraction` is < 0 when the state carries no progress. */
+    void SetSounderStatus(const QString &state, double fraction,
+                          const QString &detail = QString());
+
 signals:
     void igVisibleChanged(const QString &stationName, const bool &visible);
 

@@ -64,6 +64,11 @@ private:
     bool CreateConfigFile();
     void CreateActiveSchedule();
 
+    /* The sounder's own progress channel. Returns true when the line was a
+     * STATUS line and has been consumed, so it never reaches the log pane. */
+    bool handleStatusLine(const QString &line);
+    class QSessionInfoWidget *sessionWidget(const QString &stationName) const;
+
     /* One QIGFrame per active transmitter, added to splWorkPart. */
     void CreateIgAreas();
     /* Session rows, CPU plot and disk pie in the right-hand panel. */

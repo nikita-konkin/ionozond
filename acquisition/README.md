@@ -135,6 +135,38 @@ archive:
   against a synthetic echo and needs no radio; its `--benchmark` measures
   whether the host can sustain 25 MS/s before any radio is involved.
 
+### Driving it from the console
+
+Set these two in the parameters dialog and press START:
+
+| field | value |
+|---|---|
+| Программа зондирования | `/home/samsung/projects/ionozond/tools/sounder.sh` |
+| Каталог для ионограмм | `/home/samsung/ionograms` |
+
+The console launches the sounder with the config path and the archive
+directory as arguments, and reads its output. Lines beginning `STATUS` drive
+the session panel; everything else goes to the log pane.
+
+```
+STATUS <station> waiting   <start-epoch> <stop-epoch>
+STATUS <station> capturing <fraction 0..1> <overflows>
+STATUS <station> writing
+STATUS <station> clean|degraded|failed <overflows> <samples>
+```
+
+So the panel shows the progress bar filling as the sweep is recorded, then
+`products...` while the sidecar is built, then `captured` or `captured, lossy`
+in the colour that says which. STOP sends SIGTERM and waits, so the sounding
+in progress is finished rather than truncated.
+
+`SOUNDER_ARGS` in the environment is appended to the command, which is where
+the radio address and any tuning go without editing anything:
+
+```bash
+SOUNDER_ARGS="--buffers 32 --args addr=192.168.10.3"
+```
+
 ### Continuous operation
 
 ```bash
