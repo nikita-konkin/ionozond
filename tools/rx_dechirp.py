@@ -918,6 +918,20 @@ def enough_disk(root, need_bytes, floor_bytes, log):
     return False
 
 
+def load_sidecar_builder(log):
+    """Import python/lfp_products.py, or explain why the sidecar is skipped."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    lib = os.path.normpath(os.path.join(here, os.pardir, "python"))
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    try:
+        import lfp_products
+        return lfp_products
+    except Exception as exc:
+        log("  no sidecars: %s" % exc)
+        return None
+
+
 def run_live(opts, cfg, sounders):
     import signal as signal_module
 
@@ -940,6 +954,10 @@ def run_live(opts, cfg, sounders):
     if opts.duration:
         log("  duration %g s -- SHORTENED for a test; the header still says %d"
             % (opts.duration, first["dur"]))
+
+    products = load_sidecar_builder(log) if opts.sidecar else None
+    if products:
+        log("  writing .lfp sidecars beside each capture")
 
     radio = Radio(opts, cfg, float(first["cf"]))
     if not opts.no_gpsdo:
@@ -1025,6 +1043,21 @@ def run_live(opts, cfg, sounders):
             break
 
         rc = report(result, opts, sr, dec, log)
+
+        # The sidecar is what anything downstream actually reads, and there is
+        # a whole repetition period of idle time to build it in. Doing it here
+        # means the console never has to touch the 80 MB capture.
+        if products and rc <= 1 and not result["incomplete"]:
+            try:
+                began_side = time.time()
+                out, size = products.build_one(result["path"], quiet=True)
+                raw = os.path.getsize(result["path"])
+                log("  sidecar   %s  %.1f kB  (%.0fx smaller, %.1f s)"
+                    % (os.path.basename(out), size / 1024.0,
+                       raw / float(size or 1), time.time() - began_side))
+            except Exception as exc:
+                log("  *** sidecar failed: %s" % exc)
+
         worst = max(worst, rc)
         done += 1
         if rc == 0:
@@ -1235,6 +1268,9 @@ def main():
     ap.add_argument("--threads", type=int, default=1,
                     help="1 = dechirp on a worker thread (default), 0 = inline")
     ap.add_argument("--no-gpsdo", action="store_true")
+    ap.add_argument("--no-sidecar", dest="sidecar", action="store_false",
+                    default=True,
+                    help="do not write .lfp sidecars after each capture")
     ap.add_argument("--rate", type=float, default=25e6, help="--from-raw only")
     ap.add_argument("--chirp-rate", type=float, default=100e3, help="--from-raw only")
     ap.add_argument("--dec", type=int, default=625, help="--from-raw only")
