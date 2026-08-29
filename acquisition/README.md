@@ -116,8 +116,27 @@ reading lands 1.3 km away, the decimal reading 34.6 km. See
 both sounders must use it, and the field's meaning must be stated where the
 operator enters it rather than left to be guessed.
 
-Settle the header version split before either becomes the standard producer:
-the C++ writer emits `format_ver 1.0 / header_size 498`, the Python writer
-emits `1.1 / 512`, and they disagree about what `header_size` even counts. The
-console accepts only the former. See
+**The header version split is resolved**: `lfs_header.py`'s `1.1 / 512` was
+never written to a file. It hands field values to the C++ block, whose
+`set_file_header` argument list carries neither `format_ver` nor `header_size`,
+so the writer supplies `1.0 / 498` itself. Every capture in the archive is
+`1.0 / 498`, and new writers should emit that and nothing else. See
 [`../docs/lfs-format.md`](../docs/lfs-format.md).
+
+## The chirpsounder1 prototype
+
+`tools/rx_spectrum.py` and `tools/rx_dechirp.py` are the receive chain, built
+here because here is where they can be checked against the console and the
+archive:
+
+- `rx_spectrum.py` — is an antenna connected and does the band look like HF
+- `rx_dechirp.py` — the port of `juha::chirp_downconvert`: dechirp, boxcar
+  decimate, write `.lfs`. Its `--self-test` verifies the delay-to-beat relation
+  against a synthetic echo and needs no radio; its `--benchmark` measures
+  whether the host can sustain 25 MS/s before any radio is involved.
+
+`rx_dechirp.py` is the seed of chirpsounder1 and moves to that repository once
+it exists. It stays MIT-clean: it is a port of the *algorithm* as inferred from
+declarations and from the geometry the console verifies, not a copy of the
+GPL-3.0 implementation — whose body was not in the recovered backup in any
+case. Confirm that reading before the repository is licensed.

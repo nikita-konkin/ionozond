@@ -49,9 +49,15 @@ real captures.
 | 0x0D2 | `uint16` | `whiten` | 0 |
 | 0x0D4 | `uint32` | `whiten_len` | 8192 |
 | 0x0D8 | `uint32` | `whiten_n` | 20000 |
-| 0x0DC | `char[292]` | `reserved` | zero |
+| 0x0DC | `char[292]` | `reserved` | eight ASCII `0` then NULs — see below |
 
 `start_epoch` agrees with the broken-down fields; either may be used.
+
+`reserved` is **not** blank. Every capture carries eight ASCII `'0'` characters
+followed by NULs — checked across captures from several days. A writer that
+zero-fills instead produces a header differing from the original's in exactly
+those eight bytes, so `tools/rx_dechirp.py` reproduces them and its headers are
+byte-identical to the archive's.
 
 ## ⚠ Coordinates are degrees and minutes, and everything reads them as degrees
 
@@ -121,11 +127,26 @@ Three definitions exist in the wild and they do not agree:
 The C++ side stores `header_size` as *the bytes after the 14-byte preamble*
 (512 − 14 = 498); the Python side stores *the whole struct* (512). And the
 console compares `format_ver` to `1.0f` for **exact float equality**, so a
-capture written by the Python path is silently rejected.
+capture written by the Python path would be silently rejected.
 
-If you are standardising on `.lfs`, resolve this first: one meaning for
-`header_size`, one version both writers emit, and readers that fail loudly.
-The sidecar format deliberately avoids all three mistakes — see
+### Resolved: only 1.0 / 498 was ever written
+
+`lfs_header.py` never packs anything. It builds a Python object whose fields
+are handed to the C++ block one at a time through `set_file_header(...)`, and
+that argument list contains **no `format_ver` and no `header_size`** — the C++
+writer supplies its own from `LFS_HEADER_FORMAT_VER = 1.0` and
+`LFS_HEADER_SIZE = 498` in `gr-juha/include/juha/lfs_header.h`. Its
+`reserved = '0' * 306` is likewise unused: the field is 292 bytes and holds
+eight ASCII zeros.
+
+So the 1.1 / 512 definition is dead code that never reached a file, and every
+capture in the archive is 1.0 / 498. There is no split to reconcile — new
+writers should emit 1.0 / 498 and nothing else.
+
+That leaves the design flaws standing even though the disagreement is gone: a
+float compared for exact equality is a poor version check, and `header_size`
+meaning "bytes after the preamble" is a trap for anyone who reads the name
+literally. The sidecar format deliberately avoids both — see
 [`lfp-format.md`](lfp-format.md).
 
 ## Reading it
