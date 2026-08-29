@@ -379,30 +379,6 @@ def open_radio(args, subdev, rate, freq, use_gpsdo=True):
             except Exception as exc:
                 print("  %s(gpsdo) failed: %s" % (setter, exc))
 
-        locked = None
-        try:
-            locked = str(getattr(usrp.get_mboard_sensor("gps_locked", 0),
-                                 "value", "")).lower()
-        except Exception:
-            pass
-        if locked is not None and "true" not in locked:
-            print("  *** GPS is not locked. Chirp timing will come from the")
-            print("  *** system clock, which is far less certain -- and a")
-            print("  *** millisecond is about 300 km of apparent range.")
-        else:
-            # Put the radio's clock on GPS seconds so a timed stream command
-            # can be given in the same epoch the schedule uses.
-            try:
-                gps_time = int(float(getattr(
-                    usrp.get_mboard_sensor("gps_time", 0), "value")))
-                usrp.set_time_next_pps(uhd.types.TimeSpec(gps_time + 1))
-                time.sleep(1.2)
-                print("  radio clock set from GPS: %s UTC"
-                      % time.strftime("%Y-%m-%d %H:%M:%S",
-                                      time.gmtime(usrp.get_time_now().get_real_secs())))
-            except Exception as exc:
-                print("  could not set radio time from GPS: %s" % exc)
-
     usrp.set_rx_rate(rate, 0)
     usrp.set_rx_freq(uhd.types.TuneRequest(freq), 0)
     return usrp, uhd
@@ -457,6 +433,8 @@ class Radio:
                                          first_cf, use_gpsdo=not opts.no_gpsdo)
         self.sr = self.usrp.get_rx_rate()
         self.tuned = first_cf
+        self.gps = None                  # unknown until discipline() runs
+        self.clock_set = False
 
         stream_args = self.uhd.usrp.StreamArgs("fc32", "sc16")
         stream_args.channels = [0]
@@ -476,10 +454,61 @@ class Radio:
             self.usrp.set_rx_freq(self.uhd.types.TuneRequest(cf), 0)
             self.tuned = cf
 
-    def clock_skew(self):
-        """How far the radio's clock is from the system clock, or None."""
+    def gps_locked(self):
         try:
-            return abs(self.usrp.get_time_now().get_real_secs() - time.time())
+            value = getattr(self.usrp.get_mboard_sensor("gps_locked", 0),
+                            "value", "")
+            return "true" in str(value).lower()
+        except Exception:
+            return False
+
+    def discipline(self, log):
+        """Put the radio's clock on a known epoch, and say which one.
+
+        The radio must be set to *something*: a stream command is given as an
+        absolute time in the radio's own base, so a clock nobody has set is a
+        clock that makes every timed start either late or fifty years away.
+        Leaving it unset when GPS was unlocked is what made a whole run of
+        soundings fail with rx_metadata_error_code.late.
+
+        GPS is preferred and is real UTC. Failing that the system clock is used,
+        which is only as good as NTP but is at least an epoch we share.
+        """
+        uhd = self.uhd
+        locked = self.gps_locked()
+        if locked != self.gps:
+            log("  GPS %s" % ("locked" if locked else "LOST LOCK"))
+        self.gps = locked
+
+        try:
+            if locked:
+                gps_time = int(float(getattr(
+                    self.usrp.get_mboard_sensor("gps_time", 0), "value")))
+                self.usrp.set_time_next_pps(uhd.types.TimeSpec(gps_time + 1))
+                time.sleep(1.2)
+                source = "GPS"
+            else:
+                # No PPS worth waiting for; set it directly and accept the
+                # tens of milliseconds that costs.
+                self.usrp.set_time_now(uhd.types.TimeSpec(time.time()))
+                source = "the system clock"
+            now = self.usrp.get_time_now().get_real_secs()
+            log("  radio clock set from %s: %s UTC (%+.3f s from this host)"
+                % (source, time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(now)),
+                   now - time.time()))
+            self.clock_set = True
+        except Exception as exc:
+            log("  *** could not set the radio clock: %s" % exc)
+            self.clock_set = False
+
+        if not locked:
+            log("  *** Without GPS the delay axis is only as good as this")
+            log("  *** host's clock. A millisecond is about 300 km of range.")
+
+    def offset(self):
+        """radio time minus system time, or None if unreadable."""
+        try:
+            return self.usrp.get_time_now().get_real_secs() - time.time()
         except Exception:
             return None
 
@@ -514,33 +543,44 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
 
     # Wait for the chirp in short steps rather than inside one long recv
     # timeout, so a stop signal is acted on within half a second instead of
-    # whenever the radio happens to return.
-    while t0 - time.time() > 3.0:
+    # whenever the radio happens to return. Stop well clear of t0: the command
+    # has to reach the radio and be queued before the moment it names.
+    LEAD = 5.0
+    while t0 - time.time() > LEAD:
         if stop["now"]:
             result["aborted"] = True
             return result
         time.sleep(0.5)
 
-    # A timed start is only safe if the radio's clock is on the same epoch as
-    # the schedule. If setting it from GPS failed the radio may still be
-    # counting from zero, and asking it to start at a unix timestamp would then
-    # wait about fifty-five years with no indication of why.
-    skew = radio.clock_skew()
+    # Stream commands are given in the radio's own time base, so the target has
+    # to be translated into it rather than assumed equal to ours. When the
+    # radio is disciplined by GPS its clock is real UTC and the offset is zero;
+    # when it is free-running the offset is whatever it has drifted to. Reading
+    # it each time costs one round trip and removes a whole class of failure --
+    # a clock 3 s ahead of ours turned every timed start into
+    # rx_metadata_error_code.late.
+    offset = radio.offset() or 0.0
+    target = t0 + (0.0 if radio.gps else offset)
+    radio_now = time.time() + offset
+
     cmd = uhd.types.StreamCMD(uhd.types.StreamMode.start_cont)
     timed = False
-    if skew is not None and skew < 5.0:
+    if not radio.clock_set:
+        log("  *** the radio's clock was never set, so no time can be named.")
+        log("  *** Starting now; the sweep will not be aligned to the")
+        log("  *** transmitter and the delay axis is meaningless.")
+    elif target - radio_now < 0.5:
+        log("  *** %.2f s until the start in radio time -- too late to schedule."
+            % (target - radio_now))
+        log("  *** Starting now; the sweep will not be aligned.")
+    else:
         try:
             cmd.stream_now = False
-            cmd.time_spec = uhd.types.TimeSpec(float(t0))
+            cmd.time_spec = uhd.types.TimeSpec(float(target))
             radio.streamer.issue_stream_cmd(cmd)
             timed = True
         except Exception as exc:
             log("  timed start refused (%s)" % exc)
-    else:
-        log("  *** the radio's clock is %s the system clock, so a timed start"
-            % ("not set to" if skew is None else "%.1f s from" % skew))
-        log("  *** would wait for a time it never reaches. Starting now; the")
-        log("  *** sweep will not be aligned and the delay axis is meaningless.")
     if not timed:
         cmd.stream_now = True
         radio.streamer.issue_stream_cmd(cmd)
@@ -788,6 +828,8 @@ def run_live(opts, cfg, sounders):
             % (opts.duration, first["dur"]))
 
     radio = Radio(opts, cfg, float(first["cf"]))
+    if not opts.no_gpsdo:
+        radio.discipline(log)
     log("  %d receive buffers of %d samples, dechirp on %s"
         % (radio.nbuf, radio.spb,
            "a worker thread" if opts.threads else "the receive thread"))
@@ -810,6 +852,7 @@ def run_live(opts, cfg, sounders):
     clean = 0
     worst = 0
     skips = 0
+    failures = 0
 
     while not stop["now"]:
         sounder, t0 = pick_next(sounders)
@@ -851,6 +894,13 @@ def run_live(opts, cfg, sounders):
             log("  cannot create %s: %s" % (outdir, exc))
             break
 
+        # Re-discipline while there is time to spare. Setting from GPS waits a
+        # whole second for the next pulse, so it must not happen near t0 -- and
+        # GPS lock comes and goes, so the state has to be rechecked rather than
+        # decided once at startup.
+        if not opts.no_gpsdo and t0 - time.time() > 8.0:
+            radio.discipline(log)
+
         try:
             result = capture_one(radio, opts, cfg, sounder, t0,
                                  os.path.join(outdir, name), log, stop)
@@ -872,6 +922,20 @@ def run_live(opts, cfg, sounders):
         done += 1
         if rc == 0:
             clean += 1
+            failures = 0
+        else:
+            failures += 1
+            if failures >= 3:
+                log("")
+                log("*** three soundings in a row failed. Stopping.")
+                log("*** Whatever is wrong is not going to fix itself, and")
+                log("*** every further attempt leaves another .partial file.")
+                log("*** Check the messages above -- if they say 'late' or")
+                log("*** name a clock, the radio and this host disagree about")
+                log("*** the time; if they name overflows, the host cannot")
+                log("*** keep up.")
+                worst = max(worst, 2)
+                break
         if limit and done >= limit:
             break
 
