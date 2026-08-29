@@ -71,9 +71,11 @@ frmMain::frmMain(QWidget *parent)
     m_scanTimer->start();
 }
 
-void frmMain::CreateControlPanel()
+/* One session row per active transmitter, under "Сеансы". Separate from the
+ * CPU and disk panels below, which are created once and outlive any schedule
+ * change. */
+void frmMain::CreateSessionRows()
 {
-    /* One session row per active transmitter, under "Сеансы". */
     QVBoxLayout *sessions = qobject_cast<QVBoxLayout *>(ui->fraSessions->layout());
     for (int i = 0; i < m_igFrames.size(); ++i) {
         const QTxParams &tx = m_sessionParams.at(i);
@@ -85,6 +87,52 @@ void frmMain::CreateControlPanel()
             sessions->addWidget(w);
         m_sessionWidgets.append(w);
     }
+}
+
+/*
+ * The schedule decides which transmitters exist, and it can be edited while
+ * the console runs. Everything derived from it -- the ionogram frames, the
+ * session rows, the captures loaded for each station -- has to be built again,
+ * or the dialog appears to do nothing at all.
+ */
+void frmMain::RebuildStations()
+{
+    for (int i = 0; i < m_igFrames.size(); ++i)
+        delete m_igFrames.at(i);
+    m_igFrames.clear();
+
+    for (int i = 0; i < m_sessionWidgets.size(); ++i)
+        delete m_sessionWidgets.at(i);
+    m_sessionWidgets.clear();
+
+    m_sessionParams.clear();
+    m_loadedCaptures.clear();
+    m_growing.clear();
+
+    m_rxName = getRxNameFromSchedule();
+
+    CreateIgAreas();
+    CreateSessionRows();
+    LoadLatestCaptures();
+
+    QStringList names;
+    for (int i = 0; i < m_sessionParams.size(); ++i)
+        names << m_sessionParams.at(i).name;
+    console(QString(QLatin1String("schedule reloaded: %1"))
+                .arg(names.isEmpty() ? QLatin1String("no active transmitters")
+                                     : names.join(QLatin1String(", "))),
+            Qt::yellow);
+
+    if (m_running) {
+        console(QLatin1String("*** the sounder is still running the previous "
+                              "schedule -- STOP and START to apply this one"),
+                Qt::red);
+    }
+}
+
+void frmMain::CreateControlPanel()
+{
+    CreateSessionRows();
 
     /*
      * Each panel is a heading, a rule, then its plot. Without a stretch factor
@@ -616,4 +664,7 @@ void frmMain::on_btnSchedule_clicked()
 }
 
 void frmMain::ParamsDlgClose()   {}
-void frmMain::ScheduleDlgClose() {}
+void frmMain::ScheduleDlgClose()
+{
+    RebuildStations();
+}

@@ -82,6 +82,10 @@ private:
 
     /* One QIGFrame per active transmitter, added to splWorkPart. */
     void CreateIgAreas();
+    /* The session rows only -- rebuilt whenever the schedule changes. */
+    void CreateSessionRows();
+    /* Rebuild everything the schedule decides, after it has been edited. */
+    void RebuildStations();
     /* Session rows, CPU plot and disk pie in the right-hand panel. */
     void CreateControlPanel();
 
