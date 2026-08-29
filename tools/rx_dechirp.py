@@ -567,6 +567,16 @@ def run_live(opts, cfg, sounder):
     streamer.issue_stream_cmd(uhd.types.StreamCMD(uhd.types.StreamMode.stop_cont))
     elapsed = (time.time() - began) if began else 0.0
 
+    # A capture that stopped early is not a capture. Rename it so the console
+    # does not try to load a header promising 250 s in front of no data.
+    incomplete = got_total < wanted
+    if incomplete:
+        partial = path + ".partial"
+        try:
+            os.replace(path, partial)
+        except OSError:
+            partial = path
+
     print()
     print("  received  %d samples (%.1f s of signal)" % (got_total, got_total / sr))
     if short_reads:
@@ -580,7 +590,7 @@ def run_live(opts, cfg, sounder):
     # ratio is pinned at 1.0 no matter how much headroom there is. What matters
     # is how much of the wall clock the dechirp needed, and whether the receiver
     # ever had to wait for it.
-    if elapsed > 0:
+    if elapsed > 1.0 and not incomplete:
         occupancy = busy / elapsed
         print("  dechirp   busy %.0f%% of the capture (%.1f s of %.1f s)"
               % (100 * occupancy, busy, elapsed))
@@ -595,6 +605,20 @@ def run_live(opts, cfg, sounder):
         else:
             print("  *** no headroom. The dechirp is saturating a core; expect")
             print("  *** overflows whenever the machine does anything else.")
+
+    if incomplete:
+        print()
+        print("  *** CAPTURE FAILED after %.1f s of the %.0f s expected."
+              % (got_total / sr, wanted / sr))
+        print("  *** Renamed to %s so the console will not try to read it."
+              % os.path.basename(partial))
+        if opts.args and "frame_size" in opts.args:
+            print("  ***")
+            print("  *** You passed a frame size in --args. A stream that dies")
+            print("  *** immediately with dropped packets is the signature of a")
+            print("  *** path that cannot carry the frames it agreed to. Retry")
+            print("  *** without it before looking anywhere else.")
+        return 2
 
     if overflows == 0:
         print()

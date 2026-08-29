@@ -29,6 +29,16 @@ frmMain::frmMain(QWidget *parent)
     m_settings = new QSettings(configIniPath(), QSettings::IniFormat, this);
     m_scheduleSettings = new QSettings(scheduleIniPath(), QSettings::IniFormat, this);
 
+    /* DSCHIRP_FIX_UNLOADED_PATHS: both of these arrive only through signals
+     * from ParametersDialog, so on a fresh start they were empty until the
+     * operator happened to open the parameters dialog and close it. An empty
+     * config path makes CreateConfigFile() fail with "Error writing
+     * configuration file", and an empty sound_app means seanseStart() silently
+     * launches nothing at all -- pressing START appears to work and no sounding
+     * ever runs. Load them from the settings they came from. */
+    m_soundAppFileName = m_settings->value(QLatin1String("sound_app")).toString();
+    m_configFileName   = m_settings->value(QLatin1String("config_file")).toString();
+
     m_soundProcess = new QProcess(this);
     connect(m_soundProcess, SIGNAL(readyReadStandardOutput()), this, SLOT(ReadConsole()));
     connect(m_soundProcess, SIGNAL(readyReadStandardError()), this, SLOT(ReadConsoleError()));

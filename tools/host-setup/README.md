@@ -279,17 +279,29 @@ it in the **device arguments**:
 uhd_usrp_probe --args="addr=192.168.10.3,recv_frame_size=8000" 2>&1 | grep "frame size"
 ```
 
-If that reports 8000, the path really does carry jumbo frames and every tool
-should be given the same argument:
+**That probe is not proof.** It reports what UHD agreed to, not what the link
+can carry — a probe exchanges a handful of small control packets and never
+streams. On the first host tested here it cheerfully reported 8000 and then a
+capture died after 975 samples with dropped packets. Confirm with something
+that actually moves data:
+
+```bash
+sudo python3 rx_rate_test.py --args "addr=192.168.10.3,recv_frame_size=8000" --duration 10
+```
+
+Only if that ladder is clean at 25 MS/s should the argument be given to
+everything else:
 
 ```bash
 sudo python3 tools/rx_dechirp.py     --args "addr=192.168.10.3,recv_frame_size=8000,num_recv_frames=512"     --config ~/chirp_config.py --outdir ~/ionograms
 ```
 
-If it still says 1472, or streaming then stalls, something along the path is
-not passing large frames despite the MTU — and the honest answer is to leave it
-at 1500, since 25 MS/s is reachable either way. Confirm with a short capture
-before trusting it to a 250-second sounding.
+If the rate test drops packets, something along the path is not passing large
+frames despite the MTU — the NIC's receive path, the driver, or the radio — and
+the honest answer is to leave it alone. **25 MS/s is reachable at MTU 1500**:
+the run that produced a clean 250-second sounding on this host did so with the
+default 1472-byte frames. Jumbo frames are a CPU optimisation, not a
+requirement, and not worth a failed capture.
 
 ## Disk
 
