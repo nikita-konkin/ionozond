@@ -263,6 +263,34 @@ measures whether it worked. Some USB Ethernet adapters cap the MTU at 1500; the
 onboard NIC usually does not. 25 MS/s is reachable without jumbo frames, just
 at a higher cost in CPU — which matters on this host, an i7-2760QM from 2011.
 
+### Raising the MTU is not enough on its own
+
+With `eno1` and the `usrp-link` profile both at 9000, UHD still reported:
+
+```
+[INFO] [USRP2] Current recv frame size: 1472 bytes
+```
+
+1472 is 1500 minus the IP and UDP headers — the default. UHD does not take the
+frame size from the interface for the N2xx UDP transport; you have to ask for
+it in the **device arguments**:
+
+```bash
+uhd_usrp_probe --args="addr=192.168.10.3,recv_frame_size=8000" 2>&1 | grep "frame size"
+```
+
+If that reports 8000, the path really does carry jumbo frames and every tool
+should be given the same argument:
+
+```bash
+sudo python3 tools/rx_dechirp.py     --args "addr=192.168.10.3,recv_frame_size=8000,num_recv_frames=512"     --config ~/chirp_config.py --outdir ~/ionograms
+```
+
+If it still says 1472, or streaming then stalls, something along the path is
+not passing large frames despite the MTU — and the honest answer is to leave it
+at 1500, since 25 MS/s is reachable either way. Confirm with a short capture
+before trusting it to a 250-second sounding.
+
 ## Disk
 
 A 250 s capture is ~80 MB, and at `rep=300` one station writes about **23 GB a
