@@ -10,6 +10,8 @@
 
 #include <QApplication>
 #include <QDir>
+#include <QFileInfo>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QMessageBox>
 #include <QTextEdit>
@@ -22,7 +24,8 @@ frmMain::frmMain(QWidget *parent)
       m_soundProcess(0),
       m_cpuWidget(0),
       m_driveWidget(0),
-      m_running(false)
+      m_running(false),
+      m_scanTimer(0)
 {
     ui->setupUi(this);
 
@@ -55,6 +58,14 @@ frmMain::frmMain(QWidget *parent)
     CreateIgAreas();
     CreateControlPanel();
     LoadLatestCaptures();
+
+    /* Poll rather than watch the filesystem: a directory listing every few
+     * seconds costs nothing next to a 250 s sounding, and QFileSystemWatcher
+     * would have to be re-armed on every new day directory. */
+    m_scanTimer = new QTimer(this);
+    m_scanTimer->setInterval(5000);
+    connect(m_scanTimer, SIGNAL(timeout()), this, SLOT(ScanForNewCaptures()));
+    m_scanTimer->start();
 }
 
 void frmMain::CreateControlPanel()
@@ -150,11 +161,71 @@ void frmMain::LoadLatestCaptures()
                 found << day.filePath(caps.at(c));
         }
 
+        /* Everything found is remembered as seen, including what the cap skips
+         * -- otherwise the periodic scan below would treat the rest of the
+         * archive as new and load it a file at a time. */
+        for (int i = 0; i < found.size(); ++i)
+            m_loadedCaptures.insert(found.at(i));
+
         const int first = qMax(0, found.size() - MAX_CAPTURES);
         for (int i = first; i < found.size(); ++i) {
             console(QString(QLatin1String("loading %1")).arg(found.at(i)), Qt::green);
             QApplication::processEvents();
             frame->addIg(found.at(i));
+        }
+    }
+}
+
+/*
+ * The archive grows while the console is open: a sounding lands every
+ * repetition period. Without this the panels show whatever existed at startup
+ * and never change, which is exactly what an operator watching a live station
+ * does not want.
+ */
+void frmMain::ScanForNewCaptures()
+{
+    const QString dataDir = getIgDirName();
+    if (dataDir.isEmpty())
+        return;
+
+    QDir root(dataDir);
+    const QStringList dayDirs =
+        root.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+
+    for (int f = 0; f < m_igFrames.size(); ++f) {
+        QIGFrame *frame = m_igFrames.at(f);
+
+        for (int d = 0; d < dayDirs.size(); ++d) {
+            QDir day(root.filePath(dayDirs.at(d)));
+            const QStringList caps = day.entryList(
+                QStringList() << (frame->stationName() + QLatin1String("_*.lfs")),
+                QDir::Files, QDir::Name);
+
+            for (int c = 0; c < caps.size(); ++c) {
+                const QString path = day.filePath(caps.at(c));
+                if (m_loadedCaptures.contains(path))
+                    continue;
+
+                /*
+                 * A capture takes a whole sounding to write -- 250 s at the
+                 * standard schedule -- and half of one renders as noise. Wait
+                 * until its size has stopped changing between two scans before
+                 * touching it. That works whether or not sidecars are enabled,
+                 * where waiting for the .lfp would not.
+                 */
+                const qint64 size = QFileInfo(path).size();
+                if (m_growing.value(path, -1) != size) {
+                    m_growing.insert(path, size);
+                    continue;
+                }
+
+                m_growing.remove(path);
+                m_loadedCaptures.insert(path);
+                console(QString(QLatin1String("new capture %1")).arg(path),
+                        Qt::cyan);
+                QApplication::processEvents();
+                frame->addIg(path);
+            }
         }
     }
 }

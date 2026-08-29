@@ -5,7 +5,9 @@
 #include "qigframe.h"
 
 #include <QDateTime>
+#include <QHash>
 #include <QList>
+#include <QSet>
 #include <QMainWindow>
 #include <QProcess>
 #include <QSettings>
@@ -50,6 +52,8 @@ public slots:
 
     void ReadConsole();
     void ReadConsoleError();
+    /* Pick up captures that appear while the console is running. */
+    void ScanForNewCaptures();
     void ParamsDlgClose();
     void ScheduleDlgClose();
 
@@ -68,6 +72,10 @@ private:
      * STATUS line and has been consumed, so it never reaches the log pane. */
     bool handleStatusLine(const QString &line);
     class QSessionInfoWidget *sessionWidget(const QString &stationName) const;
+
+    QSet<QString>          m_loadedCaptures;
+    QHash<QString, qint64> m_growing;      /* path -> size at the last scan */
+    class QTimer          *m_scanTimer;
 
     /* One QIGFrame per active transmitter, added to splWorkPart. */
     void CreateIgAreas();
