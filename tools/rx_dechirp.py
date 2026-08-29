@@ -546,6 +546,14 @@ def run_live(opts, cfg, sounder):
 
     began = None
     with open(path, "wb") as fh:
+        # Before anything else, and flushed: the worker writes through
+        # ndarray.tofile, which goes at the file descriptor rather than through
+        # this object's buffer. Leaving 512 bytes sitting in the buffer while
+        # another thread writes past it is asking for exactly the corruption
+        # this line exists to prevent.
+        fh.write(header)
+        fh.flush()
+
         thread = None
         if opts.threads:
             thread = threading.Thread(target=worker, args=(fh,), daemon=True)
@@ -605,8 +613,17 @@ def run_live(opts, cfg, sounder):
     print("  received  %d samples (%.1f s of signal)" % (got_total, got_total / sr))
     if short_reads:
         print("  short reads %d (recv returned less than a full block)" % short_reads)
+    # Stat the file rather than reporting what we believe we wrote. Reporting
+    # the computed size hid a missing header through several captures: the
+    # number printed was always right and the file was always 512 bytes short.
+    expected = LFS_TOTAL + written * 8
+    actual = os.path.getsize(partial if incomplete else path)
     print("  wrote     %d samples at %.0f Hz -> %d bytes"
-          % (written, sr / dec, 512 + written * 8))
+          % (written, sr / dec, actual))
+    if actual != expected:
+        print("  *** expected %d bytes (%d header + %d samples). The file is"
+              % (expected, LFS_TOTAL, written * 8))
+        print("  *** %+d bytes off, so it is not what it claims to be." % (actual - expected))
     print("  overflows %d" % overflows)
 
     # Not "how many times real time": the radio delivers samples at exactly sr,
@@ -719,6 +736,70 @@ def benchmark(opts):
     return 0 if margin >= 1.0 else 1
 
 
+def repair_header(opts, cfg, sounder):
+    """Put a header back on a capture that lost one.
+
+    Captures written between the threading change and its fix are correct
+    dechirped data with no 512-byte header, so the samples are worth keeping.
+    Everything the header needs is recoverable: the schedule from the config,
+    the start time from the filename the capture was given.
+    """
+    import re
+    import shutil
+
+    path = opts.repair
+    with open(path, "rb") as fh:
+        if fh.read(4) == b"LFSG":
+            print("%s already has a header; nothing to do" % path)
+            return 0
+
+    base = os.path.basename(path)
+    m = re.match(r"(?P<name>.+)_(?P<d>\d{8})_(?P<t>\d{6})\.lfs$", base)
+    if not m:
+        print("cannot read a timestamp from %s" % base)
+        print("Expected <station>_<yyyyMMdd>_<hhmmss>.lfs")
+        return 2
+    d, t = m.group("d"), m.group("t")
+    t0 = calendar.timegm((int(d[0:4]), int(d[4:6]), int(d[6:8]),
+                          int(t[0:2]), int(t[2:4]), int(t[4:6]), 0, 0, 0))
+
+    size = os.path.getsize(path)
+    if size % 8:
+        print("%s is %d bytes, not a whole number of complex64 samples."
+              % (path, size))
+        print("It is not a headerless capture; leaving it alone.")
+        return 2
+
+    sr = float(cfg["sample_rate"])
+    dec = int(cfg["dec"])
+    rx = cfg.get("rx_station", {"name": "", "lat": 0.0, "lon": 0.0})
+    samples = size // 8
+    expected = int((sr / dec) * sounder["dur"])
+    print("  %s" % path)
+    print("  %d samples, %.1f s at %.0f Hz (a full sounding is %d)"
+          % (samples, samples / (sr / dec), sr / dec, expected))
+    print("  start %s UTC, from the filename"
+          % time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(t0)))
+
+    header = pack_lfs_header(
+        m.group("name"), sounder["lat"], sounder["lon"],
+        rx.get("name", ""), rx.get("lat", 0.0), rx.get("lon", 0.0),
+        t0, sounder["chirpt"], sounder["cf"], sounder["dur"], sounder["rate"],
+        sounder["rep"], sounder.get("rmin", 0), sounder.get("rmax", 5000),
+        dec, sr, cfg.get("whiten", False), cfg.get("whiten_len", 8192),
+        cfg.get("whiten_n", 20000))
+
+    tmp = path + ".repairing"
+    with open(tmp, "wb") as out:
+        out.write(header)
+        with open(path, "rb") as src:
+            shutil.copyfileobj(src, out, 1 << 22)
+    os.replace(tmp, path)
+    print("  header prepended; now %d bytes" % os.path.getsize(path))
+    print("  check it:  python3 python/lfs_info.py %s" % path)
+    return 0
+
+
 def run_from_raw(opts):
     """Dechirp a raw complex64 recording -- for testing without the radio."""
     sr = opts.rate
@@ -751,6 +832,8 @@ def main():
     ap.add_argument("--benchmark", action="store_true",
                     help="measure dechirp throughput on this machine, no radio")
     ap.add_argument("--from-raw", default="")
+    ap.add_argument("--repair", default="",
+                    help="prepend a header to a capture that lost one")
     ap.add_argument("--raw-out", default="")
     ap.add_argument("--config", default="/tmp/out/chirp_config.py")
     ap.add_argument("--station", default="", help="which sounder; default the first")
@@ -802,6 +885,8 @@ def main():
                   % (opts.station, ", ".join(s.get("name", "?") for s in sounders)))
             return 2
         chosen = matches[0]
+    if opts.repair:
+        return repair_header(opts, cfg, chosen)
     return run_live(opts, cfg, chosen)
 
 
