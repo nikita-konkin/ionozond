@@ -206,11 +206,31 @@ class Dechirper:
 
 # ---------------------------------------------------------------- config file
 
+class ConfigError(Exception):
+    pass
+
+
 def load_config(path):
     """Read the console's generated chirp_config.py without executing it."""
     import ast
     with open(path, "r", encoding="utf-8") as fh:
-        tree = ast.parse(fh.read(), filename=path)
+        raw = fh.read()
+
+    if not raw.strip():
+        raise ConfigError(
+            "%s is empty (%d bytes)."
+            "\nThe console truncates this file when it starts and rewrites it"
+            "\nwhen you press START, so an empty one means START never wrote"
+            "\nit. Look in the console log for \"Error writing configuration"
+            "\nfile\"." % (path, len(raw)))
+    try:
+        tree = ast.parse(raw, filename=path)
+    except SyntaxError as exc:
+        raise ConfigError(
+            "%s is not valid Python: %s at line %s"
+            "\n    %s"
+            "\nA bare \"tb =\" does this; see DSCHIRP_FIX_EMPTY_TB."
+            % (path, exc.msg, exc.lineno, (exc.text or "").rstrip()))
     cfg = {}
     for node in tree.body:
         if not isinstance(node, ast.Assign) or len(node.targets) != 1:
@@ -224,6 +244,10 @@ def load_config(path):
             pass          # if_rate is an expression; we derive it ourselves
     if "sample_rate" in cfg and "dec" in cfg:
         cfg["if_rate"] = cfg["sample_rate"] / cfg["dec"]
+    if "sounders" not in cfg:
+        raise ConfigError(
+            "%s has no 'sounders'. It does define: %s"
+            % (path, ", ".join(sorted(cfg)) or "(nothing at all)"))
     return cfg
 
 
@@ -759,10 +783,16 @@ def main():
         print("The console writes it when you press START; its path is the")
         print("\"Konfiguraciya\" field in the parameters dialog.")
         return 2
-    cfg = load_config(opts.config)
+    try:
+        cfg = load_config(opts.config)
+    except ConfigError as exc:
+        print(exc)
+        return 2
     sounders = all_sounders(cfg)
     if not sounders:
-        print("no sounders in %s" % opts.config)
+        print("%s defines 'sounders' but it is empty: %r"
+              % (opts.config, cfg.get("sounders")))
+        print("The console only emits a station whose schedule has active=true.")
         return 2
     chosen = sounders[0]
     if opts.station:
