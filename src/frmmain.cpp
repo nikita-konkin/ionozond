@@ -338,6 +338,12 @@ QBaseSoundParams frmMain::getBaseSoundParams() const
     QBaseSoundParams p;
     p.dataDir              = m_settings->value(QLatin1String("data_dir")).toString();
     p.soundApp             = m_settings->value(QLatin1String("sound_app")).toString();
+    p.objSizeH             = m_settings->value(QLatin1String("obj_size_horizontal"),
+                                               9).toUInt();
+    p.objSizeV             = m_settings->value(QLatin1String("obj_size_vertical"),
+                                               3).toUInt();
+    p.objLevel             = m_settings->value(QLatin1String("obj_level"),
+                                               11.0).toFloat();
     p.sampleRateIndex      = m_settings->value(QLatin1String("sample_rate_index")).toInt();
     p.fftCountIndex        = m_settings->value(QLatin1String("fft_count_index")).toInt();
     p.colormapIndex        = m_settings->value(QLatin1String("colormap_index")).toInt();

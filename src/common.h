@@ -97,11 +97,23 @@ struct QBaseSoundParams {
     bool    snrAutoMax;
     bool    pdpAutoMax;
 
+    /*
+     * The speckle filter, which decides how much of a faint trace survives.
+     * Hard-coded in the original; settable here because it is the one control
+     * that trades sensitivity against noise, and the right value depends on
+     * the path and the interference at a given site. Defaults are the
+     * original's.
+     */
+    unsigned int objSizeH;      // obj_size_horizontal: window in spectra
+    unsigned int objSizeV;      // obj_size_vertical: window in delay rows
+    float        objLevel;      // obj_level: neighbours a point must have
+
     QBaseSoundParams()
         : sampleRateIndex(0), fftCountIndex(0), colormapIndex(0),
           igColormapIndex(1), colormapGradient(false), igVerticalScaleIndex(0), igListCount(0),
           whiten(false), whitenLen(0), whitenN(0),
-          snrAutoMax(false), pdpAutoMax(false) {}
+          snrAutoMax(false), pdpAutoMax(false),
+          objSizeH(9), objSizeV(3), objLevel(11.0f) {}
 
     /* Sampling rate in MHz, from SAMPLE_RATE_LIST (which is in kHz). */
     double sampleRate_Mhz() const;

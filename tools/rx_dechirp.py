@@ -1095,7 +1095,14 @@ def run_live(opts, cfg, sounders):
             try:
                 began_side = time.time()
                 status(sounder["name"], "writing")
-                out, size = products.build_one(result["path"], quiet=True)
+                # Whatever the console set in config.ini reaches us through
+                # chirp_config.py, so a sidecar built here matches what the
+                # console would have produced itself.
+                out, size = products.build_one(
+                    result["path"], quiet=True,
+                    obj_w=int(cfg.get("obj_size_horizontal", 9)),
+                    obj_h=int(cfg.get("obj_size_vertical", 3)),
+                    obj_level=float(cfg.get("obj_level", 11.0)))
                 raw = os.path.getsize(result["path"])
                 log("  sidecar   %s  %.1f kB  (%.0fx smaller, %.1f s)"
                     % (os.path.basename(out), size / 1024.0,

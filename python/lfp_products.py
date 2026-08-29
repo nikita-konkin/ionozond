@@ -286,7 +286,9 @@ def usage_frequencies(data):
     return luf, muf
 
 
-def compute(path, fft_count=16384, noise_gate=True, progress=None):
+def compute(path, fft_count=16384, noise_gate=True, progress=None,
+            obj_w=OBJ_SIZE_HORIZONTAL, obj_h=OBJ_SIZE_VERTICAL,
+            obj_level=OBJ_LEVEL):
     """Run the whole pipeline. Returns (meta, {section: array})."""
     header = read_lfs_header(path)
     samples = (os.path.getsize(path) - LFS_HEADER_SIZE) // 8
@@ -335,7 +337,7 @@ def compute(path, fft_count=16384, noise_gate=True, progress=None):
         noise_db = np.float32(10.0 * math.log10(NOISE_FACTOR))
         alive = gated_db.max(axis=1) > 0.0
         gated_db[alive] = np.where(gated_db[alive] < noise_db, 0.0, gated_db[alive])
-        gated_db = delete_small_objects(gated_db)
+        gated_db = delete_small_objects(gated_db, obj_w, obj_h, obj_level)
 
     luf_index, muf_index = usage_frequencies(gated_db)
 
@@ -442,7 +444,7 @@ def sidecar_path(lfs_path):
     return os.path.splitext(lfs_path)[0] + ".lfp"
 
 
-def build_one(lfs_path, fft_count=16384, force=False, quiet=False):
+def build_one(lfs_path, fft_count=16384, force=False, quiet=False, **clean):
     out = sidecar_path(lfs_path)
     if not force and os.path.exists(out) and \
             os.path.getmtime(out) >= os.path.getmtime(lfs_path):
@@ -450,7 +452,7 @@ def build_one(lfs_path, fft_count=16384, force=False, quiet=False):
             print("  %s is up to date" % os.path.basename(out))
         return out, 0
 
-    meta, sections = compute(lfs_path, fft_count=fft_count)
+    meta, sections = compute(lfs_path, fft_count=fft_count, **clean)
     size = write(out, meta, sections)
     if not quiet:
         raw = os.path.getsize(lfs_path)
@@ -466,6 +468,13 @@ def main():
     ap.add_argument("target", help=".lfs file, or a directory of them")
     ap.add_argument("--fft", type=int, default=16384)
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--obj-w", type=int, default=OBJ_SIZE_HORIZONTAL,
+                    help="speckle window across spectra (default %d)" % OBJ_SIZE_HORIZONTAL)
+    ap.add_argument("--obj-h", type=int, default=OBJ_SIZE_VERTICAL,
+                    help="speckle window across delay rows (default %d)" % OBJ_SIZE_VERTICAL)
+    ap.add_argument("--obj-level", type=float, default=OBJ_LEVEL,
+                    help="neighbours a point needs to survive; lower keeps more "
+                         "of a faint trace and more noise (default %g)" % OBJ_LEVEL)
     ap.add_argument("--recurse", action="store_true")
     ap.add_argument("--verify", action="store_true",
                     help="read the sidecar back and print what it holds")
@@ -489,7 +498,9 @@ def main():
     failed = 0
     for path in targets:
         try:
-            out, size = build_one(path, fft_count=opts.fft, force=opts.force)
+            out, size = build_one(path, fft_count=opts.fft, force=opts.force,
+                                  obj_w=opts.obj_w, obj_h=opts.obj_h,
+                                  obj_level=opts.obj_level)
             if size:
                 total_raw += os.path.getsize(path)
                 total_side += size

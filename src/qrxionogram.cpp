@@ -307,7 +307,8 @@ bool QRxIonogram::loadLfsData(const QString &fileName)
                 beforeRows[c] = before[c].data();
             }
             deleteSmallObjects(m_data, beforeRows.data(),
-                               m_specCount, m_specPointCount);
+                               m_specCount, m_specPointCount,
+                               m_base.objSizeH, m_base.objSizeV, m_base.objLevel);
         }
 
         const UsageFrequencies uf =

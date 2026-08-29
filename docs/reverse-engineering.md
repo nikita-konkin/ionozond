@@ -242,6 +242,58 @@ ray distance versus +56.0 km above the decimal one. Full evidence in
 [`lfs-format.md`](lfs-format.md). Not corrected here: it would move every
 existing display, and the call belongs to the archive's owner.
 
+## Tuning ionogram quality
+
+Three settings decide what an ionogram looks like. Measured on a real capture
+(`cyprus1_20260204_000010.lfs`, whitened, 25 MS/s):
+
+### The speckle filter — `obj_level`, `obj_size_horizontal`, `obj_size_vertical`
+
+A point survives only if it has `obj_level` neighbours inside an
+`obj_size_horizontal` x `obj_size_vertical` window. The original hard-coded
+9 x 3 and 11; all three are now read from `config.ini`, because the right
+value depends on the path and on the interference at a site.
+
+| setting | surviving points | LUF | MUF |
+|---|---|---|---|
+| level 6 | 35099 | 7.66 | 32.34 |
+| level 8 | 28604 | 7.66 | 32.21 |
+| **level 11 (default)** | **14028** | **7.66** | **31.84** |
+| level 14 | 4179 | **8.07** | **28.11** |
+| window 9x5 | 33227 | 7.66 | 32.34 |
+
+Lower keeps more of a faint trace and more noise; higher gives a sparser but
+cleaner one. Note what the band edges do: at level 11 the LUF/MUF span nearly
+the whole sweep, which means noise is still being counted as signal. Stricter
+cleaning narrows it to something physically plausible — worth remembering that
+LUF and MUF are only as good as the gate that feeds them.
+
+### FFT length — `fft_count`, in the parameters dialog
+
+Already adjustable. It trades frequency resolution against delay resolution and
+nothing else; there is no "better" setting, only a choice of which axis matters:
+
+| fft_count | spectra | frequency step | delay bin | rows in the window |
+|---|---|---|---|---|
+| 8192 | 1220 | 20 kHz | 14.65 km | 117 |
+| **16384 (default)** | **610** | **41 kHz** | **7.32 km** | **232** |
+| 32768 | 305 | 82 kHz | 3.66 km | 460 |
+
+16384 matches the sweep: at 100 kHz/s the transmitter moves 41 kHz during the
+0.41 s each spectrum integrates, so the frequency step and the sweep rate agree.
+Going coarser in one axis to gain the other is a real choice, but leaving it
+matched is the reason the default is where it is.
+
+### Sidecars must be rebuilt
+
+The console reads the `.lfp` in preference to the capture, so changing any of
+this leaves old ionograms rendered the old way until their sidecars are
+regenerated:
+
+```bash
+python3 python/lfp_products.py ~/ionograms --recurse --force --obj-level 14
+```
+
 ## Structural deviation from the original
 
 The numeric kernel lives in `src/igmath.{h,cpp}` rather than inline in `QRxIonogram`
