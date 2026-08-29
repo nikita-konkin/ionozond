@@ -523,6 +523,13 @@ class Radio:
         # clock still read 3.9 s away right after being set from GPS -- the
         # gps_time sensor returns stale values, times out, and sometimes throws.
         # A disciplined host beats a GPS reading nobody checked.
+        # Precision matters more than it looks. A start-time error of dt puts
+        # the whole echo at an apparent delay dt out, and the delay axis is
+        # light travel time: one millisecond is 300 km against a window 1680 km
+        # wide. GPS is good to microseconds, NTP over a LAN to about a
+        # millisecond -- so when both are available and they agree, the radio's
+        # clock is the better one to schedule against. NTP's job here is to
+        # corroborate it, not to replace it.
         synced = self.host_synced()
         offset = self.offset()
         self.authority = "host"
@@ -532,8 +539,13 @@ class Radio:
                     % offset)
                 log("  *** host. Whatever GPS reported, that is not UTC --")
                 log("  *** scheduling against this host instead.")
+            elif locked and self.clock_set:
+                self.authority = "radio"
+                log("  clocks agree to %.0f ms; scheduling against the radio,"
+                    % (abs(offset or 0.0) * 1e3))
+                log("  whose GPS clock is the more precise of the two")
             else:
-                log("  clocks agree; scheduling against this host (NTP)")
+                log("  scheduling against this host (NTP)")
         elif locked and self.clock_set:
             self.authority = "radio"
             log("  host clock is not NTP-disciplined; scheduling against the")
@@ -737,6 +749,25 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
 
     radio.streamer.issue_stream_cmd(
         uhd.types.StreamCMD(uhd.types.StreamMode.stop_cont))
+
+    # Drain before returning. Stopping tells the radio to stop sending; it does
+    # not empty what is already in flight or sitting in the socket. Leave that
+    # there and the next capture's first recv meets stale packets out of
+    # sequence and never recovers -- which is exactly the shape of the failure
+    # here: one good sounding, then every one after it timing out with no
+    # samples at all.
+    drained = 0
+    deadline = time.time() + 3.0
+    while time.time() < deadline:
+        try:
+            got = radio.streamer.recv(buf, radio.metadata, 0.1)
+        except Exception:
+            break
+        if got == 0:
+            break
+        drained += got
+    if drained:
+        result["drained"] = drained
 
     if failure:
         result["error"] = "dechirp thread: %s" % failure[0]
