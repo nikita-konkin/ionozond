@@ -857,13 +857,31 @@ def report(result, opts, sr, dec, log):
     if result["overflows"] == 0:
         log("  clean capture")
         return 0
-    if result["overflows"] <= 5:
+
+    # Overflows here are not the dechirp being too slow on average -- occupancy
+    # says otherwise -- but it falling behind in bursts, and the receiver having
+    # nowhere to put samples while it catches up. The stall time is the
+    # giveaway: it tracks the overflow count almost exactly.
+    bursty = result["stalled"] > 1.0
+    if result["overflows"] <= 5 and not bursty:
         log("  %d overflow%s -- gaps of well under a millisecond each; a chirp"
             % (result["overflows"], "" if result["overflows"] == 1 else "s"))
         log("  sounding integrates across the whole sweep, so this costs a"
             " little SNR rather than the trace")
         return 0
-    log("  *** %d overflows -- enough lost signal to matter" % result["overflows"])
+
+    log("  *** %d overflows, and the receiver spent %.1f s with no free buffer."
+        % (result["overflows"], result["stalled"]))
+    log("  *** The file is complete and probably still shows a trace; this is")
+    log("  *** lost signal-to-noise, not a lost sounding.")
+    if bursty:
+        log("  *** The dechirp used only %.0f%% of the clock, so it is not too"
+            % (100 * result["busy"] / max(result["elapsed"], 1e-9)))
+        log("  *** slow -- it stalls in bursts. More buffers ride those out:")
+        log("  ***     --buffers 32")
+        log("  *** and anything else heavy on this machine competes for the")
+        log("  *** same cores. The console reprocessing an 80 MB capture is")
+        log("  *** exactly such a thing.")
     return 1
 
 
@@ -1011,20 +1029,25 @@ def run_live(opts, cfg, sounders):
         done += 1
         if rc == 0:
             clean += 1
-            failures = 0
-        else:
+        # Only a capture that did not happen counts toward stopping. A complete
+        # sounding with overflows is degraded, not failed -- it is a full file
+        # that still shows a trace, and halting the sounder over it throws away
+        # the good captures either side.
+        if rc >= 2:
             failures += 1
             if failures >= 3:
                 log("")
-                log("*** three soundings in a row failed. Stopping.")
+                log("*** three soundings in a row produced no data. Stopping.")
                 log("*** Whatever is wrong is not going to fix itself, and")
                 log("*** every further attempt leaves another .partial file.")
-                log("*** Check the messages above -- if they say 'late' or")
-                log("*** name a clock, the radio and this host disagree about")
-                log("*** the time; if they name overflows, the host cannot")
-                log("*** keep up.")
+                log("*** If the messages above name a clock, this host and the")
+                log("*** radio disagree about the time; if they say timeout")
+                log("*** with no samples at all, the radio has most likely")
+                log("*** stopped answering and wants a power cycle.")
                 worst = max(worst, 2)
                 break
+        else:
+            failures = 0
         if limit and done >= limit:
             break
 
@@ -1206,8 +1229,9 @@ def main():
                     help="override dur, for a short test run")
     ap.add_argument("--spb", type=int, default=625 * 1600,
                     help="samples per block; rounded to a multiple of dec")
-    ap.add_argument("--buffers", type=int, default=6,
-                    help="receive buffers in flight while the dechirp runs")
+    ap.add_argument("--buffers", type=int, default=16,
+                    help="receive buffers in flight; each absorbs one block of "
+                         "burst, so more of them ride out a busy moment")
     ap.add_argument("--threads", type=int, default=1,
                     help="1 = dechirp on a worker thread (default), 0 = inline")
     ap.add_argument("--no-gpsdo", action="store_true")
