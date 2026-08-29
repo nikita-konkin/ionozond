@@ -25,6 +25,7 @@ frmMain::frmMain(QWidget *parent)
       m_cpuWidget(0),
       m_driveWidget(0),
       m_running(false),
+      m_sounderCapturing(false),
       m_scanTimer(0)
 {
     ui->setupUi(this);
@@ -186,6 +187,16 @@ void frmMain::ScanForNewCaptures()
 {
     const QString dataDir = getIgDirName();
     if (dataDir.isEmpty())
+        return;
+
+    /*
+     * Not while a sounding is being recorded. Loading a capture redraws three
+     * Qwt panels, and on a four-core host that competes with a dechirp already
+     * consuming half the clock at 25 MS/s -- a burst of dropped packets
+     * followed the first automatic load. The gap between soundings is around
+     * fifty seconds, which is ample, so waiting costs only that.
+     */
+    if (m_sounderCapturing)
         return;
 
     QDir root(dataDir);
@@ -481,6 +492,8 @@ bool frmMain::handleStatusLine(const QString &line)
         return true;
 
     const QString state = f.at(2);
+    m_sounderCapturing = (state == QLatin1String("capturing"));
+
     if (state == QLatin1String("waiting") && f.size() >= 5) {
         w->SetSessionTimes(QDateTime::fromMSecsSinceEpoch(f.at(3).toLongLong() * 1000,
                                                           Qt::UTC),

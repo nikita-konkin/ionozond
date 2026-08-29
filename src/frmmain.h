@@ -73,6 +73,9 @@ private:
     bool handleStatusLine(const QString &line);
     class QSessionInfoWidget *sessionWidget(const QString &stationName) const;
 
+    /* True while the sounder says it is recording. Heavy work is held off
+     * until it is not -- see ScanForNewCaptures. */
+    bool                   m_sounderCapturing;
     QSet<QString>          m_loadedCaptures;
     QHash<QString, qint64> m_growing;      /* path -> size at the last scan */
     class QTimer          *m_scanTimer;
