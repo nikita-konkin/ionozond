@@ -1,0 +1,56 @@
+[Unit]
+# Continuous chirp sounding. Install with:
+#
+#   sudo cp tools/ionozond-sounder.service /etc/systemd/system/
+#   sudo systemctl edit ionozond-sounder      # adjust the paths below
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ionozond-sounder
+#   journalctl -u ionozond-sounder -f
+#
+# The archive also gets its own chirp.log, so there are two places to look and
+# neither depends on anyone being logged in.
+Description=ionozond chirp sounder
+Documentation=https://github.com/nikita-konkin/ionozond
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# The radio link needs to be up before this can find the USRP. NetworkManager
+# brings usrp-link up on boot only if its autoconnect was enabled -- see
+# tools/host-setup/README.md, step 2.
+ExecStartPre=/bin/sh -c 'until ping -c1 -W1 192.168.10.3 >/dev/null 2>&1; do sleep 2; done'
+
+ExecStart=/usr/bin/python3 /home/samsung/projects/ionozond/tools/rx_dechirp.py \
+    --config /home/samsung/chirp_config.py \
+    --outdir /home/samsung/ionograms \
+    --args addr=192.168.10.3 \
+    --loop
+
+WorkingDirectory=/home/samsung/projects/ionozond
+
+# Run as the operator, not root. This needs the usrp group for the rtprio
+# limit -- 12-host-tuning.sh creates it and adds the user. Without that UHD
+# cannot raise its receive thread's priority and will drop samples under load.
+User=samsung
+Group=samsung
+SupplementaryGroups=usrp
+
+# UHD asks for a 50 MB receive socket; 12-host-tuning.sh sets net.core.rmem_max
+# to match. If that sysctl is missing this still runs, just badly.
+LimitRTPRIO=99
+LimitMEMLOCK=infinity
+
+# SIGTERM is handled: the sounder finishes the capture in progress rather than
+# leaving a truncated file behind. A 250 s sounding needs room to finish.
+KillSignal=SIGTERM
+TimeoutStopSec=300
+
+# Restart on failure, but slowly. A sounder that respawns every second against
+# a radio that is not there fills the journal and hides the actual problem.
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

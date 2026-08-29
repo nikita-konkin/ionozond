@@ -40,6 +40,7 @@ import argparse
 import calendar
 import math
 import os
+import shutil
 import struct
 import sys
 import time
@@ -407,41 +408,102 @@ def open_radio(args, subdev, rate, freq, use_gpsdo=True):
     return usrp, uhd
 
 
-def run_live(opts, cfg, sounder):
-    sr = float(cfg["sample_rate"])
-    dec = int(cfg["dec"])
+class Logger:
+    """Append to chirp.log beside the archive, and echo to the terminal.
+
+    The original kept chirp.log and analyzed.log in the data directory. One
+    file is enough, but the habit is worth keeping: an unattended sounder that
+    leaves no trace of why it stopped is not much use.
+    """
+
+    def __init__(self, directory):
+        self.path = os.path.join(directory, "chirp.log")
+        try:
+            os.makedirs(directory, exist_ok=True)
+            self.fh = open(self.path, "a", encoding="utf-8")
+        except OSError:
+            self.fh = None
+
+    def __call__(self, message):
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+        # flush: stdout is block-buffered when this runs under a service
+        # manager or into a pipe, so without it everything since the last 4 kB
+        # boundary is lost when the process is killed -- exactly the output you
+        # need in order to find out why it was killed.
+        print(message, flush=True)
+        if self.fh:
+            try:
+                self.fh.write("%s %s\n" % (stamp, message))
+                self.fh.flush()
+            except OSError:
+                pass
+
+
+class Radio:
+    """The receiver, opened once and reused for every sounding.
+
+    Opening a USRP and disciplining its clock from GPS takes several seconds.
+    With rep=300 and dur=250 there are only fifty seconds between soundings, so
+    doing that once rather than per capture is the difference between keeping
+    the schedule and missing every other chirp.
+    """
+
+    def __init__(self, opts, cfg, first_cf):
+        self.opts = opts
+        self.sr = float(cfg["sample_rate"])
+        self.dec = int(cfg["dec"])
+
+        self.usrp, self.uhd = open_radio(opts.args, opts.subdev, self.sr,
+                                         first_cf, use_gpsdo=not opts.no_gpsdo)
+        self.sr = self.usrp.get_rx_rate()
+        self.tuned = first_cf
+
+        stream_args = self.uhd.usrp.StreamArgs("fc32", "sc16")
+        stream_args.channels = [0]
+        self.streamer = self.usrp.get_rx_stream(stream_args)
+        self.metadata = self.uhd.types.RXMetadata()
+
+        # Block size rounded down to a multiple of the decimation: otherwise
+        # every block leaves a remainder to carry and concatenate onto the next,
+        # an eight-megabyte copy for nothing.
+        self.spb = max(self.dec, (opts.spb // self.dec) * self.dec)
+        self.nbuf = max(3, opts.buffers)
+        self.pool = [np.empty((1, self.spb), dtype=np.complex64)
+                     for _ in range(self.nbuf)]
+
+    def tune(self, cf):
+        if cf != self.tuned:
+            self.usrp.set_rx_freq(self.uhd.types.TuneRequest(cf), 0)
+            self.tuned = cf
+
+    def clock_skew(self):
+        """How far the radio's clock is from the system clock, or None."""
+        try:
+            return abs(self.usrp.get_time_now().get_real_secs() - time.time())
+        except Exception:
+            return None
+
+
+def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
+    """Record and dechirp one sounding. Returns a dict describing what happened."""
+    import queue
+    import threading
+
+    uhd = radio.uhd
+    sr, dec, spb = radio.sr, radio.dec, radio.spb
     cf = float(sounder["cf"])
     rate = float(sounder["rate"])
     dur = float(opts.duration if opts.duration else sounder["dur"])
     f0 = -sr / 2.0
 
-    print("sounder    %s" % sounder["name"])
-    print("  centre   %.3f MHz, sweeping %.3f -> %.3f MHz at %g kHz/s"
-          % (cf / 1e6, (cf - sr / 2) / 1e6,
-             (cf - sr / 2 + sounder["dur"] * rate) / 1e6, rate / 1e3))
-    print("  sampling %.3f MS/s, dec %d -> %.0f Hz out"
-          % (sr / 1e6, dec, sr / dec))
-    print("  duration %g s%s" % (dur, "" if not opts.duration else " (SHORTENED for a test)"))
-    print()
+    result = {"path": path, "sounder": sounder["name"], "t0": t0,
+              "overflows": 0, "got": 0, "written": 0, "short_reads": 0,
+              "busy": 0.0, "stalled": 0.0, "elapsed": 0.0, "wanted": int(sr * dur),
+              "incomplete": True, "error": None, "aborted": False}
 
-    usrp, uhd = open_radio(opts.args, opts.subdev, sr, cf,
-                           use_gpsdo=not opts.no_gpsdo)
-    sr = usrp.get_rx_rate()
-
-    t0 = determine_next(sounder["rep"], sounder["chirpt"])
-    print("  next chirp at %s UTC (%.1f s away)"
-          % (time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(t0)), t0 - time.time()))
+    radio.tune(cf)
 
     rx = cfg.get("rx_station", {"name": "", "lat": 0.0, "lon": 0.0})
-    day = time.strftime("%Y.%m.%d", time.gmtime(t0))
-    tstamp = time.gmtime(t0)
-    name = "%s_%04d%02d%02d_%02d%02d%02d.lfs" % (
-        sounder["name"], tstamp.tm_year, tstamp.tm_mon, tstamp.tm_mday,
-        tstamp.tm_hour, tstamp.tm_min, tstamp.tm_sec)
-    outdir = os.path.join(opts.outdir or cfg.get("data_dir", "."), day)
-    os.makedirs(outdir, exist_ok=True)
-    path = os.path.join(outdir, name)
-
     header = pack_lfs_header(
         sounder["name"], sounder["lat"], sounder["lon"],
         rx.get("name", ""), rx.get("lat", 0.0), rx.get("lon", 0.0),
@@ -450,83 +512,49 @@ def run_live(opts, cfg, sounder):
         cfg.get("whiten", False), cfg.get("whiten_len", 8192),
         cfg.get("whiten_n", 20000))
 
-    stream_args = uhd.usrp.StreamArgs("fc32", "sc16")
-    stream_args.channels = [0]
-    streamer = usrp.get_rx_stream(stream_args)
-    metadata = uhd.types.RXMetadata()
+    # Wait for the chirp in short steps rather than inside one long recv
+    # timeout, so a stop signal is acted on within half a second instead of
+    # whenever the radio happens to return.
+    while t0 - time.time() > 3.0:
+        if stop["now"]:
+            result["aborted"] = True
+            return result
+        time.sleep(0.5)
 
-    # Round the block down to a multiple of the decimation. Otherwise every
-    # block leaves a remainder that has to be carried and concatenated onto the
-    # next one -- an eight-megabyte copy per block, for nothing.
-    spb = max(dec, (opts.spb // dec) * dec)
-    if spb != opts.spb:
-        print("  block size %d -> %d, a multiple of dec=%d"
-              % (opts.spb, spb, dec))
-
-    # A timed start is only safe if the radio's clock really is on the same
-    # epoch as the schedule. If setting it from GPS failed, the radio may still
-    # be counting from zero -- and asking it to start at a unix timestamp would
-    # then wait about fifty-five years with no indication of why.
-    try:
-        radio_now = usrp.get_time_now().get_real_secs()
-    except Exception:
-        radio_now = None
-    skew = None if radio_now is None else abs(radio_now - time.time())
-
+    # A timed start is only safe if the radio's clock is on the same epoch as
+    # the schedule. If setting it from GPS failed the radio may still be
+    # counting from zero, and asking it to start at a unix timestamp would then
+    # wait about fifty-five years with no indication of why.
+    skew = radio.clock_skew()
     cmd = uhd.types.StreamCMD(uhd.types.StreamMode.start_cont)
     timed = False
     if skew is not None and skew < 5.0:
         try:
             cmd.stream_now = False
             cmd.time_spec = uhd.types.TimeSpec(float(t0))
-            streamer.issue_stream_cmd(cmd)
+            radio.streamer.issue_stream_cmd(cmd)
             timed = True
         except Exception as exc:
-            print("  timed start refused (%s)" % exc)
+            log("  timed start refused (%s)" % exc)
     else:
-        print("  *** the radio's clock is %s the system clock, so a timed"
-              % ("not set to" if skew is None else "%.1f s away from" % skew))
-        print("  *** start would wait for a time it will not reach. Starting")
-        print("  *** immediately instead -- the sweep will not be aligned to")
-        print("  *** the transmitter, so treat the delay axis as meaningless.")
+        log("  *** the radio's clock is %s the system clock, so a timed start"
+            % ("not set to" if skew is None else "%.1f s from" % skew))
+        log("  *** would wait for a time it never reaches. Starting now; the")
+        log("  *** sweep will not be aligned and the delay axis is meaningless.")
     if not timed:
         cmd.stream_now = True
-        streamer.issue_stream_cmd(cmd)
+        radio.streamer.issue_stream_cmd(cmd)
 
-    wanted = int(sr * dur)
     dech = Dechirper(sr, f0, rate, dec)
-    overflows = 0
-    got_total = 0
-    written = 0
-    short_reads = 0
-
-    # Receiving and dechirping are both heavy and neither needs the other's
-    # result, so run them in parallel. UHD's recv and numpy's array ops both
-    # release the GIL, so a worker thread genuinely overlaps with the receive
-    # instead of merely interleaving with it. Blocks must still reach the
-    # dechirper in order -- the replica phase is continuous across them -- so
-    # there is exactly one worker and the queue preserves order.
-    import queue
-    import threading
-
-    nbuf = max(3, opts.buffers)
-    pool = [np.empty((1, spb), dtype=np.complex64) for _ in range(nbuf)]
     free_q = queue.Queue()
     full_q = queue.Queue()
-    for b in pool:
+    for b in radio.pool:
         free_q.put(b)
     buf = free_q.get()
-
-    print("  writing %s" % path)
-    print("  %d receive buffers of %d samples, dechirp on %s"
-          % (nbuf, spb, "a worker thread" if opts.threads else "the receive thread"))
-
     failure = []
-    busy = 0.0          # seconds the dechirp actually spent working
-    stalled = 0.0       # seconds the receiver spent waiting for a free buffer
+    counters = {"written": 0, "busy": 0.0}
 
     def worker(fh):
-        nonlocal written, busy
         while True:
             item = full_q.get()
             if item is None:
@@ -537,20 +565,25 @@ def run_live(opts, cfg, sounder):
                 out = dech.feed(block[0, :count])
                 if len(out):
                     out.tofile(fh)
-                    written += len(out)
-                busy += time.perf_counter() - started
+                    counters["written"] += len(out)
+                counters["busy"] += time.perf_counter() - started
             except Exception as exc:            # keep the receive loop alive
                 failure.append(exc)
             finally:
                 free_q.put(block)
 
+    wanted = result["wanted"]
+    got_total = 0
+    overflows = 0
+    short_reads = 0
+    stalled = 0.0
     began = None
+
     with open(path, "wb") as fh:
         # Before anything else, and flushed: the worker writes through
         # ndarray.tofile, which goes at the file descriptor rather than through
-        # this object's buffer. Leaving 512 bytes sitting in the buffer while
-        # another thread writes past it is asking for exactly the corruption
-        # this line exists to prevent.
+        # this object's buffer. Leaving 512 bytes in the buffer while another
+        # thread writes past it is exactly the corruption this prevents.
         fh.write(header)
         fh.flush()
 
@@ -560,13 +593,16 @@ def run_live(opts, cfg, sounder):
             thread.start()
 
         while got_total < wanted:
-            timeout = max(5.0, t0 - time.time() + 5.0) if timed and began is None else 2.0
-            got = streamer.recv(buf, metadata, timeout)
-            code = str(metadata.error_code).lower()
+            if stop["now"]:
+                result["aborted"] = True
+                break
+            timeout = 10.0 if began is None else 2.0
+            got = radio.streamer.recv(buf, radio.metadata, timeout)
+            code = str(radio.metadata.error_code).lower()
             if "overflow" in code:
                 overflows += 1
             elif "none" not in code and got == 0:
-                print("  stream error: %s" % metadata.error_code)
+                result["error"] = str(radio.metadata.error_code)
                 break
             if got <= 0:
                 continue
@@ -587,98 +623,265 @@ def run_live(opts, cfg, sounder):
                 out = dech.feed(buf[0, :take])
                 if len(out):
                     out.tofile(fh)
-                    written += len(out)
-                busy += time.perf_counter() - started
+                    counters["written"] += len(out)
+                counters["busy"] += time.perf_counter() - started
 
         if thread is not None:
             full_q.put(None)
             thread.join()
-    if failure:
-        print("  *** the dechirp thread raised: %s" % failure[0])
 
-    streamer.issue_stream_cmd(uhd.types.StreamCMD(uhd.types.StreamMode.stop_cont))
-    elapsed = (time.time() - began) if began else 0.0
+    radio.streamer.issue_stream_cmd(
+        uhd.types.StreamCMD(uhd.types.StreamMode.stop_cont))
+
+    if failure:
+        result["error"] = "dechirp thread: %s" % failure[0]
+
+    result["got"] = got_total
+    result["written"] = counters["written"]
+    result["busy"] = counters["busy"]
+    result["overflows"] = overflows
+    result["short_reads"] = short_reads
+    result["stalled"] = stalled
+    result["elapsed"] = (time.time() - began) if began else 0.0
+    result["incomplete"] = got_total < wanted
 
     # A capture that stopped early is not a capture. Rename it so the console
     # does not try to load a header promising 250 s in front of no data.
-    incomplete = got_total < wanted
-    if incomplete:
+    if result["incomplete"]:
         partial = path + ".partial"
         try:
             os.replace(path, partial)
+            result["path"] = partial
         except OSError:
-            partial = path
+            pass
 
-    print()
-    print("  received  %d samples (%.1f s of signal)" % (got_total, got_total / sr))
-    if short_reads:
-        print("  short reads %d (recv returned less than a full block)" % short_reads)
+    try:
+        result["bytes"] = os.path.getsize(result["path"])
+    except OSError:
+        result["bytes"] = 0
+    return result
+
+
+def report(result, opts, sr, dec, log):
+    """Say what one capture did. Returns 0 clean, 1 lossy, 2 failed."""
+    log("  received  %d samples (%.1f s of signal)"
+        % (result["got"], result["got"] / sr))
+    if result["short_reads"]:
+        log("  short reads %d (recv returned less than a full block)"
+            % result["short_reads"])
+
     # Stat the file rather than reporting what we believe we wrote. Reporting
-    # the computed size hid a missing header through several captures: the
-    # number printed was always right and the file was always 512 bytes short.
-    expected = LFS_TOTAL + written * 8
-    actual = os.path.getsize(partial if incomplete else path)
-    print("  wrote     %d samples at %.0f Hz -> %d bytes"
-          % (written, sr / dec, actual))
-    if actual != expected:
-        print("  *** expected %d bytes (%d header + %d samples). The file is"
-              % (expected, LFS_TOTAL, written * 8))
-        print("  *** %+d bytes off, so it is not what it claims to be." % (actual - expected))
-    print("  overflows %d" % overflows)
+    # the computed size once hid a missing header through several captures: the
+    # number printed was right every time and the file was wrong every time.
+    expected = LFS_TOTAL + result["written"] * 8
+    log("  wrote     %d samples at %.0f Hz -> %d bytes"
+        % (result["written"], sr / dec, result["bytes"]))
+    if result["bytes"] != expected:
+        log("  *** expected %d bytes (%d header + %d samples); the file is %+d off"
+            % (expected, LFS_TOTAL, result["written"] * 8,
+               result["bytes"] - expected))
+    log("  overflows %d" % result["overflows"])
 
     # Not "how many times real time": the radio delivers samples at exactly sr,
     # so a live capture can never finish faster than the signal arrives and that
-    # ratio is pinned at 1.0 no matter how much headroom there is. What matters
-    # is how much of the wall clock the dechirp needed, and whether the receiver
-    # ever had to wait for it.
-    if elapsed > 1.0 and not incomplete:
-        occupancy = busy / elapsed
-        print("  dechirp   busy %.0f%% of the capture (%.1f s of %.1f s)"
-              % (100 * occupancy, busy, elapsed))
+    # ratio is pinned at 1.0 however much headroom there is. What matters is how
+    # much of the wall clock the dechirp needed.
+    if result["elapsed"] > 1.0 and not result["incomplete"]:
+        occupancy = result["busy"] / result["elapsed"]
+        log("  dechirp   busy %.0f%% of the capture (%.1f s of %.1f s)"
+            % (100 * occupancy, result["busy"], result["elapsed"]))
         if opts.threads:
-            print("  receiver  stalled %.2f s waiting for a free buffer" % stalled)
+            log("  receiver  stalled %.2f s waiting for a free buffer"
+                % result["stalled"])
         headroom = (1.0 / occupancy) if occupancy > 0 else float("inf")
         if occupancy < 0.7:
-            print("  %.1fx headroom -- comfortable." % headroom)
+            log("  %.1fx headroom -- comfortable." % headroom)
         elif occupancy < 0.95:
-            print("  %.1fx headroom -- it fits, but anything else running will"
-                  " cost samples." % headroom)
+            log("  %.1fx headroom -- it fits, but anything else running will"
+                " cost samples." % headroom)
         else:
-            print("  *** no headroom. The dechirp is saturating a core; expect")
-            print("  *** overflows whenever the machine does anything else.")
+            log("  *** no headroom. The dechirp is saturating a core; expect")
+            log("  *** overflows whenever the machine does anything else.")
 
-    if incomplete:
-        print()
-        print("  *** CAPTURE FAILED after %.1f s of the %.0f s expected."
-              % (got_total / sr, wanted / sr))
-        print("  *** Renamed to %s so the console will not try to read it."
-              % os.path.basename(partial))
+    if result["aborted"]:
+        log("  stopped on request after %.1f s" % (result["got"] / sr))
+        return 2
+    if result["incomplete"]:
+        log("  *** CAPTURE FAILED after %.1f s of the %.0f s expected"
+            % (result["got"] / sr, result["wanted"] / sr))
+        if result["error"]:
+            log("  *** %s" % result["error"])
+        log("  *** kept as %s" % os.path.basename(result["path"]))
         if opts.args and "frame_size" in opts.args:
-            print("  ***")
-            print("  *** You passed a frame size in --args. A stream that dies")
-            print("  *** immediately with dropped packets is the signature of a")
-            print("  *** path that cannot carry the frames it agreed to. Retry")
-            print("  *** without it before looking anywhere else.")
+            log("  *** You passed a frame size in --args. A stream that dies")
+            log("  *** immediately is the signature of a path that cannot carry")
+            log("  *** the frames it agreed to. Retry without it.")
         return 2
 
-    if overflows == 0:
-        print()
-        print("  Clean capture. Point the console at %s"
-              % os.path.dirname(os.path.dirname(path)))
-    elif overflows <= 5:
-        print()
-        print("  %d overflow%s in %.0f s -- a gap of well under a millisecond"
-              % (overflows, "" if overflows == 1 else "s", got_total / sr))
-        print("  each. The ionogram is worth looking at; a chirp sounding")
-        print("  integrates over the whole sweep, so brief gaps cost a little")
-        print("  signal-to-noise rather than the trace itself.")
-    else:
-        print()
-        print("  *** %d overflows. Enough lost signal to matter." % overflows)
+    if result["overflows"] == 0:
+        log("  clean capture")
+        return 0
+    if result["overflows"] <= 5:
+        log("  %d overflow%s -- gaps of well under a millisecond each; a chirp"
+            % (result["overflows"], "" if result["overflows"] == 1 else "s"))
+        log("  sounding integrates across the whole sweep, so this costs a"
+            " little SNR rather than the trace")
+        return 0
+    log("  *** %d overflows -- enough lost signal to matter" % result["overflows"])
+    return 1
 
-    print()
-    print("  read it with:   python3 python/lfs_info.py %s" % path)
-    return 0 if overflows == 0 else 1
+
+def pick_next(sounders):
+    """The station whose next chirp comes soonest.
+
+    One receiver can only follow one sweep at a time. The original ran several
+    in parallel threads, one per receiver; with a single radio the useful
+    equivalent is simply to take whichever is due first.
+    """
+    now = time.time()
+    best, best_t = None, None
+    for s in sounders:
+        t = determine_next(s["rep"], s["chirpt"], now)
+        if best_t is None or t < best_t:
+            best, best_t = s, t
+    return best, best_t
+
+
+def enough_disk(root, need_bytes, floor_bytes, log):
+    try:
+        free = shutil.disk_usage(root).free
+    except OSError as exc:
+        log("  cannot check free space on %s: %s" % (root, exc))
+        return True                     # do not refuse to work over this
+    if free >= need_bytes + floor_bytes:
+        return True
+    log("  *** NOT ENOUGH DISK: %.1f GB free; this capture needs %.0f MB on"
+        % (free / 2 ** 30, need_bytes / 2 ** 20))
+    log("  *** top of a %.1f GB floor. Skipping this sounding."
+        % (floor_bytes / 2 ** 30))
+    log("  *** A station at rep=300 writes about 23 GB a day. Move captures")
+    log("  *** off, or lower --min-free-gb if you know what you are doing.")
+    return False
+
+
+def run_live(opts, cfg, sounders):
+    import signal as signal_module
+
+    sr = float(cfg["sample_rate"])
+    dec = int(cfg["dec"])
+    outroot = opts.outdir or cfg.get("data_dir", ".")
+    os.makedirs(outroot, exist_ok=True)
+    log = Logger(outroot)
+
+    first = sounders[0]
+    log("sounder    %s%s"
+        % (", ".join(s["name"] for s in sounders),
+           "" if len(sounders) == 1 else "  (whichever is due first)"))
+    log("  centre   %.3f MHz, sweeping %.3f -> %.3f MHz at %g kHz/s"
+        % (first["cf"] / 1e6, (first["cf"] - sr / 2) / 1e6,
+           (first["cf"] - sr / 2 + first["dur"] * first["rate"]) / 1e6,
+           first["rate"] / 1e3))
+    log("  sampling %.3f MS/s, dec %d -> %.0f Hz out" % (sr / 1e6, dec, sr / dec))
+    log("  archive  %s" % outroot)
+    if opts.duration:
+        log("  duration %g s -- SHORTENED for a test; the header still says %d"
+            % (opts.duration, first["dur"]))
+
+    radio = Radio(opts, cfg, float(first["cf"]))
+    log("  %d receive buffers of %d samples, dechirp on %s"
+        % (radio.nbuf, radio.spb,
+           "a worker thread" if opts.threads else "the receive thread"))
+
+    stop = {"now": False}
+
+    def on_signal(signum, _frame):
+        if stop["now"]:                 # a second one means "now, really"
+            log("second signal -- exiting immediately")
+            raise SystemExit(130)
+        stop["now"] = True
+        log("signal %d received; finishing and stopping" % signum)
+
+    signal_module.signal(signal_module.SIGINT, on_signal)
+    signal_module.signal(signal_module.SIGTERM, on_signal)
+
+    limit = opts.count if opts.count else (0 if opts.loop else 1)
+    floor_bytes = int(opts.min_free_gb * 2 ** 30)
+    done = 0
+    clean = 0
+    worst = 0
+    skips = 0
+
+    while not stop["now"]:
+        sounder, t0 = pick_next(sounders)
+        dur = float(opts.duration if opts.duration else sounder["dur"])
+        need = LFS_TOTAL + int((sr / dec) * dur) * 8
+
+        stamp = time.gmtime(t0)
+        day = time.strftime("%Y.%m.%d", stamp)
+        name = "%s_%04d%02d%02d_%02d%02d%02d.lfs" % (
+            sounder["name"], stamp.tm_year, stamp.tm_mon, stamp.tm_mday,
+            stamp.tm_hour, stamp.tm_min, stamp.tm_sec)
+        outdir = os.path.join(outroot, day)
+
+        log("")
+        log("%s at %s UTC (%.0f s away) -> %s/%s"
+            % (sounder["name"],
+               time.strftime("%Y-%m-%d %H:%M:%S", stamp), t0 - time.time(),
+               day, name))
+
+        if not enough_disk(outroot, need, floor_bytes, log):
+            skips += 1
+            if skips >= 3:
+                log("  *** three windows skipped for want of disk. Stopping:")
+                log("  *** nothing here will free space, and a sounder that")
+                log("  *** silently records nothing is worse than one that")
+                log("  *** stops and says why.")
+                worst = max(worst, 2)
+                break
+            # Sit out this window rather than spinning: the next one is a whole
+            # repetition period away and nothing will have changed before then.
+            while time.time() < t0 + dur and not stop["now"]:
+                time.sleep(1.0)
+            continue
+        skips = 0
+
+        try:
+            os.makedirs(outdir, exist_ok=True)
+        except OSError as exc:
+            log("  cannot create %s: %s" % (outdir, exc))
+            break
+
+        try:
+            result = capture_one(radio, opts, cfg, sounder, t0,
+                                 os.path.join(outdir, name), log, stop)
+        except Exception as exc:
+            # One bad sounding must not end an unattended run.
+            log("  *** capture raised: %s" % exc)
+            worst = max(worst, 2)
+            done += 1
+            if limit and done >= limit:
+                break
+            continue
+
+        if result["aborted"] and result["got"] == 0:
+            log("  stopped before the sounding began")
+            break
+
+        rc = report(result, opts, sr, dec, log)
+        worst = max(worst, rc)
+        done += 1
+        if rc == 0:
+            clean += 1
+        if limit and done >= limit:
+            break
+
+    if done > 1 or opts.loop or opts.count:
+        log("")
+        log("%d sounding%s, %d clean" % (done, "" if done == 1 else "s", clean))
+    if done == 1 and worst == 0:
+        log("")
+        log("  point the console at %s" % outroot)
+    return worst
 
 
 def benchmark(opts):
@@ -745,7 +948,6 @@ def repair_header(opts, cfg, sounder):
     the start time from the filename the capture was given.
     """
     import re
-    import shutil
 
     path = opts.repair
     with open(path, "rb") as fh:
@@ -836,7 +1038,14 @@ def main():
                     help="prepend a header to a capture that lost one")
     ap.add_argument("--raw-out", default="")
     ap.add_argument("--config", default="/tmp/out/chirp_config.py")
-    ap.add_argument("--station", default="", help="which sounder; default the first")
+    ap.add_argument("--station", default="",
+                    help="restrict to one sounder; default all of them")
+    ap.add_argument("--loop", action="store_true",
+                    help="keep sounding until stopped, instead of once")
+    ap.add_argument("--count", type=int, default=0,
+                    help="stop after this many soundings (implies looping)")
+    ap.add_argument("--min-free-gb", type=float, default=5.0,
+                    help="refuse to start a capture that would leave less free")
     ap.add_argument("--args", default="addr=192.168.10.3")
     ap.add_argument("--subdev", default="A:A")
     ap.add_argument("--outdir", default="")
@@ -877,17 +1086,17 @@ def main():
               % (opts.config, cfg.get("sounders")))
         print("The console only emits a station whose schedule has active=true.")
         return 2
-    chosen = sounders[0]
     if opts.station:
         matches = [s for s in sounders if s.get("name") == opts.station]
         if not matches:
             print("no sounder named %r; have: %s"
                   % (opts.station, ", ".join(s.get("name", "?") for s in sounders)))
             return 2
-        chosen = matches[0]
+        sounders = matches
+    chosen = sounders[0]
     if opts.repair:
         return repair_header(opts, cfg, chosen)
-    return run_live(opts, cfg, chosen)
+    return run_live(opts, cfg, sounders)
 
 
 if __name__ == "__main__":

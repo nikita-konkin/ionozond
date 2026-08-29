@@ -135,6 +135,35 @@ archive:
   against a synthetic echo and needs no radio; its `--benchmark` measures
   whether the host can sustain 25 MS/s before any radio is involved.
 
+### Continuous operation
+
+```bash
+sudo python3 tools/rx_dechirp.py --config ~/chirp_config.py --outdir ~/ionograms --loop
+```
+
+Without `--loop` it records one sounding and exits; with it, it keeps going
+until stopped. `--count N` stops after N. What the loop does between captures:
+
+- picks whichever station is due first, so several transmitters share one
+  receiver in the order the sky offers them
+- rolls the day directory over at UTC midnight
+- checks free space first and **skips** a sounding it cannot fit, stopping
+  after three consecutive skips rather than quietly recording nothing
+- keeps going when a single capture fails, leaving the wreck as `.partial`
+- appends to `chirp.log` beside the archive
+- finishes the sounding in progress on SIGINT or SIGTERM instead of truncating
+  it; a second signal exits at once
+
+The radio is opened once and reused. Opening a USRP and disciplining its clock
+from GPS takes several seconds, and at `rep=300` with `dur=250` there are only
+fifty between soundings.
+
+Run it under systemd for real deployments — `tools/ionozond-sounder.service`
+is a template with the paths and the `usrp` group membership already set out.
+
+**Disk is the binding constraint.** One station at `rep=300` writes about 23 GB
+a day, so 67 GB of free SSD is under three days. `--min-free-gb` defaults to 5.
+
 `rx_dechirp.py` is the seed of chirpsounder1 and moves to that repository once
 it exists. It stays MIT-clean: it is a port of the *algorithm* as inferred from
 declarations and from the geometry the console verifies, not a copy of the
