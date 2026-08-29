@@ -498,19 +498,23 @@ def run_live(opts, cfg, sounder):
           % (nbuf, spb, "a worker thread" if opts.threads else "the receive thread"))
 
     failure = []
+    busy = 0.0          # seconds the dechirp actually spent working
+    stalled = 0.0       # seconds the receiver spent waiting for a free buffer
 
     def worker(fh):
-        nonlocal written
+        nonlocal written, busy
         while True:
             item = full_q.get()
             if item is None:
                 return
             block, count = item
             try:
+                started = time.perf_counter()
                 out = dech.feed(block[0, :count])
                 if len(out):
                     out.tofile(fh)
                     written += len(out)
+                busy += time.perf_counter() - started
             except Exception as exc:            # keep the receive loop alive
                 failure.append(exc)
             finally:
@@ -543,12 +547,16 @@ def run_live(opts, cfg, sounder):
 
             if thread is not None:
                 full_q.put((buf, take))
+                waited = time.perf_counter()
                 buf = free_q.get()          # blocks if the dechirp fell behind
+                stalled += time.perf_counter() - waited
             else:
+                started = time.perf_counter()
                 out = dech.feed(buf[0, :take])
                 if len(out):
                     out.tofile(fh)
                     written += len(out)
+                busy += time.perf_counter() - started
 
         if thread is not None:
             full_q.put(None)
@@ -566,15 +574,43 @@ def run_live(opts, cfg, sounder):
     print("  wrote     %d samples at %.0f Hz -> %d bytes"
           % (written, sr / dec, 512 + written * 8))
     print("  overflows %d" % overflows)
+
+    # Not "how many times real time": the radio delivers samples at exactly sr,
+    # so a live capture can never finish faster than the signal arrives and that
+    # ratio is pinned at 1.0 no matter how much headroom there is. What matters
+    # is how much of the wall clock the dechirp needed, and whether the receiver
+    # ever had to wait for it.
     if elapsed > 0:
-        margin = (got_total / sr) / elapsed
-        print("  kept up   %.2fx real time" % margin)
-        if margin < 1.0:
-            print("  *** SLOWER THAN REAL TIME. The dechirp cannot sustain this")
-            print("  *** rate on this machine, which is what the overflow count")
-            print("  *** above is really telling you.")
-    if overflows:
-        print("  *** samples were lost, so the ionogram will have gaps")
+        occupancy = busy / elapsed
+        print("  dechirp   busy %.0f%% of the capture (%.1f s of %.1f s)"
+              % (100 * occupancy, busy, elapsed))
+        if opts.threads:
+            print("  receiver  stalled %.2f s waiting for a free buffer" % stalled)
+        headroom = (1.0 / occupancy) if occupancy > 0 else float("inf")
+        if occupancy < 0.7:
+            print("  %.1fx headroom -- comfortable." % headroom)
+        elif occupancy < 0.95:
+            print("  %.1fx headroom -- it fits, but anything else running will"
+                  " cost samples." % headroom)
+        else:
+            print("  *** no headroom. The dechirp is saturating a core; expect")
+            print("  *** overflows whenever the machine does anything else.")
+
+    if overflows == 0:
+        print()
+        print("  Clean capture. Point the console at %s"
+              % os.path.dirname(os.path.dirname(path)))
+    elif overflows <= 5:
+        print()
+        print("  %d overflow%s in %.0f s -- a gap of well under a millisecond"
+              % (overflows, "" if overflows == 1 else "s", got_total / sr))
+        print("  each. The ionogram is worth looking at; a chirp sounding")
+        print("  integrates over the whole sweep, so brief gaps cost a little")
+        print("  signal-to-noise rather than the trace itself.")
+    else:
+        print()
+        print("  *** %d overflows. Enough lost signal to matter." % overflows)
+
     print()
     print("  read it with:   python3 python/lfs_info.py %s" % path)
     return 0 if overflows == 0 else 1
