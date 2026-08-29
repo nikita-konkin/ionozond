@@ -133,6 +133,30 @@ Overflows are the verdict — UHD states explicitly when it discarded data. The
 achieved rate is printed as a cross-check, and only counts as a failure below
 90% of the configured rate; a percent or two is the measurement, not the radio.
 
+### 6. Host clock
+
+```bash
+sudo bash 14-time-sync.sh                  # ns1.volgatech.net, the site's server
+sudo bash 14-time-sync.sh pool.ntp.org
+sudo bash 14-time-sync.sh --from-gps       # no usable NTP: read the radio's GPSDO
+```
+
+The first host tested here had `NTP service: inactive` and a clock 3.9 s from
+GPS. That does **not** ruin a capture — the sweep starts on the radio's
+GPS-disciplined clock — but the host clock still picks which repetition window
+is next and names every file, and an unsynchronised laptop drifts tens of
+seconds a day. Once the error approaches half a repetition period, the wrong
+window gets chosen.
+
+The script resolves and probes the server before changing anything, writes a
+`systemd-timesyncd` drop-in, and then waits to see whether synchronisation
+actually happens rather than assuming it. `--from-gps` is the fallback for a
+site where UDP 123 is blocked: it reads `gps_time` from the radio and sets the
+clock once. That is a correction, not discipline — the clock drifts again, so
+it belongs in cron if NTP is genuinely unavailable.
+
+Changing the clock mid-run is safe. Captures are scheduled against the radio.
+
 ## UHD on Ubuntu 24.04
 
 ```bash
