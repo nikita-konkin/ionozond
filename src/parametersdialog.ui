@@ -104,7 +104,37 @@ m-последовательности:</string></property></widget></item>
         <property name="text"><string>длительность импульса (мс):</string></property></widget></item>
        <item row="14" column="3"><widget class="QLineEdit" name="edtImpulseLength"/></item>
 
-       <item row="15" column="0" colspan="5">
+       <item row="15" column="0"><widget class="QLabel" name="lblObjFilter">
+        <property name="text"><string>&lt;b&gt;Очистка ионограммы&lt;/b&gt;</string></property>
+        <property name="toolTip"><string>Точка сохраняется, только если внутри окна вокруг неё
+светится не меньше заданного числа соседей. Больше порог -- чище фон,
+но слабый след пропадает вместе с помехой.</string></property></widget></item>
+
+       <item row="16" column="0"><widget class="QLabel" name="lblObjSizeH">
+        <property name="text"><string>окно очистки (спектров):</string></property></widget></item>
+       <item row="16" column="1"><widget class="QSpinBox" name="spbObjSizeH">
+        <property name="minimum"><number>1</number></property>
+        <property name="maximum"><number>51</number></property>
+        <property name="singleStep"><number>2</number></property></widget></item>
+       <item row="16" column="2"><widget class="QLabel" name="lblObjSizeV">
+        <property name="text"><string>по задержке (строк):</string></property></widget></item>
+       <item row="16" column="3"><widget class="QSpinBox" name="spbObjSizeV">
+        <property name="minimum"><number>1</number></property>
+        <property name="maximum"><number>51</number></property>
+        <property name="singleStep"><number>2</number></property></widget></item>
+
+       <item row="17" column="0"><widget class="QLabel" name="lblObjLevel">
+        <property name="text"><string>порог соседей:</string></property></widget></item>
+       <item row="17" column="1"><widget class="QDoubleSpinBox" name="spbObjLevel">
+        <property name="decimals"><number>1</number></property>
+        <property name="minimum"><double>0.0</double></property>
+        <property name="maximum"><double>2601.0</double></property>
+        <property name="singleStep"><double>1.0</double></property></widget></item>
+       <item row="17" column="2" colspan="3"><widget class="QLabel" name="lblObjLevelHint">
+        <property name="styleSheet"><string notr="true">color: #808080;</string></property>
+        <property name="text"><string/></property></widget></item>
+
+       <item row="18" column="0" colspan="5">
         <spacer name="vspBase">
          <property name="orientation"><enum>Qt::Vertical</enum></property>
          <property name="sizeHint" stdset="0"><size><width>20</width><height>10</height></size></property>

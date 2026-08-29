@@ -251,8 +251,9 @@ Three settings decide what an ionogram looks like. Measured on a real capture
 
 A point survives only if it has `obj_level` neighbours inside an
 `obj_size_horizontal` x `obj_size_vertical` window. The original hard-coded
-9 x 3 and 11; all three are now read from `config.ini`, because the right
-value depends on the path and on the interference at a site.
+9 x 3 and 11; all three are now read from `config.ini` and settable in the
+parameters dialog under **Очистка ионограммы**, because the right value depends
+on the path and on the interference at a site.
 
 | setting | surviving points | LUF | MUF |
 |---|---|---|---|
@@ -263,10 +264,57 @@ value depends on the path and on the interference at a site.
 | window 9x5 | 33227 | 7.66 | 32.34 |
 
 Lower keeps more of a faint trace and more noise; higher gives a sparser but
-cleaner one. Note what the band edges do: at level 11 the LUF/MUF span nearly
+cleaner one.
+
+**Do not go above half the window.** 9 x 3 is 27 cells, so `obj_level` 14 asks a
+point to have more lit neighbours than dark ones. An oblique trace is one or two
+delay rows thick, so most of the window around even a strong trace is background
+and it cannot meet that test: level 14 keeps 4179 points where 11 keeps 14028.
+The SNR and usage-frequency panels are computed from whatever survives the gate,
+so they thin out with it and look broken rather than empty. The dialog now warns
+when the threshold crosses half the window, and restates it as "N из 27" —
+a threshold means nothing without the window it is measured against. Note what the band edges do: at level 11 the LUF/MUF span nearly
 the whole sweep, which means noise is still being counted as signal. Stricter
 cleaning narrows it to something physically plausible — worth remembering that
 LUF and MUF are only as good as the gate that feeds them.
+
+### Whitening — `whiten`, `whiten_len`, `whiten_n`
+
+`juha::whiten(nfft, navg)` ran ahead of the downconvert and the archive was
+recorded with it on (`whiten=1, whiten_len=8192, whiten_n=30000`). Its
+implementation is **not** in the backup — only a stock GNU Radio header with no
+description — so `Whitener` in `tools/rx_dechirp.py` is a reconstruction from
+the parameter names and `chirp_calc.py`'s one-line description of it as "the
+amplitude domain adaptive filter before chirp downconversion".
+
+Each FFT bin is divided by the running RMS of that bin, so a strong broadcast
+carrier contributes one bin at unit amplitude instead of a spike the dechirp
+smears across the delay axis. Measured against a synthetic echo at 8.9 ms with
+four strong carriers added, scoring the echo against the worst other peak:
+
+| | echo above the rest |
+|---|---|
+| unwhitened | 27.7 dB |
+| nfft 4096, navg 300 | 22.4 dB |
+| nfft 8192, navg 3000 | 31.2 dB |
+| **nfft 8192, navg 30000 (the archive's)** | **33.4 dB** |
+
+The echo's beat frequency was -890.0 Hz in every case, so the delay it reports
+is untouched. Two things this measurement settled:
+
+- **Small `navg` makes it worse than not whitening at all.** The gain estimate
+  wobbles from chunk to chunk and amplitude-modulates the trace. The archive's
+  30000 averages over roughly ten seconds, which is why it was chosen.
+- **It needs scipy.** numpy promotes complex64 to complex128 for every
+  transform: 77 MS/s against scipy's 140 on the same machine. `make_whitener`
+  refuses to start without it rather than quietly dropping samples.
+
+Cost is the real constraint. Whitening runs in the same worker thread as the
+dechirp, so the two add: 235 MS/s for the dechirp alone became 56 MS/s for the
+pair on the development machine. **Run `rx_dechirp.py --benchmark` on the
+sounding host before enabling it** — the benchmark now reports the combined
+figure at one and two FFT threads, and whitening buys nothing if the result is
+a capture with holes in it.
 
 ### FFT length — `fft_count`, in the parameters dialog
 

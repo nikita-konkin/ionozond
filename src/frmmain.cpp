@@ -95,7 +95,7 @@ void frmMain::CreateSessionRows()
  * session rows, the captures loaded for each station -- has to be built again,
  * or the dialog appears to do nothing at all.
  */
-void frmMain::RebuildStations()
+void frmMain::RebuildStations(const QString &reason)
 {
     for (int i = 0; i < m_igFrames.size(); ++i)
         delete m_igFrames.at(i);
@@ -118,7 +118,8 @@ void frmMain::RebuildStations()
     QStringList names;
     for (int i = 0; i < m_sessionParams.size(); ++i)
         names << m_sessionParams.at(i).name;
-    console(QString(QLatin1String("schedule reloaded: %1"))
+    console(QString(QLatin1String("%1 reloaded: %2"))
+                .arg(reason.isEmpty() ? QLatin1String("schedule") : reason)
                 .arg(names.isEmpty() ? QLatin1String("no active transmitters")
                                      : names.join(QLatin1String(", "))),
             Qt::yellow);
@@ -669,7 +670,17 @@ void frmMain::on_btnSchedule_clicked()
     dlg->show();
 }
 
-void frmMain::ParamsDlgClose()   {}
+void frmMain::ParamsDlgClose()
+{
+    /*
+     * Was an empty stub, so every parameter change looked like it had done
+     * nothing until the next restart. The ionogram widgets take the base
+     * parameters by value at construction -- there is no setter -- so the
+     * honest way to apply a change is to build them again, which also
+     * re-renders the stored captures through the new filter settings.
+     */
+    RebuildStations(QLatin1String("parameters"));
+}
 void frmMain::ScheduleDlgClose()
 {
     RebuildStations();

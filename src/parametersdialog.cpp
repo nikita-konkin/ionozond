@@ -21,6 +21,10 @@ ParametersDialog::ParametersDialog(QSettings *settings, QWidget *parent)
     connect(ui->chbFilter, SIGNAL(toggled(bool)), ui->lblFilterLen, SLOT(setEnabled(bool)));
     connect(ui->chbFilter, SIGNAL(toggled(bool)), ui->lblFilterPointsCount, SLOT(setEnabled(bool)));
 
+    connect(ui->spbObjSizeH, SIGNAL(valueChanged(int)), this, SLOT(UpdateObjLevelHint()));
+    connect(ui->spbObjSizeV, SIGNAL(valueChanged(int)), this, SLOT(UpdateObjLevelHint()));
+    connect(ui->spbObjLevel, SIGNAL(valueChanged(double)), this, SLOT(UpdateObjLevelHint()));
+
     connect(ui->chbDirectSignalCutting, SIGNAL(toggled(bool)),
             ui->edtLfsrPolynomeDegree, SLOT(setEnabled(bool)));
     connect(ui->chbDirectSignalCutting, SIGNAL(toggled(bool)),
@@ -69,6 +73,21 @@ void ParametersDialog::ReadSettings()
     ui->edtFilterPointsCount->setEnabled(whiten);
     ui->lblFilterLen->setEnabled(whiten);
     ui->lblFilterPointsCount->setEnabled(whiten);
+
+    /*
+     * Speckle filter. Hard-coded in the original at 9 x 3 / 11; exposed here
+     * because it is the one control that trades a faint trace against a clean
+     * background, and the right value depends on the path and the local
+     * interference. The hint under it spells out the window total, since a
+     * threshold only means anything relative to that.
+     */
+    ui->spbObjSizeH->setValue(
+        m_settings->value(QLatin1String("obj_size_horizontal"), 9).toInt());
+    ui->spbObjSizeV->setValue(
+        m_settings->value(QLatin1String("obj_size_vertical"), 3).toInt());
+    ui->spbObjLevel->setValue(
+        m_settings->value(QLatin1String("obj_level"), 11.0).toDouble());
+    UpdateObjLevelHint();
 
     /* Colour map combo: one entry per recovered map, index carried in UserRole. */
     ui->cmbIgColormap->clear();
@@ -139,6 +158,10 @@ void ParametersDialog::WriteSettings()
     m_settings->setValue(QLatin1String("whiten_len"), ui->edtFilterLen->text());
     m_settings->setValue(QLatin1String("whiten_n"), ui->edtFilterPointsCount->text());
 
+    m_settings->setValue(QLatin1String("obj_size_horizontal"), ui->spbObjSizeH->value());
+    m_settings->setValue(QLatin1String("obj_size_vertical"), ui->spbObjSizeV->value());
+    m_settings->setValue(QLatin1String("obj_level"), ui->spbObjLevel->value());
+
     m_settings->setValue(QLatin1String("ig_colormap_index"), ui->cmbIgColormap->currentIndex());
     m_settings->setValue(QLatin1String("colormap_gradient"), ui->chbColorGradient->isChecked());
 
@@ -162,6 +185,38 @@ void ParametersDialog::WriteSettings()
 
     m_settings->sync();
 }
+
+void ParametersDialog::UpdateObjLevelHint()
+{
+    const int window = ui->spbObjSizeH->value() * ui->spbObjSizeV->value();
+    const double level = ui->spbObjLevel->value();
+    ui->spbObjLevel->setMaximum(window);
+
+    QString text = tr("из %1 в окне").arg(window);
+    QString colour = QLatin1String("#808080");
+
+    if (window > 0) {
+        const double share = level / window;
+        if (share > 0.5) {
+            /* Above half the window a point needs more lit neighbours than
+             * dark ones. An oblique trace is one or two rows thick, so most of
+             * a 9x3 window around it is background and it cannot reach that --
+             * the trace is deleted along with the speckle, and the SNR and
+             * usage-frequency products, which are computed from what survives,
+             * go with it. */
+            text += tr("  --  жёстко: слабый след и ОСШ пропадут");
+            colour = QLatin1String("#c04040");
+        } else if (share < 0.2) {
+            text += tr("  --  мягко: фон останется шумным");
+        } else {
+            text += tr("  --  исходное 11 из 27");
+        }
+    }
+
+    ui->lblObjLevelHint->setText(text);
+    ui->lblObjLevelHint->setStyleSheet(QLatin1String("color: ") + colour + QLatin1Char(';'));
+}
+
 
 void ParametersDialog::on_btbOkCancel_accepted()
 {

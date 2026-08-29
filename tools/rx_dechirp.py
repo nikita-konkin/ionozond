@@ -105,6 +105,116 @@ def pack_lfs_header(tx_name, tx_lat, tx_lon, rx_name, rx_lat, rx_lon,
     return raw
 
 
+# ---------------------------------------------------------------- whitening
+
+# scipy's FFT keeps complex64 where numpy promotes to complex128, which is
+# most of a factor of two, and it can spread one batch over several threads.
+# Whitening is only affordable at 25 MS/s with it: measured 140 MS/s against
+# numpy's 77 on the same machine, and the laptop is about four times slower
+# than that.
+try:
+    from scipy import fft as _scipy_fft
+except ImportError:
+    _scipy_fft = None
+
+
+def _fft_rows(blocks, workers):
+    if _scipy_fft is not None:
+        return _scipy_fft.fft(blocks, axis=1, workers=workers)
+    return np.fft.fft(blocks, axis=1)
+
+
+def _ifft_rows(spec, workers):
+    if _scipy_fft is not None:
+        return _scipy_fft.ifft(spec, axis=1, workers=workers)
+    return np.fft.ifft(spec, axis=1)
+
+
+class Whitener:
+    """Flatten the noise floor ahead of the dechirp.
+
+    gr-juha ran juha::whiten(nfft, navg) before the downconvert, and the
+    archive was recorded with it on -- whiten=1, whiten_len=8192,
+    whiten_n=30000. Its implementation is NOT in the recovered backup: only a
+    stock GNU Radio header with no description. So this is a reconstruction
+    from the two parameter names and the one sentence the operators' own
+    analysis script gives it, "the amplitude domain adaptive filter before
+    chirp downconversion", plus what that filter has to do to be useful.
+
+    Each bin is divided by the running RMS of that bin, so a strong broadcast
+    carrier contributes one bin at unit amplitude instead of a spike the
+    dechirp smears across the whole delay axis.
+
+    The running estimate is updated once per chunk rather than once per block.
+    With navg = 30000 blocks of 8192 the average spans about ten seconds, over
+    which a hundred-odd blocks change it by nothing measurable -- and it makes
+    the whole operation a batched array expression instead of a Python loop.
+    """
+
+    def __init__(self, nfft, navg, workers=1):
+        self.nfft = int(nfft)
+        self.navg = max(1.0, float(navg))
+        self.workers = max(1, int(workers))
+        self.mean_power = None
+        self.mean_power_sqrt = np.empty(self.nfft, dtype=np.float64)
+        self._gain = None
+        self.carry = np.empty(0, dtype=np.complex64)
+
+    def feed(self, chunk):
+        if len(self.carry):
+            chunk = np.concatenate((self.carry, chunk))
+        whole = (len(chunk) // self.nfft) * self.nfft
+        self.carry = chunk[whole:].copy()
+        if whole == 0:
+            return np.empty(0, dtype=np.complex64)
+
+        blocks = chunk[:whole].reshape(-1, self.nfft)
+        spec = _fft_rows(blocks, self.workers)
+
+        # Squared in float32 and accumulated in float64. Converting the whole
+        # block to float64 first is the obvious way to write this and it cost
+        # more than both transforms put together -- two full-size temporaries
+        # per chunk, where the reduction needs the width and the elementwise
+        # square does not.
+        power = np.mean(spec.real ** 2 + spec.imag ** 2, axis=0,
+                        dtype=np.float64)
+
+        if self.mean_power is None:
+            self.mean_power = power
+        else:
+            beta = min(1.0, blocks.shape[0] / self.navg)
+            self.mean_power += beta * (power - self.mean_power)
+
+        if self._gain is None or len(self._gain) != self.nfft:
+            self._gain = np.empty(self.nfft, dtype=np.float32)
+        np.sqrt(self.mean_power, out=self.mean_power_sqrt)
+        np.copyto(self._gain, self.mean_power_sqrt, casting="unsafe")
+        self._gain[self._gain <= 0.0] = 1.0
+
+        np.divide(spec, self._gain, out=spec)
+        out = _ifft_rows(spec, self.workers).ravel()
+        return out.astype(np.complex64, copy=False)
+
+
+def make_whitener(cfg, opts):
+    """Build the whitener the config asks for, or None.
+
+    Refuses to run without scipy: numpy promotes complex64 to complex128 for
+    every transform, which measured 77 MS/s against scipy's 140 on the same
+    machine. Below 25 MS/s the sounder drops samples, and a whitened capture
+    with holes in it is worse than an unwhitened one.
+    """
+    if not cfg.get("whiten", False):
+        return None
+    nfft = int(cfg.get("whiten_len", 8192))
+    navg = int(cfg.get("whiten_n", 30000))
+    if _scipy_fft is None:
+        raise RuntimeError(
+            "whiten=1 needs scipy:  sudo apt-get install -y python3-scipy"
+            "  (or set whiten=0 in the config)")
+    return Whitener(nfft, navg, workers=getattr(opts, "fft_workers", 2))
+
+
 # ---------------------------------------------------------------- the dechirp
 
 class Dechirper:
@@ -133,27 +243,38 @@ class Dechirper:
         k = np.arange(self.TABLE_SIZE, dtype=np.float64)
         self.table = np.exp(-2j * np.pi * k / self.TABLE_SIZE).astype(np.complex64)
 
-        self._cache_len = 0
-        self._dt = None
-        self._dt2 = None
+        self._cache = {}
+        self._work = None
+        self._idx = None
+        self._gain = None
 
     def _local(self, length):
-        """Per-chunk constants and scratch, rebuilt only when the length changes.
+        """Per-chunk constants and scratch, built once per distinct length.
 
         The table scaling is folded into these arrays rather than applied to
         the phase afterwards: a separate multiply over a million float64s is a
         whole pass through memory for nothing.
+
+        Keyed by length rather than holding one set, because the whitener ahead
+        of this buffers to whole FFT blocks and so hands over two alternating
+        sizes. One set would be rebuilt on every single chunk.
         """
-        if length != self._cache_len:
+        entry = self._cache.get(length)
+        if entry is None:
             m = np.arange(length, dtype=np.float64)
             dt = m / self.sr
-            self._dt = dt * self.TABLE_SIZE
-            self._dt2 = (0.5 * self.rate * dt * dt) * self.TABLE_SIZE
-            self._work = np.empty(length, dtype=np.float64)
-            self._idx = np.empty(length, dtype=np.int64)
-            self._gain = np.empty(length, dtype=np.complex64)
-            self._cache_len = length
-        return self._dt, self._dt2
+            entry = {
+                "dt": dt * self.TABLE_SIZE,
+                "dt2": (0.5 * self.rate * dt * dt) * self.TABLE_SIZE,
+                "work": np.empty(length, dtype=np.float64),
+                "idx": np.empty(length, dtype=np.int64),
+                "gain": np.empty(length, dtype=np.complex64),
+            }
+            self._cache[length] = entry
+        self._work = entry["work"]
+        self._idx = entry["idx"]
+        self._gain = entry["gain"]
+        return entry["dt"], entry["dt2"]
 
     def phase_turns(self, length):
         """Replica phase for `length` samples from here, in table units.
@@ -664,6 +785,7 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
     result["lead"] = lead
 
     dech = Dechirper(sr, f0, rate, dec)
+    whit = make_whitener(cfg, opts)
     free_q = queue.Queue()
     full_q = queue.Queue()
     for b in radio.pool:
@@ -680,7 +802,12 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
             block, count = item
             try:
                 started = time.perf_counter()
-                out = dech.feed(block[0, :count])
+                samples = block[0, :count]
+                if whit is not None:
+                    # Safe to hand the pool buffer straight back afterwards:
+                    # feed() copies its carry and the transform allocates.
+                    samples = whit.feed(samples)
+                out = dech.feed(samples) if len(samples) else samples
                 if len(out):
                     out.tofile(fh)
                     counters["written"] += len(out)
@@ -1189,6 +1316,32 @@ def benchmark(opts):
     print("  needed              %.2f MS/s" % (sr / 1e6))
     print()
     margin = throughput / sr
+
+    # Whitening runs ahead of the dechirp in the same worker thread, so the
+    # two costs add. Measure the pair, because that sum is what has to clear
+    # 25 MS/s before whiten=1 is safe to switch on for a live run.
+    print("-" * 66)
+    if _scipy_fft is None:
+        print("  whitening: scipy missing, so whiten=1 would refuse to start.")
+        print("             sudo apt-get install -y python3-scipy")
+    else:
+        for workers in sorted({1, 2, opts.fft_workers}):
+            w = Whitener(opts.whiten_len, opts.whiten_n, workers=workers)
+            d2 = Dechirper(sr, -sr / 2.0, rate, dec)
+            d2.feed(w.feed(pool[0]))            # warm the tables
+            began = time.time()
+            for i in range(blocks):
+                d2.feed(w.feed(pool[i % len(pool)]))
+            both = (blocks * spb) / (time.time() - began)
+            print("  whiten(%d,%d) + dechirp, %d FFT thread%s: %6.2f MS/s   %.2fx"
+                  % (opts.whiten_len, opts.whiten_n, workers,
+                     " " if workers == 1 else "s", both / 1e6, both / sr))
+        print()
+        print("  Whitening is optional and off by default. Enable it only if a")
+        print("  line above clears 1.0x with room to spare -- it buys about 6 dB")
+        print("  against strong carriers, and nothing at all if samples drop.")
+    print("-" * 66)
+    print()
     print("  %.2fx real time for the dechirp alone." % margin)
     print()
     print("  This is not the whole story. Receiving costs real time too --")
@@ -1278,10 +1431,19 @@ def run_from_raw(opts):
     x = np.fromfile(opts.from_raw, dtype=np.complex64)
     print("  %d samples, %.3f s at %.3f MS/s" % (len(x), len(x) / sr, sr / 1e6))
     dech = Dechirper(sr, f0, rate, dec)
+    whit = None
+    if opts.whiten:
+        whit = Whitener(opts.whiten_len, opts.whiten_n,
+                        workers=opts.fft_workers)
+        print("  whitening: nfft %d, navg %d" % (opts.whiten_len, opts.whiten_n))
     out = []
     step = 1 << 20
     for pos in range(0, len(x), step):
-        out.append(dech.feed(x[pos:pos + step]))
+        blk = x[pos:pos + step]
+        if whit is not None:
+            blk = whit.feed(blk)
+        if len(blk):
+            out.append(dech.feed(blk))
     y = np.concatenate(out)
     y.tofile(opts.raw_out or "dechirped.c64")
     print("  wrote %d samples to %s"
@@ -1304,6 +1466,15 @@ def main():
     ap.add_argument("--repair", default="",
                     help="prepend a header to a capture that lost one")
     ap.add_argument("--raw-out", default="")
+    ap.add_argument("--whiten", action="store_true",
+                    help="whiten before dechirping (--from-raw and --benchmark)")
+    ap.add_argument("--whiten-len", type=int, default=8192,
+                    help="whitening FFT length; the archive used 8192")
+    ap.add_argument("--whiten-n", type=int, default=30000,
+                    help="blocks averaged for the noise floor; the archive "
+                         "used 30000. Small values wobble and blur the trace")
+    ap.add_argument("--fft-workers", type=int, default=2,
+                    help="threads for the whitening FFT (scipy releases the GIL)")
     ap.add_argument("--config", default="/tmp/out/chirp_config.py")
     ap.add_argument("--station", default="",
                     help="restrict to one sounder; default all of them")

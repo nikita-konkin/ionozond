@@ -85,7 +85,7 @@ private:
     /* The session rows only -- rebuilt whenever the schedule changes. */
     void CreateSessionRows();
     /* Rebuild everything the schedule decides, after it has been edited. */
-    void RebuildStations();
+    void RebuildStations(const QString &reason = QString());
     /* Session rows, CPU plot and disk pie in the right-hand panel. */
     void CreateControlPanel();
 
