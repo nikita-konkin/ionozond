@@ -39,12 +39,31 @@ transmitter sweep  ──▶  receiver  ──▶  .lfs capture  ──▶  .lfp
 
 ## Quick start
 
+Nothing to install but Docker. The console runs on a virtual display inside the
+container, published over noVNC, so you drive it in an ordinary browser at
+**http://localhost:6080/vnc.html**. The launcher builds the image on first use,
+which takes a few minutes.
+
 ```bash
-# build and run in a browser, nothing to install but Docker
-cd gui && ./ionozond-gui.ps1              # Windows
-docker run --rm -p 6080:6080 -v "$PWD:/work/ionozond" -v /archive:/data:ro \
-    ionozond-dev bash /work/ionozond/gui/run-gui.sh app     # Linux
+gui/ionozond-gui.sh                          # Linux
 ```
+
+```powershell
+gui\ionozond-gui.ps1                         # Windows
+```
+
+With an archive, and for the other modes:
+
+```bash
+gui/ionozond-gui.sh --data ~/captures
+gui/ionozond-gui.sh viewer --data ~/captures --capture cyprus1_20191023_071510.lfs
+gui/ionozond-gui.sh both --original ../dsChirp --data ~/captures
+```
+
+`--data` is optional; without it the console starts against an empty archive.
+The `original` and `both` modes run the shipped `dsChirp` binary side by side
+with the reconstruction, so they need `--original <dir>` pointing at a
+directory containing `bin/dsChirp` — that binary is not in this repository.
 
 Native build:
 

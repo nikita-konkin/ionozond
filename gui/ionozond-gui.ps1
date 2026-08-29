@@ -38,6 +38,10 @@ param(
 
     [string]$Project = 'N:\ds_shirp_revers_eng\ionozond',
 
+    # Directory holding bin\dsChirp, the shipped binary. Not part of this
+    # repository; only -Mode original and -Mode both need it.
+    [string]$Original = 'N:\ds_shirp_revers_eng\dsChirp',
+
     [int]$Port = 6080,
 
     [string]$Geometry = '1600x1000'
@@ -48,11 +52,17 @@ $ErrorActionPreference = 'Stop'
 if (-not (Test-Path $Project)) { throw "Project directory not found: $Project" }
 if (-not (Test-Path $Data))    { throw "Data directory not found: $Data" }
 
+if ($Mode -eq 'original' -or $Mode -eq 'both') {
+    if (-not (Test-Path "$Original\bin\dsChirp")) {
+        throw "-Mode $Mode runs the shipped binary, but no bin\dsChirp under: $Original"
+    }
+}
+
 # Is the image there?
 $img = docker images -q ionozond-dev 2>$null
 if (-not $img) {
     Write-Host "Building the dev image (first run only, a few minutes)..." -ForegroundColor Yellow
-    docker build -t ionozond-dev -f "$Project\dsChirp-src\docker\Dockerfile" "$Project\dsChirp-src\docker"
+    docker build -t ionozond-dev -f "$Project\docker\Dockerfile" "$Project\docker"
     if ($LASTEXITCODE -ne 0) { throw "docker build failed" }
 }
 
@@ -78,10 +88,19 @@ Start-Job -ScriptBlock {
     Start-Process "http://localhost:$p/vnc.html?autoconnect=true&resize=scale"
 } -ArgumentList $Port | Out-Null
 
+# run-gui.sh reads the source from /work/ionozond and the shipped binary from
+# /work/dsChirp, so mount each where it expects to find it.
+$mounts = @(
+    '-v', "${Project}:/work/ionozond",
+    '-v', "${Data}:/data:ro"
+)
+if (Test-Path "$Original\bin\dsChirp") {
+    $mounts += @('-v', "${Original}:/work/dsChirp:ro")
+}
+
 docker run --rm -it `
     -m 6g `
     -p "${Port}:6080" `
-    -v "${Project}:/work" `
-    -v "${Data}:/data:ro" `
+    @mounts `
     -e "GEOMETRY=$Geometry" `
     ionozond-dev bash /work/ionozond/gui/run-gui.sh @args
