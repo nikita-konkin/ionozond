@@ -153,10 +153,11 @@ class Whitener:
     the whole operation a batched array expression instead of a Python loop.
     """
 
-    def __init__(self, nfft, navg, workers=1):
+    def __init__(self, nfft, navg, workers=1, est_rows=32):
         self.nfft = int(nfft)
         self.navg = max(1.0, float(navg))
         self.workers = max(1, int(workers))
+        self.est_rows = max(1, int(est_rows))
         self.mean_power = None
         self.mean_power_sqrt = np.empty(self.nfft, dtype=np.float64)
         self._gain = None
@@ -172,19 +173,33 @@ class Whitener:
 
         blocks = chunk[:whole].reshape(-1, self.nfft)
         spec = _fft_rows(blocks, self.workers)
+        rows = blocks.shape[0]
 
         # Squared in float32 and accumulated in float64. Converting the whole
         # block to float64 first is the obvious way to write this and it cost
         # more than both transforms put together -- two full-size temporaries
         # per chunk, where the reduction needs the width and the elementwise
         # square does not.
-        power = np.mean(spec.real ** 2 + spec.imag ** 2, axis=0,
-                        dtype=np.float64)
-
+        #
+        # And only every stride'th row feeds the estimate. Measured, the power
+        # reduction was a quarter of the whole cost of whitening, and it is a
+        # quarter spent on precision the filter cannot use: with navg = 30000
+        # the running average spans about ten seconds, so beta is around 0.004
+        # and the variance of a single update is suppressed by that regardless
+        # of whether 122 rows went into it or 30.
         if self.mean_power is None:
-            self.mean_power = power
+            # Cold start is the exception: nothing is smoothing it yet, so the
+            # first estimate is worth paying full price for. Once per capture.
+            self.mean_power = np.mean(spec.real ** 2 + spec.imag ** 2, axis=0,
+                                      dtype=np.float64)
         else:
-            beta = min(1.0, blocks.shape[0] / self.navg)
+            stride = max(1, rows // self.est_rows)
+            sub = spec[::stride]
+            power = np.mean(sub.real ** 2 + sub.imag ** 2, axis=0,
+                            dtype=np.float64)
+            # beta tracks rows received, not rows sampled: the filter should
+            # follow the channel at the rate the channel arrives.
+            beta = min(1.0, rows / self.navg)
             self.mean_power += beta * (power - self.mean_power)
 
         if self._gain is None or len(self._gain) != self.nfft:
@@ -1387,7 +1402,11 @@ def benchmark(opts):
               % (os.cpu_count() or 1))
         print("  dechirp as three concurrent stages.")
         print()
-        for workers in sorted({1, 2, opts.fft_workers}):
+        cores = os.cpu_count() or 1
+        tried = {1, 2, opts.fft_workers}
+        if cores >= 8:
+            tried.add(4)                        # room for it; worth measuring
+        for workers in sorted(w for w in tried if w <= cores):
             w = Whitener(opts.whiten_len, opts.whiten_n, workers=workers)
             d2 = Dechirper(sr, -sr / 2.0, rate, dec)
             d2.feed(w.feed(pool[0]))            # warm the tables

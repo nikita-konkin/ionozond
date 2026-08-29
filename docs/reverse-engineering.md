@@ -328,6 +328,18 @@ fell behind, which is a worse failure than dropping the capture. Backpressure
 runs the existing path: the whitener blocks on the queue, `full_q` backs up,
 the receive loop waits for a free buffer.
 
+One further quarter of the cost came off the power estimate. Profiled per
+1 MS block, whitening spends 32% in the forward transform, 32% in the inverse,
+12% in the divide and **25% computing the mean power** — and that quarter buys
+precision the filter cannot use. With `navg = 30000` the running average spans
+about ten seconds, so beta is near 0.004 and the variance of any single update
+is suppressed regardless of whether 122 rows or 30 went into it. The estimate
+now reads every `rows // 32`'th row. Scored on the same synthetic echo, all
+rows and every 32nd both give 33.4 dB, and so does every 8th; only the cold
+start still pays full price, once per capture, because nothing is smoothing it
+yet. Note that beta still tracks rows *received*, not rows sampled — the filter
+should follow the channel at the rate the channel arrives.
+
 `--benchmark` reports both arrangements, and the pipelined line is the one that
 decides. **Run it on the sounding host before enabling whitening** — it buys
 nothing if the result is a capture with holes in it, and receiving still needs
