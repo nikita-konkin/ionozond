@@ -137,49 +137,71 @@ class Dechirper:
         self._dt2 = None
 
     def _local(self, length):
-        """Per-chunk offsets, cached: they only depend on the chunk length."""
+        """Per-chunk constants and scratch, rebuilt only when the length changes.
+
+        The table scaling is folded into these arrays rather than applied to
+        the phase afterwards: a separate multiply over a million float64s is a
+        whole pass through memory for nothing.
+        """
         if length != self._cache_len:
             m = np.arange(length, dtype=np.float64)
-            self._dt = m / self.sr
-            self._dt2 = 0.5 * self.rate * self._dt * self._dt
+            dt = m / self.sr
+            self._dt = dt * self.TABLE_SIZE
+            self._dt2 = (0.5 * self.rate * dt * dt) * self.TABLE_SIZE
+            self._work = np.empty(length, dtype=np.float64)
+            self._idx = np.empty(length, dtype=np.int64)
+            self._gain = np.empty(length, dtype=np.complex64)
             self._cache_len = length
         return self._dt, self._dt2
 
     def phase_turns(self, length):
-        """Replica phase in turns, for `length` samples from the current index.
+        """Replica phase for `length` samples from here, in table units.
 
         Split as a block constant plus local terms so the arithmetic stays in
         the thousands rather than the billions. Over a 250 s sounding the
-        absolute phase reaches ~3e9 turns; evaluating that directly in float64
-        would still work, but this keeps six more digits of margin and is the
-        same recurrence the C++ block used.
+        absolute phase reaches ~3e9 turns; this keeps six more digits of margin
+        and is the same recurrence the C++ block used.
         """
+        dt, dt2 = self._local(length)
         t0 = self.n / self.sr
         c0 = self.f0 * t0 + 0.5 * self.rate * t0 * t0
-        c1 = self.f0 + self.rate * t0          # instantaneous frequency here
-        dt, dt2 = self._local(length)
-        return (c0 - math.floor(c0)) + c1 * dt + dt2
+        # dt already carries both the 1/sr and the table scaling, so c1 stays
+        # in Hz -- the instantaneous frequency at the start of this block.
+        c1 = self.f0 + self.rate * t0
+        work = self._work
+        np.multiply(dt, c1, out=work)
+        np.add(work, dt2, out=work)
+        work += (c0 - math.floor(c0)) * self.TABLE_SIZE
+        return work
 
     def feed(self, chunk):
-        """Dechirp and decimate one chunk. Returns whatever completed."""
+        """Dechirp and decimate one chunk. Returns whatever completed.
+
+        Everything is written into buffers that persist between calls. At
+        25 MS/s each temporary is eight megabytes, and allocating three of them
+        per block costs more than the arithmetic does.
+        """
         length = len(chunk)
         if length == 0:
             return np.empty(0, dtype=np.complex64)
 
-        turns = self.phase_turns(length)
-        idx = (turns * self.TABLE_SIZE).astype(np.int64)
-        idx &= self.TABLE_SIZE - 1
-        mixed = chunk * self.table[idx]
+        units = self.phase_turns(length)
+        np.copyto(self._idx, units, casting="unsafe")   # truncate, no new array
+        self._idx &= self.TABLE_SIZE - 1
+        np.take(self.table, self._idx, out=self._gain)
+        np.multiply(chunk, self._gain, out=self._gain)
         self.n += length
 
+        mixed = self._gain
         if len(self.carry):
+            # Only happens when the chunk length is not a multiple of dec.
+            # Choosing spb as a multiple avoids this copy entirely.
             mixed = np.concatenate((self.carry, mixed))
         whole = (len(mixed) // self.dec) * self.dec
         self.carry = mixed[whole:].copy()
         if whole == 0:
             return np.empty(0, dtype=np.complex64)
-        block = mixed[:whole].reshape(-1, self.dec)
-        return block.mean(axis=1).astype(np.complex64)
+        return mixed[:whole].reshape(-1, self.dec).mean(axis=1)
 
 
 # ---------------------------------------------------------------- config file
@@ -407,9 +429,15 @@ def run_live(opts, cfg, sounder):
     stream_args = uhd.usrp.StreamArgs("fc32", "sc16")
     stream_args.channels = [0]
     streamer = usrp.get_rx_stream(stream_args)
-    spb = opts.spb
-    buf = np.empty((1, spb), dtype=np.complex64)
     metadata = uhd.types.RXMetadata()
+
+    # Round the block down to a multiple of the decimation. Otherwise every
+    # block leaves a remainder that has to be carried and concatenated onto the
+    # next one -- an eight-megabyte copy per block, for nothing.
+    spb = max(dec, (opts.spb // dec) * dec)
+    if spb != opts.spb:
+        print("  block size %d -> %d, a multiple of dec=%d"
+              % (opts.spb, spb, dec))
 
     # A timed start is only safe if the radio's clock really is on the same
     # epoch as the schedule. If setting it from GPS failed, the radio may still
@@ -446,11 +474,55 @@ def run_live(opts, cfg, sounder):
     overflows = 0
     got_total = 0
     written = 0
+    short_reads = 0
+
+    # Receiving and dechirping are both heavy and neither needs the other's
+    # result, so run them in parallel. UHD's recv and numpy's array ops both
+    # release the GIL, so a worker thread genuinely overlaps with the receive
+    # instead of merely interleaving with it. Blocks must still reach the
+    # dechirper in order -- the replica phase is continuous across them -- so
+    # there is exactly one worker and the queue preserves order.
+    import queue
+    import threading
+
+    nbuf = max(3, opts.buffers)
+    pool = [np.empty((1, spb), dtype=np.complex64) for _ in range(nbuf)]
+    free_q = queue.Queue()
+    full_q = queue.Queue()
+    for b in pool:
+        free_q.put(b)
+    buf = free_q.get()
 
     print("  writing %s" % path)
+    print("  %d receive buffers of %d samples, dechirp on %s"
+          % (nbuf, spb, "a worker thread" if opts.threads else "the receive thread"))
+
+    failure = []
+
+    def worker(fh):
+        nonlocal written
+        while True:
+            item = full_q.get()
+            if item is None:
+                return
+            block, count = item
+            try:
+                out = dech.feed(block[0, :count])
+                if len(out):
+                    out.tofile(fh)
+                    written += len(out)
+            except Exception as exc:            # keep the receive loop alive
+                failure.append(exc)
+            finally:
+                free_q.put(block)
+
     began = None
     with open(path, "wb") as fh:
-        fh.write(header)
+        thread = None
+        if opts.threads:
+            thread = threading.Thread(target=worker, args=(fh,), daemon=True)
+            thread.start()
+
         while got_total < wanted:
             timeout = max(5.0, t0 - time.time() + 5.0) if timed and began is None else 2.0
             got = streamer.recv(buf, metadata, timeout)
@@ -464,18 +536,33 @@ def run_live(opts, cfg, sounder):
                 continue
             if began is None:
                 began = time.time()
+            if got != spb:
+                short_reads += 1
             take = min(got, wanted - got_total)
-            out = dech.feed(buf[0, :take])
-            if len(out):
-                out.tofile(fh)
-                written += len(out)
             got_total += take
+
+            if thread is not None:
+                full_q.put((buf, take))
+                buf = free_q.get()          # blocks if the dechirp fell behind
+            else:
+                out = dech.feed(buf[0, :take])
+                if len(out):
+                    out.tofile(fh)
+                    written += len(out)
+
+        if thread is not None:
+            full_q.put(None)
+            thread.join()
+    if failure:
+        print("  *** the dechirp thread raised: %s" % failure[0])
 
     streamer.issue_stream_cmd(uhd.types.StreamCMD(uhd.types.StreamMode.stop_cont))
     elapsed = (time.time() - began) if began else 0.0
 
     print()
     print("  received  %d samples (%.1f s of signal)" % (got_total, got_total / sr))
+    if short_reads:
+        print("  short reads %d (recv returned less than a full block)" % short_reads)
     print("  wrote     %d samples at %.0f Hz -> %d bytes"
           % (written, sr / dec, 512 + written * 8))
     print("  overflows %d" % overflows)
@@ -501,38 +588,49 @@ def benchmark(opts):
     question hanging over running chirpsounder1 on an old laptop.
     """
     sr, rate, dec = opts.rate, opts.chirp_rate, opts.dec
-    spb = opts.spb
+    spb = max(dec, (opts.spb // dec) * dec)
     print("=" * 66)
     print(" dechirp throughput, %d samples per block" % spb)
     print("=" * 66)
 
-    x = (np.random.randn(spb) + 1j * np.random.randn(spb)).astype(np.complex64)
-    d = Dechirper(sr, -sr / 2.0, rate, dec)
+    # Rotate through a pool rather than reusing one array. Feeding the same
+    # buffer repeatedly leaves it in cache and overstates the result -- which is
+    # how an earlier version of this reported 2.3x on a host that then managed
+    # 0.83x live. Real blocks arrive fresh from the network every time.
+    pool = [(np.random.randn(spb) + 1j * np.random.randn(spb)).astype(np.complex64)
+            for _ in range(8)]
+    print("  input pool %.0f MB, cycled so nothing stays in cache"
+          % (8 * spb * 8 / 1e6))
 
-    d.feed(x)                                   # warm the caches and the tables
-    blocks = max(4, int(math.ceil(2.0 * sr / spb)))
+    d = Dechirper(sr, -sr / 2.0, rate, dec)
+    d.feed(pool[0])                             # build the tables and scratch
+    blocks = max(8, int(math.ceil(2.0 * sr / spb)))
     began = time.time()
-    for _ in range(blocks):
-        d.feed(x)
+    for i in range(blocks):
+        d.feed(pool[i % len(pool)])
     elapsed = time.time() - began
 
     total = blocks * spb
     throughput = total / elapsed
+    print()
     print("  processed %d samples in %.2f s" % (total, elapsed))
-    print("  throughput  %.2f MS/s" % (throughput / 1e6))
-    print("  needed      %.2f MS/s" % (sr / 1e6))
+    print("  dechirp throughput  %.2f MS/s" % (throughput / 1e6))
+    print("  needed              %.2f MS/s" % (sr / 1e6))
     print()
     margin = throughput / sr
-    if margin >= 1.5:
-        print("  %.2fx real time -- comfortable." % margin)
-    elif margin >= 1.0:
-        print("  %.2fx real time -- it keeps up, but with little to spare." % margin)
-        print("  Expect occasional overflows when anything else runs.")
-    else:
-        print("  *** %.2fx real time -- TOO SLOW on this machine." % margin)
+    print("  %.2fx real time for the dechirp alone." % margin)
+    print()
+    print("  This is not the whole story. Receiving costs real time too --")
+    print("  UHD converts sc16 to complex float at 100 MB/s in, 200 MB/s out --")
+    print("  and with --threads 1 that runs in parallel with this. The live")
+    print("  figure is whichever of the two is slower, so treat this as an")
+    print("  upper bound and trust the number the live run prints.")
+    if margin < 1.2:
+        print()
+        print("  *** Under 1.2x here means the dechirp alone is marginal.")
         print("  *** Options, roughly in order of effort:")
-        print("  ***   - close everything else; use the performance governor")
-        print("  ***   - larger blocks (--spb), fewer Python round trips")
+        print("  ***   - close everything else; performance CPU governor")
+        print("  ***   - larger --spb, fewer Python round trips per second")
         print("  ***   - move the mix-and-decimate inner loop into C")
     return 0 if margin >= 1.0 else 1
 
@@ -577,7 +675,12 @@ def main():
     ap.add_argument("--outdir", default="")
     ap.add_argument("--duration", type=float, default=0.0,
                     help="override dur, for a short test run")
-    ap.add_argument("--spb", type=int, default=1 << 20)
+    ap.add_argument("--spb", type=int, default=625 * 1600,
+                    help="samples per block; rounded to a multiple of dec")
+    ap.add_argument("--buffers", type=int, default=6,
+                    help="receive buffers in flight while the dechirp runs")
+    ap.add_argument("--threads", type=int, default=1,
+                    help="1 = dechirp on a worker thread (default), 0 = inline")
     ap.add_argument("--no-gpsdo", action="store_true")
     ap.add_argument("--rate", type=float, default=25e6, help="--from-raw only")
     ap.add_argument("--chirp-rate", type=float, default=100e3, help="--from-raw only")
