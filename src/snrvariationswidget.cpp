@@ -76,7 +76,9 @@ SnrVariationsWidget::SnrVariationsWidget(unsigned int periodHour,
 
     setAxisTitle(QwtPlot::yLeft, QwtText(QString::fromLatin1(AXIS_FREQ_TITLE)));
     setAxisTitle(QwtPlot::xBottom, QwtText(QLatin1String("UTC")));
-    setAxisScaleDraw(QwtPlot::xBottom, new DateTimeScaleDraw(QLatin1String("dd MMM")));
+    /* Empty format: the label picks its unit from the span on screen,
+     * so an hour of soundings shows times rather than one repeated date. */
+    setAxisScaleDraw(QwtPlot::xBottom, new DateTimeScaleDraw());
     setAxisScale(QwtPlot::yLeft, m_freqMin, m_freqMax);
 
     m_raster = new SnrRaster(&m_times, &m_columns, m_freqMin, m_freqMax);

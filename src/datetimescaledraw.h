@@ -17,7 +17,9 @@
 class DateTimeScaleDraw : public QwtScaleDraw
 {
 public:
-    explicit DateTimeScaleDraw(const QString &format = QString::fromLatin1("hh:mm"));
+    /* An empty format means "choose the unit from the span on screen" --
+     * seconds for minutes of data, times within a day, dates beyond that. */
+    explicit DateTimeScaleDraw(const QString &format = QString());
 
     void    setFormat(const QString &format);
     QString format() const;

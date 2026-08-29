@@ -820,6 +820,9 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
     return result
 
 
+_ADVISED = {}
+
+
 def report(result, opts, sr, dec, log):
     """Say what one capture did. Returns 0 clean, 1 lossy, 2 failed."""
     log("  received  %d samples (%.1f s of signal)"
@@ -892,18 +895,18 @@ def report(result, opts, sr, dec, log):
             " little SNR rather than the trace")
         return 0
 
-    log("  *** %d overflows, and the receiver spent %.1f s with no free buffer."
+    log("  *** %d overflows, %.1f s with no free buffer -- complete file, lost SNR"
         % (result["overflows"], result["stalled"]))
-    log("  *** The file is complete and probably still shows a trace; this is")
-    log("  *** lost signal-to-noise, not a lost sounding.")
-    if bursty:
-        log("  *** The dechirp used only %.0f%% of the clock, so it is not too"
+
+    # The explanation is the same every time and this log runs for days. Say it
+    # once per run and let the one-line summary above stand thereafter.
+    if bursty and not _ADVISED.get("bursty"):
+        _ADVISED["bursty"] = True
+        log("  *** (the dechirp used only %.0f%% of the clock, so it is not too"
             % (100 * result["busy"] / max(result["elapsed"], 1e-9)))
-        log("  *** slow -- it stalls in bursts. More buffers ride those out:")
-        log("  ***     --buffers 32")
+        log("  *** slow -- it stalls in bursts. --buffers 32 rides those out,")
         log("  *** and anything else heavy on this machine competes for the")
-        log("  *** same cores. The console reprocessing an 80 MB capture is")
-        log("  *** exactly such a thing.")
+        log("  *** same four cores. Said once; the line above says the rest.)")
     return 1
 
 

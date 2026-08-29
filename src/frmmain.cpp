@@ -14,6 +14,8 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QMessageBox>
+#include <QSizePolicy>
+#include <QTextCursor>
 #include <QTextEdit>
 
 frmMain::frmMain(QWidget *parent)
@@ -84,16 +86,34 @@ void frmMain::CreateControlPanel()
         m_sessionWidgets.append(w);
     }
 
+    /*
+     * Each panel is a heading, a rule, then its plot. Without a stretch factor
+     * the spare height is shared out and the heading floats away from the plot
+     * it names -- which is what put a gap between "ЦПУ" and its graph. Give the
+     * plot the slack and the heading stays put.
+     */
     if (QVBoxLayout *cpu = qobject_cast<QVBoxLayout *>(ui->fraCPU->layout())) {
         m_cpuWidget = new QCpuUsageWidget(ui->fraCPU);
-        cpu->addWidget(m_cpuWidget);
+        m_cpuWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        m_cpuWidget->setMinimumHeight(90);
+        cpu->addWidget(m_cpuWidget, 1);
+        cpu->setAlignment(ui->lblCPU, Qt::AlignTop);
     }
 
     if (QVBoxLayout *drive = qobject_cast<QVBoxLayout *>(ui->fraDrive->layout())) {
         m_driveWidget = new QDrivePieChart(ui->fraDrive);
         m_driveWidget->setPath(getIgDirName());
-        drive->addWidget(m_driveWidget);
+        m_driveWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        m_driveWidget->setMinimumHeight(90);
+        drive->addWidget(m_driveWidget, 1);
+        drive->setAlignment(ui->lblDrive, Qt::AlignTop);
     }
+
+    /* The session list is as tall as its rows; the plots below take the rest,
+     * rather than the sessions frame absorbing it into empty black. */
+    ui->fraSessions->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+    ui->fraCPU->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    ui->fraDrive->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
 }
 
 void frmMain::CreateIgAreas()
@@ -170,7 +190,8 @@ void frmMain::LoadLatestCaptures()
 
         const int first = qMax(0, found.size() - MAX_CAPTURES);
         for (int i = first; i < found.size(); ++i) {
-            console(QString(QLatin1String("loading %1")).arg(found.at(i)), Qt::green);
+            console(QString(QLatin1String("loading  %1"))
+                        .arg(QFileInfo(found.at(i)).fileName()), Qt::gray);
             QApplication::processEvents();
             frame->addIg(found.at(i));
         }
@@ -232,8 +253,8 @@ void frmMain::ScanForNewCaptures()
 
                 m_growing.remove(path);
                 m_loadedCaptures.insert(path);
-                console(QString(QLatin1String("new capture %1")).arg(path),
-                        Qt::cyan);
+                console(QString(QLatin1String("new capture  %1"))
+                            .arg(QFileInfo(path).fileName()), Qt::cyan);
                 QApplication::processEvents();
                 frame->addIg(path);
             }
@@ -353,9 +374,36 @@ PdpVarParams frmMain::getPdpVarParams()
 
 void frmMain::console(const QString &text, const QColor &colour)
 {
+    /*
+     * Stamp every line. An unattended station's log is read after the fact,
+     * and "3 overflows" means nothing without knowing which sounding it came
+     * from. Continuation lines from the sounder's own advisories are indented
+     * instead of stamped, so a multi-line note reads as one entry.
+     */
+    const QString stamp =
+        QDateTime::currentDateTimeUtc().toString(QLatin1String("hh:mm:ss"));
+
+    QString body = text;
+    bool continuation = false;
+    if (body.startsWith(QLatin1String("***"))) {
+        body = body.mid(3).trimmed();
+        continuation = true;
+    }
+
+    /* Keep the tail bounded: this runs for days. */
+    if (ui->txtConsole->document()->blockCount() > 2000) {
+        QTextCursor cur(ui->txtConsole->document());
+        cur.movePosition(QTextCursor::Start);
+        cur.movePosition(QTextCursor::Down, QTextCursor::KeepAnchor, 500);
+        cur.removeSelectedText();
+    }
+
     ui->txtConsole->setTextColor(colour);
-    ui->txtConsole->append(text);
+    ui->txtConsole->append(continuation
+                               ? QString(QLatin1String("         %1")).arg(body)
+                               : QString(QLatin1String("%1  %2")).arg(stamp, body));
     ui->txtConsole->setTextColor(Qt::green);
+    ui->txtConsole->moveCursor(QTextCursor::End);
 }
 
 void frmMain::on_btnStartStop_clicked()
@@ -368,7 +416,7 @@ void frmMain::on_btnStartStop_clicked()
 
 void frmMain::seanseStart()
 {
-    console(QLatin1String("START"), Qt::green);
+    console(QLatin1String("=== START ==="), Qt::green);
 
     if (!CreateConfigFile()) {
         console(QLatin1String("Error writing configuration file"), Qt::red);
@@ -404,7 +452,7 @@ void frmMain::seanseStart()
 
 void frmMain::seanseStop()
 {
-    console(QLatin1String("STOP"), Qt::red);
+    console(QLatin1String("=== STOP ==="), Qt::red);
 
     /* DSCHIRP_FIX_HARD_KILL: the original sent SIGKILL, which lands in the
      * middle of a sounding and leaves a truncated capture behind. The sounder

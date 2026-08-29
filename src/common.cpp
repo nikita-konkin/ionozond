@@ -354,6 +354,8 @@ void QSessionInfoWidget::SetActive(const bool &active)
     m_active = active;
     if (!active) {
         m_progress->setValue(0);
+        m_progress->setFormat(QLatin1String("stopped"));
+        m_progress->setTextVisible(true);
         m_startLabel->setStyleSheet(QLatin1String("color:yellow;"));
         m_startLabel->setText(QLatin1String("waiting..."));
         m_stopLabel->clear();
@@ -363,42 +365,53 @@ void QSessionInfoWidget::SetActive(const bool &active)
 void QSessionInfoWidget::SetSounderStatus(const QString &state, double fraction,
                                           const QString &detail)
 {
+    /*
+     * The state goes on the progress bar, not over the start time. Writing it
+     * into m_startLabel replaced the one number an operator most wants while a
+     * sounding runs -- when the sweep began -- with text that says the same
+     * thing the bar already shows.
+     */
     if (fraction >= 0.0)
         m_progress->setValue(int(1000.0 * qBound(0.0, fraction, 1.0)));
 
-    QString colour = QLatin1String("yellow");
     QString text = state;
+    QString chunk = QLatin1String("rgb(60,130,220)");
 
     if (state == QLatin1String("capturing")) {
-        colour = QLatin1String("lime");
-        text = QString(QLatin1String("recording %1%"))
+        text = QString(QLatin1String("recording  %1%"))
                    .arg(int(100.0 * qBound(0.0, fraction, 1.0)));
     } else if (state == QLatin1String("writing")) {
-        colour = QLatin1String("deepskyblue");
-        text = QLatin1String("products...");
+        chunk = QLatin1String("rgb(0,170,200)");
+        text = QLatin1String("building products");
     } else if (state == QLatin1String("clean")) {
-        colour = QLatin1String("lime");
+        chunk = QLatin1String("rgb(60,180,75)");
         text = QLatin1String("captured");
         m_progress->setValue(1000);
     } else if (state == QLatin1String("degraded")) {
         /* A complete sounding that lost samples. Worth showing differently
          * from a failure: the file is there and still holds a trace. */
-        colour = QLatin1String("orange");
+        chunk = QLatin1String("rgb(230,150,30)");
         text = QLatin1String("captured, lossy");
         m_progress->setValue(1000);
     } else if (state == QLatin1String("failed")) {
-        colour = QLatin1String("red");
-        text = QLatin1String("FAILED");
+        chunk = QLatin1String("rgb(200,50,50)");
+        text = QLatin1String("no data");
         m_progress->setValue(0);
     } else if (state == QLatin1String("waiting")) {
-        colour = QLatin1String("yellow");
-        text = QLatin1String("waiting...");
+        text = QLatin1String("waiting");
         m_progress->setValue(0);
     }
 
-    m_startLabel->setStyleSheet(QString(QLatin1String("color:%1;")).arg(colour));
-    m_startLabel->setText(detail.isEmpty() ? text
-                                           : text + QLatin1String(" ") + detail);
+    if (!detail.isEmpty())
+        text += QLatin1String("   ") + detail;
+
+    m_progress->setFormat(text);
+    m_progress->setTextVisible(true);
+    m_progress->setStyleSheet(
+        QString(QLatin1String(
+            "QProgressBar { border: 2px solid lightgrey; border-radius: 5px; "
+            "background-color: rgb(0,0,0); color: rgb(255,255,255); }"
+            "QProgressBar::chunk { background-color: %1; }")).arg(chunk));
 }
 
 void QSessionInfoWidget::setIgVisibleState(const int &igVisibleState)
