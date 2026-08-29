@@ -1046,19 +1046,37 @@ def run_live(opts, cfg, sounders):
         try:
             os.makedirs(outdir, exist_ok=True)
         except OSError as exc:
-            log("  cannot create %s: %s" % (outdir, exc))
+            log("  *** cannot create %s: %s" % (outdir, exc))
+            worst = max(worst, 2)
             break
 
         try:
             result = capture_one(radio, opts, cfg, sounder, t0,
                                  os.path.join(outdir, name), log, stop)
         except Exception as exc:
-            # One bad sounding must not end an unattended run.
+            # One bad sounding must not end an unattended run -- but it must
+            # not be retried instantly either. pick_next returns the same t0
+            # until that window has passed, so without waiting this retries
+            # thousands of times a second and fails identically every time.
             log("  *** capture raised: %s" % exc)
+            if isinstance(exc, PermissionError):
+                log("  *** The archive is not writable by this user. Captures")
+                log("  *** made earlier under sudo leave root-owned day")
+                log("  *** directories behind:")
+                log("  ***     sudo chown -R $USER: %s" % outroot)
+            status(sounder["name"], "failed", 0, 0)
             worst = max(worst, 2)
             done += 1
+            failures += 1
+            if failures >= 3:
+                log("")
+                log("*** three soundings in a row produced no data. Stopping.")
+                break
             if limit and done >= limit:
                 break
+            # Sit out the rest of this window rather than hammering it.
+            while time.time() < t0 + dur and not stop["now"]:
+                time.sleep(1.0)
             continue
 
         if result["aborted"] and result["got"] == 0:
