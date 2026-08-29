@@ -106,11 +106,17 @@ def periodogram(samples, nfft):
     return 10.0 * np.log10(acc)
 
 
-def band_label(mhz):
-    for lo, hi, name in BROADCAST_BANDS:
-        if lo <= mhz <= hi:
-            return name
-    return ""
+def band_label(lo_mhz, hi_mhz):
+    """Label a row if it *overlaps* a broadcast band.
+
+    Testing only the row's midpoint misses any band that straddles two rows --
+    49 m at 5.90-6.20 falls between the rows centred on 5.75 and 6.25 and gets
+    labelled on neither, which makes the display look like the bands are absent
+    when they are merely split.
+    """
+    names = [name for lo, hi, name in BROADCAST_BANDS
+             if lo < hi_mhz and hi > lo_mhz]
+    return names[0] if names else ""
 
 
 def draw(freqs_mhz, power_db, lo_mhz, hi_mhz, rows=56, width=58):
@@ -128,7 +134,7 @@ def draw(freqs_mhz, power_db, lo_mhz, hi_mhz, rows=56, width=58):
         value = np.percentile(power_db[sel], 90)
         filled = int(round(width * max(0.0, min(1.0, (value - floor) / span))))
         mid = 0.5 * (edges[i] + edges[i + 1])
-        print("  %7.2f %-6s |%s%s" % (mid, band_label(mid),
+        print("  %7.2f %-6s |%s%s" % (mid, band_label(edges[i], edges[i + 1]),
                                       "#" * filled, " " * (width - filled)))
 
 

@@ -411,18 +411,35 @@ def run_live(opts, cfg, sounder):
     buf = np.empty((1, spb), dtype=np.complex64)
     metadata = uhd.types.RXMetadata()
 
-    cmd = uhd.types.StreamCMD(uhd.types.StreamMode.start_cont)
+    # A timed start is only safe if the radio's clock really is on the same
+    # epoch as the schedule. If setting it from GPS failed, the radio may still
+    # be counting from zero -- and asking it to start at a unix timestamp would
+    # then wait about fifty-five years with no indication of why.
     try:
-        cmd.stream_now = False
-        cmd.time_spec = uhd.types.TimeSpec(float(t0))
-        streamer.issue_stream_cmd(cmd)
-        timed = True
-    except Exception as exc:
-        print("  timed start unavailable (%s); starting now and accepting" % exc)
-        print("  whatever offset that costs")
+        radio_now = usrp.get_time_now().get_real_secs()
+    except Exception:
+        radio_now = None
+    skew = None if radio_now is None else abs(radio_now - time.time())
+
+    cmd = uhd.types.StreamCMD(uhd.types.StreamMode.start_cont)
+    timed = False
+    if skew is not None and skew < 5.0:
+        try:
+            cmd.stream_now = False
+            cmd.time_spec = uhd.types.TimeSpec(float(t0))
+            streamer.issue_stream_cmd(cmd)
+            timed = True
+        except Exception as exc:
+            print("  timed start refused (%s)" % exc)
+    else:
+        print("  *** the radio's clock is %s the system clock, so a timed"
+              % ("not set to" if skew is None else "%.1f s away from" % skew))
+        print("  *** start would wait for a time it will not reach. Starting")
+        print("  *** immediately instead -- the sweep will not be aligned to")
+        print("  *** the transmitter, so treat the delay axis as meaningless.")
+    if not timed:
         cmd.stream_now = True
         streamer.issue_stream_cmd(cmd)
-        timed = False
 
     wanted = int(sr * dur)
     dech = Dechirper(sr, f0, rate, dec)
