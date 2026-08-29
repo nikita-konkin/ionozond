@@ -86,7 +86,15 @@ void ParametersDialog::ReadSettings()
     ui->chbDirectSignalCutting->setChecked(cutting);
     ui->edtLfsrPolynomeDegree->setText(
         m_settings->value(QLatin1String("lfsr_polynome_degree")).toString());
-    ui->edtImpulseLength->setText(m_settings->value(QLatin1String("tb")).toString());
+    /* DSCHIRP_FIX_EMPTY_TB: an absent or empty "tb" is written back verbatim on
+     * OK, and the config writer then emits "tb = " -- a Python syntax error, so
+     * the generated chirp_config.py cannot be imported by the sounder at all.
+     * Real deployments carried tb = 0; default to that rather than faithfully
+     * reproducing a file nothing can read. See docs/reverse-engineering.md. */
+    QString impulseLength = m_settings->value(QLatin1String("tb")).toString();
+    if (impulseLength.isEmpty())
+        impulseLength = QLatin1String("0");
+    ui->edtImpulseLength->setText(impulseLength);
     ui->edtLfsrPolynomeDegree->setEnabled(cutting);
     ui->edtImpulseLength->setEnabled(cutting);
 

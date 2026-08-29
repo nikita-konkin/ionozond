@@ -82,8 +82,25 @@ reproduced on purpose.
 
    **Fixed at the user's request**: `frmMain::getBaseSoundParams()` now reads
    `colormap_gradient`, so the checkbox takes effect. Marked `DSCHIRP_FIX_GRADIENT_TYPO`
-   in `src/frmmain.cpp`, with the original behaviour recorded in the comment. This is
-   the one deliberate behavioural difference from the original.
+   in `src/frmmain.cpp`, with the original behaviour recorded in the comment.
+
+   **A second deliberate difference**, found when the generated config was first fed
+   to a real host: `ParametersDialog` writes the "длительность импульса" field back
+   verbatim, and `buildChirpConfig` emits every `[General]` key as `key = value`. When
+   `tb` is absent or blank — as it is in any freshly created `config.ini` — the result
+   is a bare `tb = `, which is a **Python syntax error**. The whole generated
+   `chirp_config.py` then fails to import, so the sounder cannot start at all:
+
+   ```
+   ssas = 1
+   tb =
+   whiten = False
+   ```
+
+   Real deployments carried `tb = 0` (see `reference/gr-juha__apps__chirpsounder__chirp_config.py`),
+   which is why the original never tripped over it. An empty `tb` now defaults to `0`,
+   marked `DSCHIRP_FIX_EMPTY_TB` in `src/parametersdialog.cpp`, and `tb=0` was added to
+   `tests/fixtures/config.ini` so the shipped default produces a file that parses.
 
 4. **There are TWO colour-map settings, and they are different maps.**
    `IG_COLORMAP_LIST` is built at @0x41a075 by appending the map vectors in
