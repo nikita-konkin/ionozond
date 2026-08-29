@@ -201,7 +201,32 @@ roughly 9–19 MHz for the cyprus1 → yoshkar-ola path.
 
 ---
 
-## 5. Building in Docker instead
+## 5. On a sounder host: build natively, not in Docker
+
+```bash
+bash tools/build-native.sh
+```
+
+Installs nothing, but names anything missing; compiles; seeds
+`~/.config/dsChirp` with paths that exist on this host; and prints how to run
+it. Add `--run` to launch it straight away.
+
+**The container cannot run the sounder.** It has no UHD, no `python3-uhd`, and
+mounts the archive read-only, so a console inside it can display captures and
+nothing else — pressing START there launches a program that is not present,
+against a radio it cannot reach, to write to a filesystem it cannot write. Its
+own file browser shows the container's `/home`, which is why the sounder script
+appears to be missing.
+
+That is the right trade for development and for a Windows machine with no Qt.
+On the sounder host it is pure indirection: built natively the console sees the
+real filesystem, launches `tools/sounder.sh` itself, and the paths in its
+dialogs are the paths that exist.
+
+Run it as the user that owns the archive and can reach the radio — **not** under
+`sudo`, or every capture is written root-owned.
+
+## 6. Building in Docker instead
 
 If you would rather not install anything, the container used during
 development builds and runs both programs, and `gui/README.md` explains how to
