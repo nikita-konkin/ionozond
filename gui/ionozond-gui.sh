@@ -108,6 +108,28 @@ if ! docker info >/dev/null 2>&1; then
     fi
 fi
 
+# ---- is the port already taken? ------------------------------------------
+# Almost always an earlier run of this same GUI still holding the port. Docker's
+# own message names an endpoint id, which is no help in finding it.
+BUSY=$($DOCKER ps --filter "publish=$PORT" --format '{{.ID}}  {{.Image}}  {{.Names}}' 2>/dev/null)
+if [ -n "$BUSY" ]; then
+    echo "port $PORT is already published by a running container:"
+    printf '%s\n' "$BUSY" | sed 's/^/    /'
+    echo
+    echo "stop it:"
+    echo "    $DOCKER stop $(printf '%s\n' "$BUSY" | awk '{print $1}' | tr '\n' ' ')"
+    echo "or run this one somewhere else:"
+    echo "    $0 $MODE --port $((PORT + 1))"
+    exit 1
+fi
+if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q ":$PORT "; then
+    echo "port $PORT is in use, but not by a container. What is listening:"
+    ss -ltnp 2>/dev/null | grep ":$PORT " | sed 's/^/    /'
+    echo "    (run under sudo to see the process name)"
+    echo "Pick another port:  $0 $MODE --port $((PORT + 1))"
+    exit 1
+fi
+
 # ---- image ----------------------------------------------------------------
 if [ "$REBUILD" = "1" ] || [ -z "$($DOCKER images -q "$IMAGE" 2>/dev/null)" ]; then
     echo "building the $IMAGE image (first run takes a few minutes) ..."
