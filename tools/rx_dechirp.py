@@ -435,6 +435,7 @@ class Radio:
         self.tuned = first_cf
         self.gps = None                  # unknown until discipline() runs
         self.clock_set = False
+        self.authority = "host"
 
         stream_args = self.uhd.usrp.StreamArgs("fc32", "sc16")
         stream_args.channels = [0]
@@ -461,6 +462,19 @@ class Radio:
             return "true" in str(value).lower()
         except Exception:
             return False
+
+    @staticmethod
+    def host_synced():
+        """Is this host's clock under NTP discipline? None if unknown."""
+        import subprocess
+        try:
+            out = subprocess.run(
+                ["timedatectl", "show", "-p", "NTPSynchronized", "--value"],
+                capture_output=True, text=True, timeout=5)
+            value = out.stdout.strip()
+            return value == "yes" if value in ("yes", "no") else None
+        except Exception:
+            return None
 
     def discipline(self, log):
         """Put the radio's clock on a known epoch, and say which one.
@@ -500,6 +514,33 @@ class Radio:
         except Exception as exc:
             log("  *** could not set the radio clock: %s" % exc)
             self.clock_set = False
+
+        # Decide once which clock to schedule against, and check the answer
+        # rather than assuming it.
+        #
+        # "GPS is locked, therefore the radio holds UTC" is not safe on this
+        # hardware. With the host under NTP at about a millisecond, the radio's
+        # clock still read 3.9 s away right after being set from GPS -- the
+        # gps_time sensor returns stale values, times out, and sometimes throws.
+        # A disciplined host beats a GPS reading nobody checked.
+        synced = self.host_synced()
+        offset = self.offset()
+        self.authority = "host"
+        if synced:
+            if offset is not None and abs(offset) > 0.1:
+                log("  *** the radio's clock is %+.3f s from an NTP-synchronised"
+                    % offset)
+                log("  *** host. Whatever GPS reported, that is not UTC --")
+                log("  *** scheduling against this host instead.")
+            else:
+                log("  clocks agree; scheduling against this host (NTP)")
+        elif locked and self.clock_set:
+            self.authority = "radio"
+            log("  host clock is not NTP-disciplined; scheduling against the")
+            log("  radio's GPS clock, which is the better of the two")
+        else:
+            log("  *** neither clock is disciplined: no NTP here and no GPS")
+            log("  *** lock there. Timing is whatever this host believes.")
 
         if not locked:
             log("  *** Without GPS the delay axis is only as good as this")
@@ -556,7 +597,7 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
     if offset is None:
         log("  *** cannot read the radio's clock; assuming it matches ours")
         offset = 0.0
-    target = t0 if (radio.gps and radio.clock_set) else t0 + offset
+    target = t0 if radio.authority == "radio" else t0 + offset
 
     # Wait in short steps -- so a stop signal is acted on within half a second
     # rather than whenever the radio next returns -- and measure the remaining
@@ -576,7 +617,7 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
 
     if abs(offset) > 1.0:
         log("  radio clock is %+.3f s from this host; scheduling against %s"
-            % (offset, "the radio (GPS)" if radio.gps and radio.clock_set
+            % (offset, "the radio (GPS)" if radio.authority == "radio"
                else "this host"))
 
     cmd = uhd.types.StreamCMD(uhd.types.StreamMode.start_cont)
@@ -917,13 +958,6 @@ def run_live(opts, cfg, sounders):
         except OSError as exc:
             log("  cannot create %s: %s" % (outdir, exc))
             break
-
-        # Re-discipline while there is time to spare. Setting from GPS waits a
-        # whole second for the next pulse, so it must not happen near t0 -- and
-        # GPS lock comes and goes, so the state has to be rechecked rather than
-        # decided once at startup.
-        if not opts.no_gpsdo and t0 - time.time() > 8.0:
-            radio.discipline(log)
 
         try:
             result = capture_one(radio, opts, cfg, sounder, t0,

@@ -83,6 +83,11 @@ PYEOF
     say
     say "  *** This is a one-shot correction, not discipline. The clock will"
     say "  *** drift again. Re-run it from cron, or better, get NTP working."
+    say
+    say "  *** NTP IS NOW OFF. If it was working, you have just replaced a"
+    say "  *** disciplined clock with a single reading from a GPSDO that has"
+    say "  *** been returning stale values on this unit. Put it back with:"
+    say "  ***     sudo timedatectl set-ntp true"
     exit 0
 fi
 
