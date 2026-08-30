@@ -7,6 +7,7 @@
 #include "pdpvariationswidget.h"
 
 #include <QDateTime>
+#include <QStringList>
 #include <QFrame>
 #include <QLabel>
 #include <QString>
@@ -55,8 +56,22 @@ public slots:
     void setIgAreaVisible(const QString &stationName, const bool &visible);
     void clear();
 
+private slots:
+    /* Step the control panel through the captures already loaded. Stepping
+     * past the newest returns it to following, which is where it starts. */
+    void controlBack();
+    void controlForward();
+    void controlLatest();
+
 private:
     QLabel *makeCaption(const QString &text) const;
+    QWidget *makeControlHeader();
+
+    void showControlAt(int index);
+    void updateControlNav();
+    /* Which capture the control panel is showing: the pinned one, or the
+     * one before the current when following. */
+    int  effectiveControlIndex() const;
 
     QBaseSoundParams m_base;
     QTxParams        m_tx;
@@ -69,6 +84,17 @@ private:
     QRxIonogram         *m_current;
     SnrVariationsWidget *m_snr;
     PdpVariationsWidget *m_pdp;
+
+    /* Every capture handed to addIg, oldest first, so the control panel can
+     * walk back through the day instead of only ever showing the previous
+     * one. Paths only -- the rasters are loaded on demand. */
+    QStringList m_history;
+    int         m_controlIndex;      /* -1: follow the newest */
+
+    QLabel            *m_controlPos;
+    class QToolButton *m_btnBack;
+    class QToolButton *m_btnForward;
+    class QToolButton *m_btnLatest;
 };
 
 #endif /* QIGFRAME_H */

@@ -633,6 +633,32 @@ The filler blocks travel the same queue as real buffers, so the queue carries a
 recycle flag: a filler is a throwaway array of its own size, and returning it
 to the pool would hand the receive loop a buffer too small for the next `recv`.
 
+### Browsing the archive from the control panel
+
+The two ionogram panels only ever showed the newest capture and the one before
+it, so looking at anything older meant rebuilding the console against a
+different period. Everything needed was already there — the variation panels
+are fed from the same files, one `addIg` call each — so the frame now keeps the
+list it was being handed anyway and the control panel walks it.
+
+Three buttons on the "Контрольная ионограмма" caption line: back, forward, and
+return-to-following. The counter beside them reads `12/288`, with a filled
+circle appended when the panel is pinned.
+
+Two details that decide whether it is usable:
+
+- **A pinned panel stops following.** New captures still land in the current
+  panel and still feed the daily-course plots; only the control panel holds
+  still. Without the pin marker that is indistinguishable from the sounder
+  having stopped, which is why the counter says so rather than leaving it to be
+  inferred.
+- **Stepping onto the newest releases the pin** rather than parking one behind
+  it. Otherwise the operator ends up following-but-not-following, with new
+  captures apparently ignored and no way to tell why.
+
+`m_history` holds paths only; rasters load on demand, so browsing a day costs
+nothing until a panel is actually asked for.
+
 ### What the console is for, once the service runs
 
 The division is not obvious, because the console looks like the thing that

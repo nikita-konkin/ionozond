@@ -2,7 +2,10 @@
 
 #include "iganalytics.h"
 
+#include <QFileInfo>
 #include <QGridLayout>
+#include <QHBoxLayout>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 QIGFrame::QIGFrame(const QBaseSoundParams &base,
@@ -20,7 +23,12 @@ QIGFrame::QIGFrame(const QBaseSoundParams &base,
       m_control(0),
       m_current(0),
       m_snr(0),
-      m_pdp(0)
+      m_pdp(0),
+      m_controlIndex(-1),
+      m_controlPos(0),
+      m_btnBack(0),
+      m_btnForward(0),
+      m_btnLatest(0)
 {
     setFrameShape(QFrame::StyledPanel);
 
@@ -65,7 +73,7 @@ QIGFrame::QIGFrame(const QBaseSoundParams &base,
                                     (float)delay.top(), (float)delay.bottom(),
                                     varColors, m_pdpParams.autoMax, 0.0f, this);
 
-    grid->addWidget(makeCaption(QString::fromUtf8("Контрольная ионограмма")), 0, 0);
+    grid->addWidget(makeControlHeader(), 0, 0);
     grid->addWidget(makeCaption(QString::fromUtf8("Сигнал/шум")),             0, 1);
     grid->addWidget(m_control, 1, 0);
     grid->addWidget(m_snr,     1, 1);
@@ -83,6 +91,126 @@ QIGFrame::QIGFrame(const QBaseSoundParams &base,
     outer->addLayout(grid);
 }
 
+/*
+ * The control panel's caption, with the controls for walking back through the
+ * archive beside it.
+ *
+ * The two panels only ever showed the newest capture and the one before it, so
+ * anything older could be looked at solely by rebuilding the whole console
+ * against a different period. Everything needed was already loaded -- the
+ * variation panels are fed from the same files -- so this is navigation over a
+ * list the frame was keeping anyway.
+ */
+QWidget *QIGFrame::makeControlHeader()
+{
+    QWidget *row = new QWidget(this);
+    QHBoxLayout *lay = new QHBoxLayout(row);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->setSpacing(3);
+
+    lay->addWidget(makeCaption(QString::fromUtf8("Контрольная ионограмма")), 1);
+
+    m_controlPos = new QLabel(row);
+    m_controlPos->setStyleSheet(QLatin1String("color: #808080;"));
+    lay->addWidget(m_controlPos);
+
+    /* Compact, because this sits on a caption line 18 px tall. */
+    m_btnBack = new QToolButton(row);
+    m_btnBack->setText(QChar(0x25C0));       /* black left triangle */
+    m_btnBack->setToolTip(QString::fromUtf8("Предыдущая ионограмма"));
+    m_btnBack->setAutoRepeat(true);
+    m_btnBack->setFixedSize(22, 18);
+
+    m_btnForward = new QToolButton(row);
+    m_btnForward->setText(QChar(0x25B6));    /* black right triangle */
+    m_btnForward->setToolTip(QString::fromUtf8("Следующая ионограмма"));
+    m_btnForward->setAutoRepeat(true);
+    m_btnForward->setFixedSize(22, 18);
+
+    m_btnLatest = new QToolButton(row);
+    m_btnLatest->setText(QChar(0x21BA));     /* anticlockwise arrow */
+    m_btnLatest->setToolTip(QString::fromUtf8(
+        "Вернуться к слежению за последними сеансами"));
+    m_btnLatest->setFixedSize(22, 18);
+
+    connect(m_btnBack,    SIGNAL(clicked()), this, SLOT(controlBack()));
+    connect(m_btnForward, SIGNAL(clicked()), this, SLOT(controlForward()));
+    connect(m_btnLatest,  SIGNAL(clicked()), this, SLOT(controlLatest()));
+
+    lay->addWidget(m_btnBack);
+    lay->addWidget(m_btnForward);
+    lay->addWidget(m_btnLatest);
+
+    updateControlNav();
+    return row;
+}
+
+int QIGFrame::effectiveControlIndex() const
+{
+    if (m_controlIndex >= 0)
+        return m_controlIndex;
+    /* Following: the control panel holds the one before the current. */
+    return qMax(0, m_history.size() - 2);
+}
+
+void QIGFrame::showControlAt(int index)
+{
+    if (m_history.isEmpty())
+        return;
+    index = qBound(0, index, m_history.size() - 1);
+
+    /* Stepping onto the newest is the same thing as following it, so let that
+     * release the pin rather than leaving the operator stuck one behind with
+     * no indication why new captures stopped arriving. */
+    if (index >= m_history.size() - 1) {
+        controlLatest();
+        return;
+    }
+
+    m_controlIndex = index;
+    m_control->load(m_history.at(index));
+    updateControlNav();
+}
+
+void QIGFrame::controlBack()    { showControlAt(effectiveControlIndex() - 1); }
+void QIGFrame::controlForward() { showControlAt(effectiveControlIndex() + 1); }
+
+void QIGFrame::controlLatest()
+{
+    m_controlIndex = -1;
+    if (m_history.size() >= 2)
+        m_control->load(m_history.at(m_history.size() - 2));
+    updateControlNav();
+}
+
+void QIGFrame::updateControlNav()
+{
+    if (!m_controlPos)
+        return;
+
+    const int n = m_history.size();
+    const int at = effectiveControlIndex();
+
+    if (n == 0) {
+        m_controlPos->setText(QString());
+    } else if (m_controlIndex >= 0) {
+        /* Pinned: say so, because new captures will not move this panel and
+         * that is otherwise indistinguishable from the sounder having stopped. */
+        m_controlPos->setText(QString(QLatin1String("%1/%2 "))
+                                  .arg(at + 1).arg(n)
+                              + QChar(0x25CF));   /* pinned */
+        m_controlPos->setToolTip(QString::fromUtf8("Закреплено: ")
+                                 + QFileInfo(m_history.at(at)).fileName());
+    } else {
+        m_controlPos->setText(QString(QLatin1String("%1/%2")).arg(at + 1).arg(n));
+        m_controlPos->setToolTip(QString::fromUtf8("Следит за последними сеансами"));
+    }
+
+    if (m_btnBack)    m_btnBack->setEnabled(n > 1 && at > 0);
+    if (m_btnForward) m_btnForward->setEnabled(n > 1 && at < n - 1);
+    if (m_btnLatest)  m_btnLatest->setEnabled(m_controlIndex >= 0);
+}
+
 QLabel *QIGFrame::makeCaption(const QString &text) const
 {
     QLabel *l = new QLabel(text, const_cast<QIGFrame *>(this));
@@ -96,13 +224,23 @@ bool QIGFrame::addIg(const QString &igFileName, bool keepControl)
      * The panel that was "current" becomes the control ionogram, and the new
      * capture takes the current slot.
      */
-    if (keepControl && !m_current->igFileName().isEmpty())
+    /* A pinned control panel stays where the operator put it. Promoting the
+     * previous capture into it on every arrival is the following behaviour,
+     * and following is what pinning switches off. */
+    if (keepControl && m_controlIndex < 0 && !m_current->igFileName().isEmpty())
         m_control->load(m_current->igFileName());
 
     /* Sidecar-first: skips 80 MB and 610 FFTs when one exists, and writes one
      * for next time when it does not. See docs/lfp-format.md. */
     if (!m_current->load(igFileName))
         return false;
+
+    /* Oldest first, and only once: LoadLatestCaptures replays the archive in
+     * order and ScanForNewCaptures appends, so a duplicate means the same file
+     * arrived twice and the list should not grow for it. */
+    if (m_history.isEmpty() || m_history.last() != igFileName)
+        m_history.append(igFileName);
+    updateControlNav();
 
     /*
      * Feed the derived products into the two variation panels, averaging the
@@ -130,6 +268,9 @@ void QIGFrame::setIgAreaVisible(const QString &stationName, const bool &visible)
 
 void QIGFrame::clear()
 {
+    m_history.clear();
+    m_controlIndex = -1;
+    updateControlNav();
     if (m_control) m_control->clear();
     if (m_current) m_current->clear();
     if (m_snr)     m_snr->clear();
