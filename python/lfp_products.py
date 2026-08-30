@@ -41,8 +41,24 @@ NOISE_FACTOR = 1.3862943611198906    # 2*ln(2): median -> mean, exponential
 
 # What the IONO section holds. See compute().
 IONO_MODE_GATED = "gated"            # the original: threshold, despeckle, zero
-IONO_MODE_SNR = "snr"                # chirpsounder2: continuous, nothing cut
-IONO_SNR_VMAX_DB = 20.0              # their pcolormesh vmax
+IONO_MODE_SNR = "snr"                # ionograms-handler: continuous, nothing cut
+
+# Reproducing ionograms-handler's scale exactly, from muf/spectro.py and
+# muf/render.py. Its numbers only mean anything together: the noise floor is
+# divided out with a 4*ln(2) coefficient, the log is referenced to 1e-3 rather
+# than to 1, and the display window is 20..75 dB. Referencing to 1e-3 puts
+# 0 dB thirty decibels below unity, so the equalised noise floor lands near
+# 26 dB and a window starting at 20 keeps a few dB of it visible.
+#
+# Note this coefficient is not ours. NOISE_FACTOR above is 2*ln(2) and this is
+# 4*ln(2), both commented as converting the median of an exponential to its
+# mean -- the textbook factor is 1/ln(2) = 1.4427, so ours is 4% high and this
+# one is 2x, about 3 dB conservative. Kept as theirs because their 20 and 45 dB
+# thresholds are calibrated against it; changing it would move their scale.
+IONO_SNR_NOISE_COEF = 4.0 * math.log(2.0)   # muf/spectro.py NOISE_COEF
+IONO_SNR_DB_REF = 1e-3                      # muf/spectro.py to_db floor
+IONO_SNR_VMIN_DB = 20.0                     # muf/render.py DEFAULT_VMIN_DB
+IONO_SNR_VMAX_DB = 75.0                     # muf/render.py DEFAULT_VMAX_DB
 
 LFS_HEADER_SIZE = 512
 LFP_MAGIC = b"LFPR"
@@ -339,13 +355,13 @@ def compute(path, fft_count=16384, noise_gate=True, progress=None,
             gated_db[at] = np.where(keep, db, 0.0)
             window_linear[at] = row[row_low:row_low + rows]
             if snr_db is not None:
-                # build_spectra has already divided by the median, so
-                # subtracting one leaves (S - median)/median exactly --
-                # power relative to this spectrum's own noise floor, which is
-                # what makes 0 dB mean the same thing at every frequency and a
-                # fixed colour scale meaningful across captures.
-                rel = window_linear[at] - 1.0
-                snr_db[at] = 10.0 * np.log10(np.where(rel > 0.0, rel, 1e-3))
+                # muf/spectro.py: floor = NOISE_COEF * median(spectrum) taken
+                # over the WHOLE spectrum before range gating, then row/floor.
+                # build_spectra has already divided by that median, so the
+                # coefficient is all that is left to apply.
+                rel = window_linear[at] / IONO_SNR_NOISE_COEF
+                snr_db[at] = 10.0 * np.log10(
+                    np.maximum(rel, IONO_SNR_DB_REF) / IONO_SNR_DB_REF)
             if keep.any():
                 block_max = float(window_linear[at][keep].max())
                 if block_max > win_max:
@@ -404,17 +420,14 @@ def compute(path, fft_count=16384, noise_gate=True, progress=None,
         "spec_point_count": rows,
         "noise_gate": noise_gate,
         "iono_mode": iono_mode,
-        # What the display should clip at in "snr" mode. chirpsounder2 uses a
-        # fixed 0..20 dB; anything above the top of that is saturated trace,
-        # not detail worth the dynamic range.
-        "iono_vmax_db": IONO_SNR_VMAX_DB if iono_mode == IONO_MODE_SNR else 0.0,
         "noise_gate_db": float(np.median(limits)) if noise_gate else 0.0,
-        # The console takes the top of its colour scale straight from this, so
-        # in "snr" mode it carries chirpsounder2's fixed vmax instead of the
-        # capture's peak. Scaling to the peak is right for a gated image, where
-        # every stored point is trace; it washes out a continuous one, where
-        # the peak is the direct signal and the structure worth seeing sits
-        # 30 dB below it. Values above the top clamp to the last colour.
+        # The console takes its colour scale from these two, so in "snr" mode
+        # they carry the fixed 20..75 dB window instead of 0..peak. Scaling to
+        # the peak is right for a gated image, where every stored point is
+        # trace; it washes out a continuous one, where the peak is the direct
+        # signal and the structure worth seeing sits well below it. Values
+        # outside the window clamp to the end colours.
+        "min_value_db": IONO_SNR_VMIN_DB if iono_mode == IONO_MODE_SNR else 0.0,
         "max_value_db": (IONO_SNR_VMAX_DB if iono_mode == IONO_MODE_SNR
                          else (10.0 * math.log10(win_max) if win_max > 0.0 else 0.0)),
         "luf_index": luf_index, "muf_index": muf_index,
@@ -459,6 +472,10 @@ def write(path, meta, sections, producer="ionozond", producer_version="lfp 1.0")
     struct.pack_into("<ii", head, 0x110, meta["luf_index"], meta["muf_index"])
     struct.pack_into("<II", head, 0x118, meta.get("tb", 0),
                      meta.get("lfsr_polynome_degree", 0))
+    # 0x120 onwards was unused. Sidecars written before this read back as
+    # min_value_db 0.0 and mode 0, which is exactly the old behaviour.
+    struct.pack_into("<fI", head, 0x120, float(meta.get("min_value_db", 0.0)),
+                     1 if meta.get("iono_mode") == IONO_MODE_SNR else 0)
 
     table = bytearray()
     payloads = []

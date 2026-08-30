@@ -36,6 +36,11 @@ struct LfpProducts {
     float    delayMinMs, delayMaxMs;
     float    noiseGateDb;
     float    maxValueDb;
+    /* Bottom of the colour scale, and which convention IONO holds. Zero and
+     * gated for every sidecar written before these existed, which is what the
+     * old behaviour was anyway. */
+    float    minValueDb;
+    bool     ionoModeSnr;
     float    lufMHz, mufMHz;
     qint32   lufIndex, mufIndex;
     quint32  tb;
@@ -52,7 +57,8 @@ struct LfpProducts {
           cfHz(0), rateHzS(0), sampleRateHz(0), dec(0), durS(0), whiten(0),
           whitenLen(0), whitenN(0), fftCount(0), specCount(0), specPointCount(0),
           freqMinMHz(0), freqMaxMHz(0), delayMinMs(0), delayMaxMs(0),
-          noiseGateDb(0), maxValueDb(0), lufMHz(-1.0f), mufMHz(-1.0f),
+          noiseGateDb(0), maxValueDb(0), minValueDb(0), ionoModeSnr(false),
+          lufMHz(-1.0f), mufMHz(-1.0f),
           lufIndex(-1), mufIndex(-1), tb(0), lfsrPolynomeDegree(0), gated(true) {}
 };
 

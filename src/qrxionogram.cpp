@@ -404,6 +404,10 @@ LfpProducts QRxIonogram::products() const
     p.delayMinMs = (float)m_vertical.top();
     p.delayMaxMs = (float)m_vertical.bottom();
     p.maxValueDb = (float)m_levelMax;
+    /* The console only ever computes the gated form itself; the continuous one
+     * comes from the sounder's sidecar. */
+    p.minValueDb = 0.0f;
+    p.ionoModeSnr = false;
     p.lufMHz = m_luf;
     p.mufMHz = m_muf;
     p.gated = m_noiseGate;
@@ -445,6 +449,20 @@ bool QRxIonogram::applyProducts(const LfpProducts &p)
         }
     }
 
+    /*
+     * A continuous ionogram carries its own colour window and must use it. Its
+     * peak is the direct signal, tens of dB above the structure worth seeing,
+     * so scaling to the array maximum -- right for a gated image, where every
+     * stored point is trace -- would leave the trace in the bottom fifth of the
+     * colour range. Sidecars written before this read back as mode 0 and keep
+     * the old scaling.
+     */
+    double bottom = 0.0;
+    if (p.ionoModeSnr && p.maxValueDb > p.minValueDb) {
+        bottom = p.minValueDb;
+        top    = p.maxValueDb;
+    }
+
     m_horizontal = QIgWindow(QPointF(p.freqMinMHz, 0.0), QPointF(p.freqMaxMHz, 0.0));
     m_vertical   = QIgWindow(QPointF(0.0, p.delayMinMs), QPointF(0.0, p.delayMaxMs));
     m_luf = p.lufMHz;
@@ -469,6 +487,7 @@ bool QRxIonogram::applyProducts(const LfpProducts &p)
         top = 1.0;
 
     m_raster = new RasterData(m_data, m_specCount, m_specPointCount, area, (float)top);
+    m_raster->setPowerMin((float)bottom);
     m_spectrogram->setData(m_raster);
 
     setAxisScale(QwtPlot::xBottom, p.freqMinMHz, p.freqMaxMHz);

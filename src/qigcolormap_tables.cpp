@@ -160,7 +160,35 @@ QVector<QColorLevel> toVector(const QColorLevel (&a)[N])
     return v;
 }
 
+/*
+ * matplotlib's "jet", sampled from its segmentdata. Added because
+ * ionograms-handler renders with DEFAULT_CMAP = "jet" (muf/render.py:28) and
+ * the point of the continuous mode is to be comparable with its output. The
+ * dark blue at the bottom is what makes a noise floor read as background
+ * rather than as signal.
+ */
+const QColorLevel JET_COLORS_DATA[] = {
+    QColorLevel(0.000000, QColor(  0,   0, 127)),
+    QColorLevel(0.110000, QColor(  0,   0, 255)),
+    QColorLevel(0.125000, QColor(  0,   0, 255)),
+    QColorLevel(0.340000, QColor(  0, 219, 255)),
+    QColorLevel(0.350000, QColor(  0, 229, 246)),
+    QColorLevel(0.375000, QColor(  0, 255, 221)),
+    QColorLevel(0.640000, QColor(255, 229,   0)),
+    QColorLevel(0.650000, QColor(255, 219,   0)),
+    QColorLevel(0.660000, QColor(255, 206,   0)),
+    QColorLevel(0.890000, QColor(255,  18,   0)),
+    QColorLevel(0.910000, QColor(238,   0,   0)),
+    QColorLevel(1.000000, QColor(127,   0,   0)),
+};
+
 } // namespace
+
+const QVector<QColorLevel> &JET_COLORS()
+{
+    static const QVector<QColorLevel> v = toVector(JET_COLORS_DATA);
+    return v;
+}
 
 const QVector<QColorLevel> &PDP_COLORS()
 {

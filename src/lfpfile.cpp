@@ -191,6 +191,8 @@ bool writeLfp(const QString &path, const LfpProducts &p,
     putFloat (header, 0x0FC, p.delayMaxMs);
     putFloat (header, 0x100, p.noiseGateDb);
     putFloat (header, 0x104, p.maxValueDb);
+    putFloat (header, 0x120, p.minValueDb);
+    put<quint32>(header, 0x124, p.ionoModeSnr ? 1u : 0u);
     putFloat (header, 0x108, p.lufMHz);
     putFloat (header, 0x10C, p.mufMHz);
     put<qint32>(header, 0x110, p.lufIndex);
@@ -280,6 +282,8 @@ bool readLfp(const QString &path, LfpProducts &p)
     p.mufIndex    = get<qint32>(header, 0x114);
     p.tb          = get<quint32>(header, 0x118);
     p.lfsrPolynomeDegree = get<quint32>(header, 0x11C);
+    p.minValueDb  = getFloat(header, 0x120);
+    p.ionoModeSnr = get<quint32>(header, 0x124) != 0;
 
     if (!file.seek(tableOffset))
         return false;

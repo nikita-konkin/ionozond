@@ -11,7 +11,8 @@ RasterData::RasterData(float **data, const int &specCount, const int &specPointC
       m_area(area),
       m_xStep(0.0f),
       m_yStep(0.0f),
-      m_powerMax(powerMax)
+      m_powerMax(powerMax),
+      m_powerMin(0.0f)
 {
     if (m_specCount > 0)
         m_xStep = (float)(m_area.width() / m_specCount);
@@ -20,7 +21,7 @@ RasterData::RasterData(float **data, const int &specCount, const int &specPointC
 
     setInterval(Qt::XAxis, QwtInterval(m_area.left(), m_area.right()));
     setInterval(Qt::YAxis, QwtInterval(m_area.top(), m_area.bottom()));
-    setInterval(Qt::ZAxis, QwtInterval(0.0, m_powerMax));
+    setInterval(Qt::ZAxis, QwtInterval(m_powerMin, m_powerMax));
 }
 
 RasterData::~RasterData()
@@ -32,10 +33,16 @@ void RasterData::setData(float **data)
     m_data = data;
 }
 
+void RasterData::setPowerMin(const float &powerMin)
+{
+    m_powerMin = powerMin;
+    setInterval(Qt::ZAxis, QwtInterval(m_powerMin, m_powerMax));
+}
+
 void RasterData::setPowerMax(const float &powerMax)
 {
     m_powerMax = powerMax;
-    setInterval(Qt::ZAxis, QwtInterval(0.0, m_powerMax));
+    setInterval(Qt::ZAxis, QwtInterval(m_powerMin, m_powerMax));
 }
 
 int RasterData::xIndex(const double &x) const

@@ -41,6 +41,7 @@ public:
 };
 
 /* The recovered maps (qigcolormap_tables.cpp, generated). */
+const QVector<QColorLevel> &JET_COLORS();
 const QVector<QColorLevel> &PDP_COLORS();
 const QVector<QColorLevel> &BLUE_BASE_COLORS();
 const QVector<QColorLevel> &WHITE_BASE_COLORS();

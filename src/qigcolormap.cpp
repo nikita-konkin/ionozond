@@ -44,6 +44,7 @@ const QVector<QColorLevel> &colorLevelsForIndex(int index)
     case 6:  return RAINBOW_WHITEBASE_COLORS();
     case 7:  return IG2_BASE_COLORS();
     case 8:  return IG2_MOD_BASE_COLORS();
+    case 9:  return JET_COLORS();
     default: return WHITE_BASE_COLORS();
     }
 }

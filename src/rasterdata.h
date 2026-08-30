@@ -28,6 +28,11 @@ public:
 
     void setData(float **data);
     void setPowerMax(const float &powerMax);
+    /* Bottom of the colour scale. Zero for a gated ionogram, where 0 dB means
+     * "nothing here"; the display floor for a continuous one, where the noise
+     * sits well above zero and starting the scale at 0 would spend most of the
+     * colour range on background. */
+    void setPowerMin(const float &powerMin);
 
     int xIndex(const double &x) const;
     int yIndex(const double &y) const;
@@ -42,6 +47,7 @@ private:
     float   m_xStep;
     float   m_yStep;
     float   m_powerMax;
+    float   m_powerMin;
 };
 
 #endif /* RASTERDATA_H */
