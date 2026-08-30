@@ -202,6 +202,15 @@ level, `10*log10(2*ln 2) = 1.416 dB` for median-normalised spectra. That is
 milder than the Rosin threshold, so this stage removes little on top of it —
 which is consistent, but means it is not independently exercised.
 
+**What 2·ln(2) is.** Not the median-to-mean conversion for an exponential it is
+usually described as: that is 1/ln2 = 1.4427, since the median of an
+exponential is `mean·ln2`. 2·ln2 = 1.3863 sits 3.9% below it (−0.17 dB), close
+by the coincidence that 2·ln²2 = 0.961 rather than by derivation. For
+exponential noise a threshold at `F · median` passes exactly `2^-F` of pure
+noise, so this gate passes 38.3% of it — the quantitative reason it removes so
+little. The value is the original's and is reproduced as such; only the
+explanation was wrong.
+
 ## Verified: generated `chirp_config.py`
 
 `frmMain::CreateConfigFile()` emits Python from the two `.ini` files. Rules recovered

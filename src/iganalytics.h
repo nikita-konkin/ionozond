@@ -154,8 +154,18 @@ void deleteObjectsUnderNoiseLevel(float **dst, const float *const *src,
                                   int specCount, int specPointCount,
                                   float noiseLevelDb);
 
-/* 10*log10(2*ln 2): the noise gate above, expressed for a median-normalised
- * spectrum whose median is 1 by construction. */
+/*
+ * 10*log10(2*ln 2): the noise gate above, expressed for a median-normalised
+ * spectrum whose median is 1 by construction.
+ *
+ * 2*ln(2) is often glossed as converting an exponential's median to its mean.
+ * It is not -- that is 1/ln2 = 1.4427, and this sits 3.9% below it, close by
+ * the coincidence 2*ln^2(2) = 0.961 rather than by derivation. For exponential
+ * noise, a threshold at F*median passes exactly 2^-F of pure noise, so this
+ * one passes 38.3%. That is the quantitative reason the stage "removes little
+ * on top of" the Rosin threshold: it is barely a gate. Kept at the original's
+ * value, this being a reconstruction.
+ */
 double noiseLevelDbForNormalisedSpectra();
 
 /*

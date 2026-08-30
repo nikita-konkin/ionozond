@@ -73,7 +73,16 @@ QVector<float> calcAllSpecSnr(const float *const *data,
     if (!data)
         return snr;
 
-    /* median -> mean power for an exponential distribution */
+    /*
+     * The original's constant. Not the median-to-mean conversion it is usually
+     * described as -- that is 1/ln2 = 1.4427, the median of an exponential
+     * being mean*ln2. This is 3.9% below that, close only by the coincidence
+     * 2*ln^2(2) = 0.961.
+     *
+     * As a threshold it sits 1.42 dB above the median, and for exponential
+     * noise the survivors of a threshold at F*median are exactly 2^-F: 38.3%
+     * here. Reproduced as the original had it. See iganalytics.h.
+     */
     const double NOISE_FACTOR = 1.3862943611198906;   /* 2*ln(2) */
 
     for (int s = 0; s < specCount; ++s) {

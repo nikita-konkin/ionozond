@@ -37,7 +37,19 @@ HZ_IN_MHZ = 1e6
 OBJ_SIZE_HORIZONTAL = 9              # deleteSmallObjects window, spectra
 OBJ_SIZE_VERTICAL = 3                # ... and delay rows
 OBJ_LEVEL = 11.0                     # neighbours needed to survive
-NOISE_FACTOR = 1.3862943611198906    # 2*ln(2): median -> mean, exponential
+# The original's noise constant, recovered from the binary. Its usual gloss --
+# "median to mean for an exponential" -- is not what it is: that conversion is
+# 1/ln2 = 1.4427, since the median of an exponential is mean*ln2. 2*ln2 lands
+# 3.9% below it (-0.17 dB), close by the coincidence that 2*ln^2(2) = 0.961
+# rather than by derivation.
+#
+# What it does do is set a threshold 1.42 dB above the median, and for
+# exponential noise the fraction of pure-noise cells surviving a threshold of
+# F * median is exactly 2^-F. At F = 2*ln2 that is 38.3%, so this gate passes
+# well over a third of the noise and the Rosin threshold and speckle filter
+# downstream do the real work. Kept at the original's value regardless: this is
+# a reconstruction, and matching it matters more than improving it.
+NOISE_FACTOR = 1.3862943611198906    # 2*ln(2), the original's
 
 # What the IONO section holds. See compute().
 IONO_MODE_GATED = "gated"            # the original: threshold, despeckle, zero
@@ -50,11 +62,13 @@ IONO_MODE_SNR = "snr"                # ionograms-handler: continuous, nothing cu
 # 0 dB thirty decibels below unity, so the equalised noise floor lands near
 # 26 dB and a window starting at 20 keeps a few dB of it visible.
 #
-# Note this coefficient is not ours. NOISE_FACTOR above is 2*ln(2) and this is
-# 4*ln(2), both commented as converting the median of an exponential to its
-# mean -- the textbook factor is 1/ln(2) = 1.4427, so ours is 4% high and this
-# one is 2x, about 3 dB conservative. Kept as theirs because their 20 and 45 dB
-# thresholds are calibrated against it; changing it would move their scale.
+# Note this coefficient is not ours. NOISE_FACTOR above is 2*ln(2); this is
+# exactly twice that, and 2.84 dB above the 1/ln(2) that actually converts an
+# exponential's median to its mean. As a divisor, which is how it is used here,
+# that shifts every value down uniformly and cancels against the fixed 20..75
+# window -- so it is kept as theirs, their thresholds being calibrated against
+# it. As a threshold it would be a different matter: 14.6% of noise surviving
+# against our 38.3%.
 IONO_SNR_NOISE_COEF = 4.0 * math.log(2.0)   # muf/spectro.py NOISE_COEF
 IONO_SNR_DB_REF = 1e-3                      # muf/spectro.py to_db floor
 IONO_SNR_VMIN_DB = 20.0                     # muf/render.py DEFAULT_VMIN_DB
