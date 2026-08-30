@@ -533,6 +533,23 @@ probe fell back, and it has to be told: `--args recv_frame_size=8000`.
 
 `open_radio` merges `recv_buff_size=100000000` and `num_recv_frames=4096` into
 the device args unless the caller set them.
+
+Raising the ring to 4096 halved the loss at a stroke — 2 overflows and 184.1 ms
+became 1 and 78.3 ms — with `stalled 0.06 s` and 51% dechirp occupancy
+confirming the host was never the constraint. The remaining loss is packet rate.
+The ring buys time measured in packets, not bytes, so what it is worth depends
+entirely on frame size:
+
+| frame | packets/s at 100 MB/s | 4096-entry ring holds |
+|---|---|---|
+| 1472 B | ~68000 | 60 ms |
+| 8000 B | ~12500 | 327 ms |
+
+A 78 ms stall exhausts the first and not the second. `sounder.sh` therefore
+looks up the MTU on the route to the radio and, when it is jumbo, asks UHD for
+frames that size rather than accepting its fallback — `NO_JUMBO=1` disables it,
+and `rx_dechirp` already recognises a stream that dies immediately as the
+signature of a path that cannot carry the frames it agreed to.
 `tools/host-setup/16-check-packet-loss.sh` reports the MTU, the ring, the drop
 counters and the ceiling together; run it during a capture and watch whether
 the counters move.

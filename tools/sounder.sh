@@ -23,6 +23,30 @@ ARCHIVE="${2:-}"
 ARGS=(--config "$CONFIG" --loop)
 [ -n "$ARCHIVE" ] && ARGS+=(--outdir "$ARCHIVE")
 
+# Jumbo frames, when the link to the radio actually carries them.
+#
+# UHD probes the path and falls back to 1472-byte payloads when the probe is
+# inconclusive -- observed on this station with the interface MTU sitting at
+# 9000. At 1472 bytes, 25 MS/s is about 68000 packets per second; at 8000 it is
+# under 12500, and the packet rate is what the NIC's receive ring has to keep
+# up with. So ask explicitly rather than accept the fallback.
+#
+# Skipped when SOUNDER_ARGS already carries --args, since argparse keeps only
+# the last one and silently dropping the operator's address would be worse than
+# not tuning. Set RADIO_ADDR to point the MTU lookup elsewhere, or
+# NO_JUMBO=1 to leave UHD to its own devices.
+if [ "${NO_JUMBO:-0}" != "1" ] && [[ "${SOUNDER_ARGS:-}" != *"--args"* ]]; then
+    ADDR="${RADIO_ADDR:-192.168.10.2}"
+    MTU=$(ip -o route get "$ADDR" 2>/dev/null           | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}'           | head -1           | xargs -I{} cat /sys/class/net/{}/mtu 2>/dev/null)
+    if [ -n "${MTU:-}" ] && [ "$MTU" -ge 4000 ] 2>/dev/null; then
+        FRAME=$(( MTU - 28 ))
+        [ "$FRAME" -gt 8000 ] && FRAME=8000
+        echo "link to $ADDR has MTU $MTU; asking UHD for ${FRAME}-byte frames"
+        echo "  (NO_JUMBO=1 disables this; if the stream dies at once, use it)"
+        ARGS+=(--args "recv_frame_size=$FRAME,send_frame_size=$FRAME")
+    fi
+fi
+
 # Unbuffered, or the console sees nothing until a pipe buffer fills. The
 # sounder flushes its own status lines, but this covers tracebacks too.
 exec python3 -u "$HERE/rx_dechirp.py" "${ARGS[@]}" ${SOUNDER_ARGS:-}
