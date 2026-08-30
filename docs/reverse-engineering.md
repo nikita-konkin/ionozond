@@ -383,6 +383,53 @@ the way past, since `addIg` promotes the previous ionogram each time. Only the
 last two are ever displayed, so `addIg(file, keepControl)` now skips that for
 everything before them — half the work on a 288-file replay.
 
+### Borrowed from chirpsounder2 — the continuous ionogram
+
+`chirpsounder2/plot_ionograms.py` renders an ionogram very differently, and the
+difference is most of why its output reads as sharper off a comparable receiver:
+
+```python
+noise = n.nanmedian(S[i, :])          # per frequency row
+S[i, :] = (S[i, :] - noise) / noise
+...
+dB = n.transpose(10.0 * n.log10(S))
+mesh = ax.pcolormesh(freqs / 1e6, range_gates, dB,
+                     vmin=0, vmax=20.0, cmap="gist_yarg")
+```
+
+Three things worth taking, only the first two of which we lacked:
+
+1. **The noise floor is subtracted, not just divided out.** `buildSpectra`
+   already does `power /= median`, so the median is 1 — subtracting one leaves
+   `(S - median)/median` exactly. 0 dB then means "at the noise floor" at every
+   frequency and in every capture, which is what makes a fixed colour scale
+   meaningful.
+2. **Nothing is deleted.** They plot the continuous field and let the eye do
+   the gating. Ours thresholds each spectrum, despeckles, and stores zeros for
+   the rest — measured on a synthetic capture with three echoes, **the gate
+   keeps 5.4% of the array and zeros the other 94.6%**. Multi-hop traces and
+   the ordinary/extraordinary split live in exactly that discarded structure.
+3. **A fixed colour window**, `vmin=0, vmax=20`, rather than scaling to the
+   peak. Scaling to the peak is right for a gated image, where every stored
+   point is trace; on a continuous one the peak is the direct signal and the
+   structure worth seeing sits 30 dB below it.
+
+`compute(..., iono_mode=...)` now takes `"gated"` (the original, still the
+default) or `"snr"`. **LUF, MUF, SNR and PDP are derived from the gated array
+in both modes** — verified identical, 7.67 / 9.83 MHz either way — so switching
+changes what is displayed and nothing that is measured. In `"snr"` mode
+`max_value_db` carries the fixed 20 dB, which the console reads as the top of
+its colour scale, so no C++ change is needed to get their window.
+
+Use a dark colour map with it: `ig_colormap_index` 0 (`BLUE_BASE`) or 5
+(`RAINBOW`) are both jet-like. The default of 1 (`WHITE_BASE`) paints
+everything below the gate white, which is why gated ionograms read as scattered
+dots on paper rather than a trace.
+
+`ionograms-handler` is private — 404 on the API as well as the web page — so
+its exact scale (SNR 20-75 dB, jet, LOF/MUF markers) could not be read, only
+inferred from the screenshot.
+
 ### Sidecars must be rebuilt
 
 The console reads the `.lfp` in preference to the capture, so changing any of

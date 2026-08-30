@@ -1302,7 +1302,8 @@ def run_live(opts, cfg, sounders):
                     result["path"], quiet=True,
                     obj_w=int(cfg.get("obj_size_horizontal", 9)),
                     obj_h=int(cfg.get("obj_size_vertical", 3)),
-                    obj_level=float(cfg.get("obj_level", 11.0)))
+                    obj_level=float(cfg.get("obj_level", 11.0)),
+                    iono_mode=str(cfg.get("iono_mode", "gated")))
                 raw = os.path.getsize(result["path"])
                 log("  sidecar   %s  %.1f kB  (%.0fx smaller, %.1f s)"
                     % (os.path.basename(out), size / 1024.0,

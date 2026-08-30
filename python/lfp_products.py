@@ -39,6 +39,11 @@ OBJ_SIZE_VERTICAL = 3                # ... and delay rows
 OBJ_LEVEL = 11.0                     # neighbours needed to survive
 NOISE_FACTOR = 1.3862943611198906    # 2*ln(2): median -> mean, exponential
 
+# What the IONO section holds. See compute().
+IONO_MODE_GATED = "gated"            # the original: threshold, despeckle, zero
+IONO_MODE_SNR = "snr"                # chirpsounder2: continuous, nothing cut
+IONO_SNR_VMAX_DB = 20.0              # their pcolormesh vmax
+
 LFS_HEADER_SIZE = 512
 LFP_MAGIC = b"LFPR"
 LFP_HEADER_SIZE = 512
@@ -288,8 +293,21 @@ def usage_frequencies(data):
 
 def compute(path, fft_count=16384, noise_gate=True, progress=None,
             obj_w=OBJ_SIZE_HORIZONTAL, obj_h=OBJ_SIZE_VERTICAL,
-            obj_level=OBJ_LEVEL):
-    """Run the whole pipeline. Returns (meta, {section: array})."""
+            obj_level=OBJ_LEVEL, iono_mode=IONO_MODE_GATED):
+    """Run the whole pipeline. Returns (meta, {section: array}).
+
+    `iono_mode` decides only what the IONO section holds; LUF, MUF, SNR and
+    PDP are derived from the gated array either way.
+
+    "gated" is the original's: threshold each spectrum, delete speckle, store
+    what survives and zero the rest. "snr" is chirpsounder2's, which stores
+    the continuous field and lets the eye do the gating -- see
+    plot_ionograms.py, which renders 10*log10((S - median)/median) over a
+    fixed 0..20 dB window with nothing deleted at all. Multi-hop traces and
+    the ordinary/extraordinary split live in exactly the faint structure the
+    gate removes, which is why their ionograms read as sharper than ours
+    despite coming off a comparable receiver.
+    """
     header = read_lfs_header(path)
     samples = (os.path.getsize(path) - LFS_HEADER_SIZE) // 8
     if samples < fft_count:
@@ -300,6 +318,8 @@ def compute(path, fft_count=16384, noise_gate=True, progress=None,
     row_low, rows = geo["row_low"], geo["rows"]
 
     gated_db = np.zeros((spec_count, rows), dtype=np.float32)
+    snr_db = (np.zeros((spec_count, rows), dtype=np.float32)
+              if iono_mode == IONO_MODE_SNR else None)
     window_linear = np.zeros((spec_count, rows), dtype=np.float64)
     limits = np.zeros(spec_count, dtype=np.float32)
     win_max = 0.0
@@ -318,6 +338,14 @@ def compute(path, fft_count=16384, noise_gate=True, progress=None,
             keep = ~(limit > db)
             gated_db[at] = np.where(keep, db, 0.0)
             window_linear[at] = row[row_low:row_low + rows]
+            if snr_db is not None:
+                # build_spectra has already divided by the median, so
+                # subtracting one leaves (S - median)/median exactly --
+                # power relative to this spectrum's own noise floor, which is
+                # what makes 0 dB mean the same thing at every frequency and a
+                # fixed colour scale meaningful across captures.
+                rel = window_linear[at] - 1.0
+                snr_db[at] = 10.0 * np.log10(np.where(rel > 0.0, rel, 1e-3))
             if keep.any():
                 block_max = float(window_linear[at][keep].max())
                 if block_max > win_max:
@@ -327,6 +355,8 @@ def compute(path, fft_count=16384, noise_gate=True, progress=None,
                 progress(at, spec_count)
     if at < spec_count:                       # short capture
         gated_db = gated_db[:at]
+        if snr_db is not None:
+            snr_db = snr_db[:at]
         window_linear = window_linear[:at]
         limits = limits[:at]
         spec_count = at
@@ -373,12 +403,24 @@ def compute(path, fft_count=16384, noise_gate=True, progress=None,
         "spec_count": spec_count,
         "spec_point_count": rows,
         "noise_gate": noise_gate,
+        "iono_mode": iono_mode,
+        # What the display should clip at in "snr" mode. chirpsounder2 uses a
+        # fixed 0..20 dB; anything above the top of that is saturated trace,
+        # not detail worth the dynamic range.
+        "iono_vmax_db": IONO_SNR_VMAX_DB if iono_mode == IONO_MODE_SNR else 0.0,
         "noise_gate_db": float(np.median(limits)) if noise_gate else 0.0,
-        "max_value_db": 10.0 * math.log10(win_max) if win_max > 0.0 else 0.0,
+        # The console takes the top of its colour scale straight from this, so
+        # in "snr" mode it carries chirpsounder2's fixed vmax instead of the
+        # capture's peak. Scaling to the peak is right for a gated image, where
+        # every stored point is trace; it washes out a continuous one, where
+        # the peak is the direct signal and the structure worth seeing sits
+        # 30 dB below it. Values above the top clamp to the last colour.
+        "max_value_db": (IONO_SNR_VMAX_DB if iono_mode == IONO_MODE_SNR
+                         else (10.0 * math.log10(win_max) if win_max > 0.0 else 0.0)),
         "luf_index": luf_index, "muf_index": muf_index,
         "luf_mhz": to_mhz(luf_index), "muf_mhz": to_mhz(muf_index),
     })
-    return meta, {"IONO": gated_db,
+    return meta, {"IONO": gated_db if snr_db is None else snr_db,
                   "SNR ": snr.reshape(1, -1),
                   "PDP ": pdp.reshape(1, -1)}
 
@@ -475,6 +517,11 @@ def main():
     ap.add_argument("--obj-level", type=float, default=OBJ_LEVEL,
                     help="neighbours a point needs to survive; lower keeps more "
                          "of a faint trace and more noise (default %g)" % OBJ_LEVEL)
+    ap.add_argument("--iono-mode", choices=[IONO_MODE_GATED, IONO_MODE_SNR],
+                    default=IONO_MODE_GATED,
+                    help="what the IONO section holds: 'gated' (the original: "
+                         "thresholded and despeckled) or 'snr' (chirpsounder2: "
+                         "the continuous field, nothing deleted)")
     ap.add_argument("--recurse", action="store_true")
     ap.add_argument("--verify", action="store_true",
                     help="read the sidecar back and print what it holds")
@@ -500,7 +547,8 @@ def main():
         try:
             out, size = build_one(path, fft_count=opts.fft, force=opts.force,
                                   obj_w=opts.obj_w, obj_h=opts.obj_h,
-                                  obj_level=opts.obj_level)
+                                  obj_level=opts.obj_level,
+                                  iono_mode=opts.iono_mode)
             if size:
                 total_raw += os.path.getsize(path)
                 total_side += size
