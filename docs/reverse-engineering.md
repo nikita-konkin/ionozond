@@ -251,6 +251,26 @@ ray distance versus +56.0 km above the decimal one. Full evidence in
 [`lfs-format.md`](lfs-format.md). Not corrected here: it would move every
 existing display, and the call belongs to the archive's owner.
 
+## The physics, and reading a trace
+
+`docs/ionogram-physics.html` is the standing reference for how an ionogram is
+formed: plasma frequency and the reflection condition, the secant law and why a
+2634 km path reaches 30 MHz where a vertical sounder stops at 10, the group-path
+formula with the multi-hop table computed for this circuit, the dechirp
+identity, the resolution chain, and a lookup table from what an ionogram looks
+like to which stage of the chain produced it.
+
+Two results there are worth repeating here because they settle questions that
+recur. Multi-hop delays on this path, at a virtual height of 300 km, are 9.01,
+9.66 and 10.64 ms for one, two and three hops — which is where the parallel
+traces in every good capture actually sit, so they are modes rather than
+artifacts. And a genuine MUF cut-off always curves upward in delay before it
+ends, because the ray is retarded as it approaches the critical frequency; a
+trace that runs flat and stops at a hard vertical edge is an instrument fault.
+
+Published for reading at
+https://claude.ai/code/artifact/c1866682-7c7e-4395-922b-19ec77efb970
+
 ## Tuning ionogram quality
 
 Three settings decide what an ionogram looks like. Measured on a real capture

@@ -1,0 +1,806 @@
+<title>Oblique Chirp Ionograms</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+:root {
+  --ground:  #eff3f4;
+  --surface: #ffffff;
+  --raised:  #f7fafb;
+  --ink:     #0f171b;
+  --muted:   #54666e;
+  --faint:   #7d8f97;
+  --rule:    #d2dee2;
+  --accent:  #0b6b7c;
+  --accent-soft: #e0eff1;
+  --warn:    #9d5407;
+  --warn-soft: #f6ebdd;
+  --shadow: 0 1px 2px rgba(15,23,27,.06), 0 8px 24px -16px rgba(15,23,27,.28);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:  #091013;
+    --surface: #0f1a1f;
+    --raised:  #14242a;
+    --ink:     #dfe9ec;
+    --muted:   #8ba2ab;
+    --faint:   #6b838c;
+    --rule:    #1d2d34;
+    --accent:  #4ac0d3;
+    --accent-soft: #0d2a31;
+    --warn:    #dfa059;
+    --warn-soft: #2a2015;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+  }
+}
+:root[data-theme="dark"] {
+  --ground:  #091013;
+  --surface: #0f1a1f;
+  --raised:  #14242a;
+  --ink:     #dfe9ec;
+  --muted:   #8ba2ab;
+  --faint:   #6b838c;
+  --rule:    #1d2d34;
+  --accent:  #4ac0d3;
+  --accent-soft: #0d2a31;
+  --warn:    #dfa059;
+  --warn-soft: #2a2015;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: 1.62;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+.shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 24px 96px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0 56px;
+}
+@media (min-width: 1000px) {
+  .shell { grid-template-columns: 190px minmax(0, 1fr); }
+}
+
+/* ---------------------------------------------------------------- masthead */
+
+.masthead {
+  grid-column: 1 / -1;
+  padding: 72px 0 40px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 48px;
+}
+.eyebrow {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11.5px;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 18px;
+}
+h1 {
+  font-family: Spectral, Georgia, serif;
+  font-weight: 600;
+  font-size: clamp(2.3rem, 5.2vw, 3.5rem);
+  line-height: 1.06;
+  letter-spacing: -.017em;
+  text-wrap: balance;
+  margin: 0 0 20px;
+}
+.standfirst {
+  font-family: Spectral, Georgia, serif;
+  font-size: clamp(1.05rem, 2vw, 1.24rem);
+  line-height: 1.55;
+  color: var(--muted);
+  max-width: 62ch;
+  margin: 0;
+}
+.station {
+  margin-top: 32px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 26px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12.5px;
+  color: var(--faint);
+}
+.station b { color: var(--ink); font-weight: 500; }
+
+/* -------------------------------------------------------------------- rail */
+
+.rail { display: none; }
+@media (min-width: 1000px) {
+  .rail {
+    display: block;
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    padding-bottom: 40px;
+  }
+}
+.rail h2 {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 500;
+  margin: 0 0 14px;
+}
+.rail ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.rail a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 13.5px;
+  line-height: 1.35;
+  display: block;
+  border-left: 2px solid var(--rule);
+  padding-left: 11px;
+}
+.rail a:hover, .rail a:focus-visible { color: var(--accent); border-left-color: var(--accent); }
+
+/* ----------------------------------------------------------------- content */
+
+.content { min-width: 0; }
+
+section { margin: 0 0 68px; scroll-margin-top: 24px; }
+
+h2.part {
+  font-family: Spectral, Georgia, serif;
+  font-size: clamp(1.6rem, 3vw, 2.05rem);
+  font-weight: 600;
+  letter-spacing: -.012em;
+  line-height: 1.15;
+  text-wrap: balance;
+  margin: 0 0 8px;
+  padding-top: 6px;
+}
+.part-no {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11.5px;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--accent);
+  display: block;
+  margin-bottom: 10px;
+}
+.part-lede { color: var(--muted); max-width: 64ch; margin: 0 0 34px; }
+
+h3 {
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 1.02rem;
+  font-weight: 600;
+  letter-spacing: -.004em;
+  margin: 38px 0 12px;
+  text-wrap: balance;
+}
+h3:first-of-type { margin-top: 0; }
+
+p { max-width: 68ch; margin: 0 0 16px; }
+.content a { color: var(--accent); }
+
+code, .mono {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .875em;
+}
+code {
+  background: var(--raised);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: .08em .34em;
+}
+
+/* ---------------------------------------------------------------- equation */
+
+.eq {
+  margin: 22px 0;
+  padding: 18px 22px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  overflow-x: auto;
+}
+.eq-line {
+  font-family: Spectral, Georgia, serif;
+  font-size: 1.12rem;
+  line-height: 1.7;
+  white-space: nowrap;
+}
+.eq-line + .eq-line { margin-top: 8px; }
+var { font-style: italic; font-family: Spectral, Georgia, serif; }
+sub, sup { font-size: .68em; font-style: normal; }
+.eq-where {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: normal;
+  max-width: 62ch;
+}
+
+/* ------------------------------------------------------------------ tables */
+
+.tablewrap { overflow-x: auto; margin: 22px 0; border: 1px solid var(--rule); border-radius: 4px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+caption {
+  caption-side: bottom;
+  text-align: left;
+  font-size: 12.5px;
+  color: var(--faint);
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--rule);
+}
+th, td { padding: 9px 16px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--rule); }
+thead th {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 500;
+  white-space: nowrap;
+}
+tbody tr:last-child td { border-bottom: none; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: "IBM Plex Mono", ui-monospace, monospace; white-space: nowrap; }
+tbody tr.hi td { background: var(--accent-soft); }
+
+.tag {
+  display: inline-block;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 3px;
+  white-space: nowrap;
+  border: 1px solid;
+}
+.tag.phys { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.tag.inst { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
+
+/* ----------------------------------------------------------------- figures */
+
+figure { margin: 30px 0; }
+figure svg { display: block; width: 100%; max-width: 100%; height: auto; color: var(--ink); }
+.figframe {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 22px 20px 14px;
+  overflow-x: auto;
+}
+figcaption {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 12px;
+  max-width: 66ch;
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------------- notes */
+
+.note {
+  border-left: 2px solid var(--accent);
+  background: var(--surface);
+  padding: 14px 18px;
+  margin: 24px 0;
+  border-radius: 0 4px 4px 0;
+  box-shadow: var(--shadow);
+}
+.note.caution { border-left-color: var(--warn); }
+.note p { margin: 0; max-width: 62ch; font-size: 14.5px; }
+.note p + p { margin-top: 10px; }
+.note .lbl {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--accent);
+  display: block;
+  margin-bottom: 6px;
+}
+.note.caution .lbl { color: var(--warn); }
+
+ul.plain { max-width: 68ch; padding-left: 20px; margin: 0 0 16px; }
+ul.plain li { margin-bottom: 8px; }
+
+footer {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--rule);
+  padding-top: 22px;
+  font-size: 13px;
+  color: var(--faint);
+  max-width: 68ch;
+}
+</style>
+
+<div class="shell">
+
+<header class="masthead">
+  <p class="eyebrow">Ionozond · working reference</p>
+  <h1>Oblique Chirp Ionograms</h1>
+  <p class="standfirst">How a swept transmission from Cyprus becomes a picture in Yoshkar-Ola — the physics that shapes the trace, the arithmetic that places it on the axes, and the ways both can lie to you.</p>
+  <div class="station">
+    <span><b>Path</b> cyprus1 → yoshkar-ola, 2634 km</span>
+    <span><b>Sweep</b> 7.5–32.5 MHz at 100 kHz/s</span>
+    <span><b>Cadence</b> 250 s every 300 s</span>
+    <span><b>Receiver</b> USRP N210, 25 MS/s</span>
+  </div>
+</header>
+
+<nav class="rail" aria-label="Contents">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#chain">The chain</a></li>
+    <li><a href="#reflection">Why it reflects</a></li>
+    <li><a href="#geometry">Path geometry</a></li>
+    <li><a href="#hops">Multi-hop on this path</a></li>
+    <li><a href="#edges">MUF, LUF, the nose</a></li>
+    <li><a href="#dechirp">The dechirp</a></li>
+    <li><a href="#axes">Sweep to pixel</a></li>
+    <li><a href="#anatomy">Reading a trace</a></li>
+    <li><a href="#causes">Appearance → cause</a></li>
+    <li><a href="#budget">Error budget</a></li>
+    <li><a href="#limits">What this cannot measure</a></li>
+  </ol>
+</nav>
+
+<main class="content">
+
+<!-- ============================================================ THE CHAIN -->
+<section id="chain">
+  <span class="part-no">Part 0</span>
+  <h2 class="part">The chain, end to end</h2>
+  <p class="part-lede">Six stages sit between the transmitter and a pixel. Every feature you see on an ionogram — real or spurious — is introduced at exactly one of them, and knowing which is most of diagnosis.</p>
+
+  <ol class="plain">
+    <li><b>Transmit.</b> A linear FM sweep, 7.5 → 32.5 MHz at a known rate, starting on a known UTC second.</li>
+    <li><b>Propagate.</b> The ionosphere refracts some frequencies back to earth and lets others through. This stage creates the trace and decides where it ends.</li>
+    <li><b>Receive.</b> 25 MS/s of complex samples, timestamped against GPS.</li>
+    <li><b>Dechirp.</b> Multiply by a conjugate replica of the sweep. Delay becomes a constant beat frequency.</li>
+    <li><b>Transform.</b> Decimate, then one FFT per 0.41 s of sweep. Beat frequency becomes a row; sweep time becomes a column.</li>
+    <li><b>Gate and render.</b> Normalise each spectrum, threshold it, remove speckle, map to colour.</li>
+  </ol>
+
+  <p>Stage 2 is the measurement. Stages 3–6 are supposed to be transparent, and the interesting failures are the ones where they are not.</p>
+</section>
+
+<!-- =========================================================== REFLECTION -->
+<section id="reflection">
+  <span class="part-no">Part 1 · Physics</span>
+  <h2 class="part">Why the ionosphere reflects at all</h2>
+  <p class="part-lede">Free electrons make the upper atmosphere a dispersive plasma. Each height has a characteristic frequency; below it, waves turn back.</p>
+
+  <p>The plasma frequency of a region with electron density <var>N</var><sub>e</sub> is</p>
+
+  <div class="eq">
+    <div class="eq-line"><var>f</var><sub>p</sub> ≈ 8.98 √<var>N</var><sub>e</sub> &nbsp; [kHz]</div>
+    <p class="eq-where"><var>N</var><sub>e</sub> in electrons per cm³. An F2 peak of 10<sup>6</sup> cm⁻³ gives 8.98 MHz; 1.5 × 10<sup>6</sup> gives 11.0 MHz. This is the whole reason ionosondes work in the HF band and nowhere else.</p>
+  </div>
+
+  <p>The refractive index of that plasma, ignoring the magnetic field and collisions, is</p>
+
+  <div class="eq">
+    <div class="eq-line"><var>n</var> = √(1 − <var>f</var><sub>p</sub>² ⁄ <var>f</var>²)</div>
+  </div>
+
+  <p>A wave sent straight up turns around where <var>n</var> = 0, that is where <var>f</var> = <var>f</var><sub>p</sub>. Send it at a frequency above the layer's peak plasma frequency and it never finds such a height: it goes through and out. That threshold, measured vertically, is the layer's <b>critical frequency</b>, written <span class="mono">foF2</span> for the F2 layer.</p>
+
+  <p>Two consequences matter more than anything else in this document. First, the critical frequency tracks electron density, which tracks solar illumination — so everything about an ionogram changes between day and night. Second, <var>n</var> &lt; 1 inside the layer, and group velocity is <var>c</var> · <var>n</var>, so a wave that penetrates deeply is <em>slowed</em>. That slowing is what bends the trace upward near its high-frequency end.</p>
+</section>
+
+<!-- ============================================================= GEOMETRY -->
+<section id="geometry">
+  <span class="part-no">Part 2 · Physics</span>
+  <h2 class="part">Oblique geometry, and why 2634 km buys you 30 MHz</h2>
+  <p class="part-lede">A vertical sounder working the same ionosphere would stop at 10 MHz. Shooting along the ground rather than up at it multiplies the usable frequency by roughly three.</p>
+
+  <p>A ray striking the layer at incidence angle <var>φ</var> reflects when its <em>vertical component</em> reaches the plasma frequency. Rearranged, that is the secant law:</p>
+
+  <div class="eq">
+    <div class="eq-line"><var>f</var><sub>oblique</sub> = <var>f</var><sub>vertical</sub> · sec <var>φ</var></div>
+    <p class="eq-where">Flat-earth form. Over 2634 km with a 300 km reflection height the geometry gives sec <var>φ</var> = 4.5, but earth curvature makes that an overestimate; the curved-earth factor for this path is nearer 3. With <span class="mono">foF2</span> around 10 MHz that predicts a maximum usable frequency near 30 MHz — which is where the daytime trace on this circuit actually stops.</p>
+  </div>
+
+  <p>The delay the receiver measures is the <b>group path</b> <var>P</var>′ — the distance light would cover in the observed time — not the true ray path, because the wave travels slower than <var>c</var> inside the layer. Treating the reflection as a mirror at <b>virtual height</b> <var>h</var>′ makes the arithmetic elementary:</p>
+
+  <div class="eq">
+    <div class="eq-line"><var>P</var>′ = <var>c</var> · <var>τ</var></div>
+    <div class="eq-line"><var>P</var>′ = 2 <var>n</var><sub>hop</sub> √( (<var>D</var> ⁄ 2<var>n</var><sub>hop</sub>)² + <var>h</var>′² )</div>
+    <p class="eq-where"><var>D</var> is ground distance, <var>n</var><sub>hop</sub> the number of ionospheric reflections. The mirror is a fiction — the wave really turns gradually below <var>h</var>′ — but it reproduces the measured delay exactly, which is all the axis needs.</p>
+  </div>
+
+  <figure>
+    <div class="figframe">
+      <svg viewBox="0 0 700 250" role="img" aria-label="One-hop and two-hop ray paths between transmitter and receiver, reflecting from a layer at virtual height h prime.">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <!-- layer -->
+        <line x1="40" y1="52" x2="660" y2="52" stroke="currentColor" stroke-width="1" stroke-dasharray="5 4" opacity=".5"/>
+        <text x="40" y="42" font-size="12" fill="currentColor" opacity=".72" font-family="IBM Plex Mono, monospace">F2 layer, virtual height h′ ≈ 300 km</text>
+
+        <!-- ground -->
+        <line x1="40" y1="196" x2="660" y2="196" stroke="currentColor" stroke-width="1.5"/>
+
+        <!-- one hop -->
+        <polyline points="70,196 350,52 630,196" fill="none" stroke="#0b6b7c" stroke-width="2.2"/>
+        <text x="350" y="76" font-size="12" text-anchor="middle" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">1 hop · 9.01 ms</text>
+
+        <!-- two hop -->
+        <polyline points="70,196 210,52 350,196 490,52 630,196" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".55"/>
+        <text x="497" y="120" font-size="12" fill="currentColor" opacity=".62" font-family="IBM Plex Mono, monospace">2 hops · 9.66 ms</text>
+
+        <!-- stations -->
+        <circle cx="70" cy="196" r="4.5" fill="currentColor"/>
+        <circle cx="630" cy="196" r="4.5" fill="currentColor"/>
+        <text x="70" y="216" font-size="12" text-anchor="middle" fill="currentColor">cyprus1</text>
+        <text x="630" y="216" font-size="12" text-anchor="middle" fill="currentColor">yoshkar-ola</text>
+        <text x="350" y="216" font-size="12" text-anchor="middle" fill="currentColor" opacity=".6">ground bounce</text>
+
+        <!-- D -->
+        <line x1="70" y1="236" x2="630" y2="236" stroke="currentColor" stroke-width="1" opacity=".55" marker-start="url(#ar)" marker-end="url(#ar)"/>
+        <text x="350" y="231" font-size="12" text-anchor="middle" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace">D = 2634 km</text>
+
+        <!-- h' -->
+        <line x1="350" y1="52" x2="350" y2="196" stroke="currentColor" stroke-width="1" opacity=".35" stroke-dasharray="3 3"/>
+      </svg>
+    </div>
+    <figcaption>The same ground distance is covered by one high reflection or two shallow ones. Because the path is long and the layer low, the two group paths differ by only 0.65 ms — which is why multi-hop modes land inside a single ionogram rather than off the bottom of it.</figcaption>
+  </figure>
+</section>
+
+<!-- ================================================================= HOPS -->
+<section id="hops">
+  <span class="part-no">Part 3 · Physics</span>
+  <h2 class="part">Multi-hop, computed for this circuit</h2>
+  <p class="part-lede">The several parallel traces on every good capture from this path are not artifacts. They are the same signal arriving by different numbers of bounces.</p>
+
+  <div class="tablewrap">
+    <table>
+      <caption>Group path and delay from the mirror formula, <span class="mono">D</span> = 2634 km. The delay window this station renders is 8–13.5 ms, so all three modes fall inside it.</caption>
+      <thead>
+        <tr><th>Mode</th><th class="num">h′ = 250 km</th><th class="num">h′ = 300 km</th><th class="num">h′ = 350 km</th><th>Take-off</th></tr>
+      </thead>
+      <tbody>
+        <tr class="hi"><td>1 hop (1F)</td><td class="num">8.94 ms</td><td class="num">9.01 ms</td><td class="num">9.09 ms</td><td>12.8°</td></tr>
+        <tr><td>2 hops (2F)</td><td class="num">9.40 ms</td><td class="num">9.66 ms</td><td class="num">9.95 ms</td><td>24.5°</td></tr>
+        <tr><td>3 hops (3F)</td><td class="num">10.11 ms</td><td class="num">10.64 ms</td><td class="num">11.24 ms</td><td>34.3°</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Three things fall out of this table that are worth internalising.</p>
+
+  <p><b>Mode spacing identifies the mode.</b> Traces separated by 0.6–1.6 ms on this path are hop orders. Anything separated by very much more is not.</p>
+
+  <p><b>The 1-hop delay barely moves with layer height</b> — 0.15 ms across a 100 km change — while the 3-hop delay moves 1.1 ms. Higher-order modes are the sensitive ones, so if you want to watch the layer rise and fall through the evening, watch 3F, not 1F.</p>
+
+  <p><b>Higher hop orders have steeper take-off angles</b>, hence smaller secant factors, hence lower MUFs. The 1-hop trace always extends furthest in frequency; 2F and 3F stop short of it. When you see several traces ending at different frequencies, that ordering is the confirmation they are hop modes.</p>
+
+  <div class="note">
+    <span class="lbl">Why E-layer modes are absent here</span>
+    <p>A single hop off the E layer at 110 km cannot span much beyond 2000 km — the geometry runs out of elevation angle. At 2634 km any E-layer path needs two hops or more, which is why the traces on this circuit are F-layer modes and sporadic-E, when it appears, shows up as a short-delay intruder rather than the main event.</p>
+  </div>
+</section>
+
+<!-- ================================================================ EDGES -->
+<section id="edges">
+  <span class="part-no">Part 4 · Physics</span>
+  <h2 class="part">Where the trace begins and ends</h2>
+  <p class="part-lede">Both ends of an ionogram trace are physical measurements. The high end is penetration, the low end is absorption, and they move on completely different schedules.</p>
+
+  <h3>The high-frequency end: MUF and the nose</h3>
+  <p>As the sweep approaches the maximum usable frequency, the ray penetrates deeper before turning, spends longer in the region where <var>n</var> &lt; 1, and is delayed more. The trace therefore curves <em>upward in delay</em> before it stops — the characteristic <b>nose</b>. Past the MUF nothing returns at all.</p>
+
+  <div class="note">
+    <span class="lbl">Diagnostic worth memorising</span>
+    <p>A genuine MUF cut-off always has a nose. A trace that runs flat and stops at a hard vertical edge is an instrument fault, not the ionosphere. That single distinction separated a propagation question from a dropped-packet bug on this station.</p>
+  </div>
+
+  <h3>The low-frequency end: LUF</h3>
+  <p>Below the MUF the limit is absorption, not reflection. The D region at 60–90 km absorbs in proportion to roughly <var>f</var><sup>−2</sup>, so the lowest usable frequency rises sharply in daylight and collapses at night when the D region disappears. On a 250 s sweep starting at 7.5 MHz the daytime LUF is often below the start of the sweep, which means the instrument cannot see it — the trace simply begins at the left edge.</p>
+
+  <h3>The magneto-ionic split</h3>
+  <p>The geomagnetic field makes the plasma birefringent, so each ray propagates as two modes — ordinary and extraordinary — with slightly different refractive indices. They reflect at slightly different heights and appear as two closely spaced traces, separated by about half the electron gyrofrequency (≈ 0.7 MHz) in equivalent vertical terms. Seeing the split is a sign of a clean capture; losing it to the speckle filter is a sign the gate is too tight.</p>
+</section>
+
+<!-- ============================================================== DECHIRP -->
+<section id="dechirp">
+  <span class="part-no">Part 5 · Instrument</span>
+  <h2 class="part">The dechirp: how delay becomes frequency</h2>
+  <p class="part-lede">The single idea the whole receiver rests on. A sweep multiplied by a copy of itself turns time-of-flight into a tone you can measure with an FFT.</p>
+
+  <p>The transmitter emits a linear sweep. The receiver generates the same sweep locally and multiplies the incoming signal by its conjugate:</p>
+
+  <div class="eq">
+    <div class="eq-line"><var>y</var>[<var>n</var>] = <var>x</var>[<var>n</var>] · conj( exp( 2π<var>i</var> ( <var>f</var><sub>0</sub><var>t</var> + ½ <var>k</var> <var>t</var>² ) ) ),&nbsp; <var>t</var> = <var>n</var> ⁄ <var>f</var><sub>s</sub></div>
+  </div>
+
+  <p>An echo arriving <var>τ</var> late carries the frequency the transmitter had <var>τ</var> ago. Since the replica has moved on by <var>k</var>·<var>τ</var> in that time, the difference is constant for the whole sweep:</p>
+
+  <div class="eq">
+    <div class="eq-line">beat = −<var>k</var> · <var>τ</var></div>
+    <p class="eq-where"><var>k</var> = 100 kHz/s is the sweep rate. Negative because a late arrival sits below the replica, which is why the console reverses its spectra so rows ascend with delay. Every echo becomes a steady tone; one FFT resolves them all at once.</p>
+  </div>
+
+  <figure>
+    <div class="figframe">
+      <svg viewBox="0 0 700 300" role="img" aria-label="Frequency against time: the local replica and a delayed echo are parallel sloping lines, and their constant vertical separation is the beat frequency proportional to delay.">
+        <!-- axes -->
+        <line x1="60" y1="200" x2="660" y2="200" stroke="currentColor" stroke-width="1.4"/>
+        <line x1="60" y1="200" x2="60" y2="30" stroke="currentColor" stroke-width="1.4"/>
+        <text x="660" y="220" font-size="12" text-anchor="end" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace">time into sweep</text>
+        <text x="52" y="38" font-size="12" text-anchor="end" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace">f</text>
+
+        <!-- replica -->
+        <line x1="80" y1="185" x2="640" y2="55" stroke="currentColor" stroke-width="2"/>
+        <text x="612" y="46" font-size="12" text-anchor="end" fill="currentColor" font-family="IBM Plex Mono, monospace">local replica</text>
+
+        <!-- echo, delayed: shifted right, hence lower at any instant -->
+        <line x1="140" y1="185" x2="660" y2="64" stroke="#0b6b7c" stroke-width="2"/>
+        <text x="636" y="88" font-size="12" text-anchor="end" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">echo, delayed by τ</text>
+
+        <!-- delay bracket -->
+        <line x1="80" y1="185" x2="140" y2="185" stroke="currentColor" stroke-width="1" opacity=".6"/>
+        <text x="110" y="199" font-size="11.5" text-anchor="middle" fill="currentColor" opacity=".8" font-family="IBM Plex Mono, monospace">τ</text>
+
+        <!-- constant gap, shown at two places -->
+        <line x1="300" y1="134" x2="300" y2="148" stroke="#0b6b7c" stroke-width="1.6"/>
+        <line x1="500" y1="88" x2="500" y2="102" stroke="#0b6b7c" stroke-width="1.6"/>
+        <text x="312" y="146" font-size="11.5" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">k·τ</text>
+        <text x="512" y="100" font-size="11.5" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">k·τ</text>
+
+        <!-- product -->
+        <line x1="60" y1="270" x2="660" y2="270" stroke="currentColor" stroke-width="1" opacity=".35"/>
+        <line x1="140" y1="252" x2="660" y2="252" stroke="#0b6b7c" stroke-width="2"/>
+        <text x="60" y="243" font-size="12" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace">after multiplying by the conjugate replica:</text>
+        <text x="656" y="245" font-size="11.5" text-anchor="end" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">constant beat = −k·τ</text>
+      </svg>
+    </div>
+    <figcaption>Because both sweeps have the same slope, their separation never changes. The delay the ionosphere imposed is preserved exactly as a frequency offset — and any error in the receiver's notion of elapsed time translates into that same offset, which is the root of every timing fault later in this document.</figcaption>
+  </figure>
+</section>
+
+<!-- ================================================================= AXES -->
+<section id="axes">
+  <span class="part-no">Part 6 · Instrument</span>
+  <h2 class="part">From sweep to pixel</h2>
+  <p class="part-lede">The two axes come from two different places: the horizontal from a clock, the vertical from an FFT.</p>
+
+  <p><b>Horizontal (frequency).</b> The transmitter's frequency is a known function of time since the sweep began, so a column's frequency is read off the clock: <span class="mono">f = 7.5 MHz + k·t</span>. Nothing in the received signal identifies the frequency — the axis is entirely an assertion about timing.</p>
+
+  <p><b>Vertical (delay, or range).</b> Each FFT bin is a beat frequency, converted by <span class="mono">τ = −beat/k</span> and shown as either time or group path <span class="mono">c·τ</span>.</p>
+
+  <div class="tablewrap">
+    <table>
+      <caption>The resolution chain at the station's standard settings. Decimation sets the ambiguity limit; FFT length sets the trade between the two axes.</caption>
+      <thead>
+        <tr><th>Quantity</th><th class="num">Value</th><th>Follows from</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Sample rate</td><td class="num">25 MS/s</td><td>covers the 25 MHz sweep at 20 MHz centre</td></tr>
+        <tr><td>Decimation</td><td class="num">625</td><td>→ 40 kHz IF, i.e. 100 MB/s becomes 320 kB/s</td></tr>
+        <tr><td>Unambiguous delay</td><td class="num">±0.2 s</td><td>±20 kHz of beat ÷ <span class="mono">k</span> = ±59 958 km</td></tr>
+        <tr><td>FFT length</td><td class="num">16 384</td><td>operator setting</td></tr>
+        <tr><td>Bin width</td><td class="num">2.441 Hz</td><td>40 kHz ÷ 16 384</td></tr>
+        <tr class="hi"><td>Delay resolution</td><td class="num">24.4 µs</td><td>2.441 Hz ÷ <span class="mono">k</span> → <b>7.32 km</b> of group path</td></tr>
+        <tr class="hi"><td>Frequency step</td><td class="num">41.0 kHz</td><td>0.41 s per spectrum × <span class="mono">k</span></td></tr>
+        <tr><td>Columns per sweep</td><td class="num">610</td><td>250 s ÷ 0.41 s</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>FFT length is a pure trade: doubling it halves the frequency step and halves the delay bin in the other direction. 16 384 is where the two agree — the transmitter moves 41 kHz during the 0.41 s each spectrum integrates, so neither axis is being resolved finer than the other can support.</p>
+</section>
+
+<!-- ============================================================== ANATOMY -->
+<section id="anatomy">
+  <span class="part-no">Part 7 · Reading</span>
+  <h2 class="part">Anatomy of a trace</h2>
+
+  <figure>
+    <div class="figframe">
+      <svg viewBox="0 0 700 320" role="img" aria-label="Schematic ionogram showing the one-hop and two-hop traces, the ordinary and extraordinary split, the upward nose at the maximum usable frequency, and a sporadic E trace at shorter delay.">
+        <!-- axes -->
+        <line x1="70" y1="270" x2="670" y2="270" stroke="currentColor" stroke-width="1.4"/>
+        <line x1="70" y1="270" x2="70" y2="30" stroke="currentColor" stroke-width="1.4"/>
+        <text x="370" y="296" font-size="12" text-anchor="middle" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace">frequency, MHz →</text>
+        <text x="24" y="150" font-size="12" text-anchor="middle" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace" transform="rotate(-90 24 150)">delay, ms →</text>
+
+        <!-- ticks -->
+        <text x="70" y="286" font-size="11" text-anchor="middle" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace">7.5</text>
+        <text x="370" y="286" font-size="11" text-anchor="middle" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace">20</text>
+        <text x="620" y="286" font-size="11" text-anchor="middle" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace">30</text>
+        <text x="60" y="235" font-size="11" text-anchor="end" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace">9</text>
+        <text x="60" y="150" font-size="11" text-anchor="end" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace">10</text>
+        <text x="60" y="65" font-size="11" text-anchor="end" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace">11</text>
+
+        <!-- sporadic E -->
+        <path d="M110,252 L250,252" stroke="currentColor" stroke-width="2" opacity=".45" stroke-dasharray="4 3"/>
+        <text x="256" y="256" font-size="11.5" fill="currentColor" opacity=".62" font-family="IBM Plex Mono, monospace">sporadic E</text>
+
+        <!-- 1F trace with nose -->
+        <path d="M100,232 C260,231 420,229 520,224 C570,220 585,205 590,170" fill="none" stroke="#0b6b7c" stroke-width="2.6"/>
+        <!-- X mode, slightly offset -->
+        <path d="M118,227 C270,226 425,224 528,219 C575,215 592,200 598,168" fill="none" stroke="#0b6b7c" stroke-width="1.4" opacity=".5"/>
+        <text x="150" y="222" font-size="11.5" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">1F · O and X</text>
+
+        <!-- 2F -->
+        <path d="M150,196 C280,195 400,192 470,186 C505,182 516,170 519,145" fill="none" stroke="currentColor" stroke-width="1.8" opacity=".6"/>
+        <text x="200" y="188" font-size="11.5" fill="currentColor" opacity=".7" font-family="IBM Plex Mono, monospace">2F</text>
+
+        <!-- 3F -->
+        <path d="M190,142 C290,141 370,138 415,131 C440,127 447,116 449,96" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".42"/>
+        <text x="232" y="134" font-size="11.5" fill="currentColor" opacity=".55" font-family="IBM Plex Mono, monospace">3F</text>
+
+        <!-- MUF markers -->
+        <line x1="592" y1="30" x2="592" y2="270" stroke="#0b6b7c" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>
+        <text x="586" y="46" font-size="11.5" text-anchor="end" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">MUF (1F)</text>
+        <line x1="519" y1="120" x2="519" y2="270" stroke="currentColor" stroke-width="1" stroke-dasharray="4 4" opacity=".4"/>
+        <text x="513" y="134" font-size="11.5" text-anchor="end" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace">MUF (2F)</text>
+
+        <!-- LUF -->
+        <line x1="100" y1="30" x2="100" y2="270" stroke="currentColor" stroke-width="1" stroke-dasharray="4 4" opacity=".4"/>
+        <text x="106" y="46" font-size="11.5" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace">LUF — absorption below</text>
+
+        <!-- interference column -->
+        <line x1="330" y1="60" x2="330" y2="270" stroke="#9d5407" stroke-width="3" opacity=".5"/>
+        <text x="338" y="72" font-size="11.5" fill="#9d5407" font-family="IBM Plex Mono, monospace">broadcast carrier</text>
+      </svg>
+    </div>
+    <figcaption>Everything on a healthy capture from this path. Hop modes stack upward in delay and stop earlier in frequency as their order rises; each carries an O/X pair; the amber column is not propagation at all but a strong transmitter the sweep crossed.</figcaption>
+  </figure>
+</section>
+
+<!-- =============================================================== CAUSES -->
+<section id="causes">
+  <span class="part-no">Part 8 · Reading</span>
+  <h2 class="part">Appearance → cause</h2>
+  <p class="part-lede">The lookup table this document exists for. The right-hand column says which stage of the chain introduced the feature, which is what decides whether to reach for a solar index or a packet counter.</p>
+
+  <div class="tablewrap">
+    <table>
+      <caption>Blue marks the ionosphere doing its job; amber marks the instrument or its environment intruding.</caption>
+      <thead>
+        <tr><th>What you see</th><th>Cause</th><th>Stage</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Trace curves upward, then ends</td>
+          <td>MUF. Retardation near the critical frequency, then penetration.</td>
+          <td><span class="tag phys">propagate</span></td>
+        </tr>
+        <tr>
+          <td>Trace ends at a hard vertical edge, no nose, at a different frequency each capture</td>
+          <td>Samples lost mid-sweep. Every later echo shifts by the duration lost and leaves the delay window.</td>
+          <td><span class="tag inst">receive</span></td>
+        </tr>
+        <tr>
+          <td>Several traces 0.6–1.6 ms apart, upper ones ending sooner</td>
+          <td>Hop modes 1F / 2F / 3F.</td>
+          <td><span class="tag phys">propagate</span></td>
+        </tr>
+        <tr>
+          <td>Two traces ~0.5 MHz apart running together</td>
+          <td>Ordinary and extraordinary magneto-ionic modes.</td>
+          <td><span class="tag phys">propagate</span></td>
+        </tr>
+        <tr>
+          <td>Flat, sharp trace below the F traces</td>
+          <td>Sporadic E — thin, dense, and at 2634 km necessarily multi-hop.</td>
+          <td><span class="tag phys">propagate</span></td>
+        </tr>
+        <tr>
+          <td>Vertical columns at fixed frequencies, present every capture</td>
+          <td>Strong broadcast carriers. The sweep crosses them, the product sits briefly at zero beat, and it paints the whole delay axis.</td>
+          <td><span class="tag inst">environment</span></td>
+        </tr>
+        <tr>
+          <td>Whole ionogram blank, LUF and MUF converge</td>
+          <td>Path closed — absorption, or MUF fallen below the sweep start. Check whether neighbouring captures show the same.</td>
+          <td><span class="tag phys">propagate</span></td>
+        </tr>
+        <tr>
+          <td>Whole ionogram blank, but the power-delay profile shows the band</td>
+          <td>Gate too strict. The trace survives in the ungated data and is being deleted before display.</td>
+          <td><span class="tag inst">gate</span></td>
+        </tr>
+        <tr>
+          <td>Trace present but dotted and fragmented</td>
+          <td>Speckle threshold above what a thin trace can meet. See the error budget below.</td>
+          <td><span class="tag inst">gate</span></td>
+        </tr>
+        <tr>
+          <td>Everything displaced by a constant delay</td>
+          <td>Clock offset. 1 ms is 300 km, and the sign tells you which way the clock is wrong.</td>
+          <td><span class="tag inst">timing</span></td>
+        </tr>
+        <tr>
+          <td>Uniform speckle across the whole frame</td>
+          <td>Noise passing the statistical gate — expected, since that gate admits 38% of pure noise by construction.</td>
+          <td><span class="tag inst">gate</span></td>
+        </tr>
+        <tr>
+          <td>Narrow blank stripe, a few tens of kHz wide</td>
+          <td>An overflow that was zero-filled. Costs that sliver of band and nothing else.</td>
+          <td><span class="tag inst">receive</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- =============================================================== BUDGET -->
+<section id="budget">
+  <span class="part-no">Part 9 · Instrument</span>
+  <h2 class="part">Error budget</h2>
+  <p class="part-lede">Measured on this station, not estimated. Each row converts an instrumental error into the range error it produces, because range is what the ionogram claims to show.</p>
+
+  <div class="tablewrap">
+    <table>
+      <caption>The dominant term is timing, and it is dominant by orders of magnitude. Everything else is a rounding error beside a lost buffer.</caption>
+      <thead>
+        <tr><th>Source</th><th class="num">Magnitude</th><th class="num">Range error</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Delay bin</td><td class="num">24.4 µs</td><td class="num">7.3 km</td><td>Floor. Set by FFT length.</td></tr>
+        <tr><td>GPS-disciplined clock</td><td class="num">&lt; 1 µs</td><td class="num">&lt; 0.3 km</td><td>Negligible while locked.</td></tr>
+        <tr><td>NTP fallback</td><td class="num">1–10 ms</td><td class="num">300–3000 km</td><td>Ruins absolute range. Relative structure survives.</td></tr>
+        <tr class="hi"><td>One lost receive buffer</td><td class="num">40 ms</td><td class="num">12 000 km</td><td>Verified: delay shifts by exactly the duration lost.</td></tr>
+        <tr><td>Measured overflow, unfilled</td><td class="num">78–184 ms</td><td class="num">23 000–55 000 km</td><td>Trace leaves the window entirely — the hard-edge cut.</td></tr>
+        <tr><td>Same, zero-filled</td><td class="num">0</td><td class="num">0</td><td>Costs 7.8–18 kHz of band as a blank stripe.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note caution">
+    <span class="lbl">The asymmetry that matters</span>
+    <p>A lost sample is not a lost sample — it is a shifted time base. Because the dechirp derives frequency from a sample count, any gap silently relabels every subsequent sample and moves the entire remaining trace by the duration of the gap. Verified against a synthetic echo: 1 ms lost moved it exactly 300 km, 40 ms moved it 12 000 km, and zero-filling the gap restored the beat to its original value to within 0.1 Hz.</p>
+    <p>This is why the receiver pads gaps rather than merely counting them, and why a capture reporting overflows can still be perfectly usable.</p>
+  </div>
+
+  <h3>The speckle gate, quantified</h3>
+  <p>The final stage keeps a point only if enough neighbours in a <span class="mono">w × h</span> window survived. A trace occupying <var>k</var> delay rows contributes at most <span class="mono">w·k</span> neighbours, so the threshold does not fade — it steps:</p>
+
+  <div class="eq">
+    <div class="eq-line">rows required = ⌈ level ⁄ <var>w</var> ⌉</div>
+    <p class="eq-where">With the 9 × 3 default, any level above 9 deletes a one-row-thick trace outright however strong it is; above 27 nothing survives at all. Between the steps the threshold only trades noise: a clean two-row trace survived every level from 6 to 14 in testing while noise fell from 96.9% to 14.3%.</p>
+  </div>
+</section>
+
+<!-- =============================================================== LIMITS -->
+<section id="limits">
+  <span class="part-no">Part 10</span>
+  <h2 class="part">What this instrument cannot currently measure</h2>
+  <p class="part-lede">Stated plainly so nobody builds on it by accident.</p>
+
+  <p><b>The reported LUF and MUF are not measurements.</b> Across all 288 captures of one real day they read 7.66 and 32.34 MHz — the two ends of the sweep — in almost every one, with no diurnal variation on a circuit where the true MUF is known to swing from about 11 MHz at night to 32 by mid-morning. The extractor asks only for three consecutive spectra each holding three consecutive surviving points, which band-edge interference satisfies trivially. Profiling confirms it: on a capture whose visible trace ends near 20 MHz, the trace band held 3–7 surviving points per spectrum while the 23–31 MHz band held 12–31. The trace is a minority of what survives the gate.</p>
+
+  <p>A working extractor has to require <b>delay continuity across adjacent spectra</b> — the trace is a connected curve, and that is precisely the property the present test ignores. Until then, read the picture, not the numbers.</p>
+
+  <p><b>Absolute range depends on the clock being GPS-locked.</b> When the GPSDO drops out, the fallback keeps the sounding running but the delay axis becomes NTP-grade — hundreds to thousands of kilometres of possible offset. Captures taken unlocked are fine for studying <em>structure</em> and worthless for absolute height.</p>
+
+  <p><b>Nothing here measures electron density directly.</b> Everything above is group path against frequency. Turning that into a density profile requires inversion — solving for <var>N</var><sub>e</sub>(<var>h</var>) from the retardation encoded in the trace shape — and this station does not attempt it.</p>
+</section>
+
+</main>
+
+<footer>
+  <p>Compiled from the ionozond reverse-engineering work, August 2026. Numeric claims were computed against the station's own archive and its measured configuration rather than quoted; the multi-hop table, resolution chain and error budget can all be re-derived from the formulae given. Where a figure came from a single capture rather than a population, the text says so.</p>
+</footer>
+
+</div>
