@@ -958,6 +958,8 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
     fed = 0                       # samples handed to the pipeline, gaps included
     gap_total = 0
     gap_marks = []                # (seconds into the sweep, seconds lost)
+    drift_total = 0               # sub-threshold timestamp jitter, not filled
+    GAP_DEAD_BAND = 1024          # samples; see the comment at the fill site
     t_zero = None
     fill_gaps = not opts.no_gap_fill
     MAX_GAP_FILL = int(sr)        # one second; beyond that the capture is lost
@@ -1038,6 +1040,23 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
                     t_zero = ts
                 expected = int(round((ts - t_zero) * sr))
                 gap = expected - fed
+                # Below the dead-band it is arithmetic, not loss. UHD hands
+                # back the timestamp as a double, and at Unix-epoch magnitude
+                # one ulp is already 6 samples at 25 MS/s -- so expected-fed
+                # rattles by a few samples on every buffer. Filling those
+                # inserted 5838 zeros across a clean 245 s capture, in 1959
+                # separate "gaps" of 2.98 samples, which is exactly the shape
+                # of rounding noise and nothing like an overflow. It was not
+                # harmless either: the insertions accumulate, so the trace
+                # drifted 70 km -- about ten delay bins -- by the end of the
+                # sweep.
+                #
+                # 1024 samples is 172x the timestamp's own precision and still
+                # under two delay bins, so nothing that matters is suppressed
+                # and nothing that does not is inserted.
+                if 0 < gap < GAP_DEAD_BAND:
+                    drift_total += gap
+                    gap = 0
                 if gap > 0:
                     gap = min(gap, wanted - fed, MAX_GAP_FILL)
                     gap_total += gap
@@ -1139,6 +1158,7 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
     result["overflows"] = overflows
     result["gap_samples"] = gap_total
     result["gap_marks"] = gap_marks
+    result["drift_samples"] = drift_total
     result["short_reads"] = short_reads
     result["stalled"] = stalled
     result["elapsed"] = (time.time() - began) if began else 0.0
@@ -1183,6 +1203,13 @@ def report(result, opts, sr, dec, log):
             % (expected, LFS_TOTAL, result["written"] * 8,
                result["bytes"] - expected))
     log("  overflows %d" % result["overflows"])
+    drift = result.get("drift_samples", 0)
+    if drift > 0 and result["elapsed"] > 1.0:
+        # Worth showing, since a rise here would mean the radio's clock and
+        # this host's arithmetic really are diverging rather than merely
+        # rounding. Not filled: see GAP_DEAD_BAND.
+        log("  timestamp jitter %d samples (%.3f ms) below the fill threshold"
+            % (drift, 1000.0 * drift / sr))
     if result.get("gap_samples", 0) > 0:
         lost_ms = 1000.0 * result["gap_samples"] / sr
         log("  lost %d samples (%.1f ms) to overflow, zero-filled"

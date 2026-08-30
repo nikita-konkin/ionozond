@@ -633,6 +633,30 @@ The filler blocks travel the same queue as real buffers, so the queue carries a
 recycle flag: a filler is a throwaway array of its own size, and returning it
 to the pool would hand the receive loop a buffer too small for the next `recv`.
 
+### The station, once it worked
+
+Twelve clean captures in a row, zero overflows, after three independent fixes:
+the NIC receive ring raised from 256 to 4096, `rmem_max` from 50 to 100 MB, and
+4000-byte frames — which the link carries although 8000 killed it outright.
+Occupancy settled at 47–54% of the clock with 0.03–0.05 s of receiver stall, so
+the host has roughly twice the margin it needs.
+
+One thing the clean runs exposed. Every capture reported `overflows 0` beside
+`1959 gaps`, and the numbers were **identical every time** — 5838 samples in
+1959 gaps, 2.98 samples each. Deterministic repetition is not packet loss.
+
+UHD returns the buffer timestamp as a double, and at Unix-epoch magnitude one
+ulp is already 6.0 samples at 25 MS/s, so `expected − fed` rattles by a couple
+of samples on every buffer and the fill logic dutifully inserted them. Not
+harmless: the insertions accumulate, drifting the trace **70 km — about ten
+delay bins — by the end of the sweep**.
+
+Gaps below 1024 samples are therefore no longer filled. That is 172× the
+timestamp's own precision and still under two delay bins, so nothing real is
+suppressed and nothing spurious inserted. The suppressed jitter is reported
+rather than hidden, since a rise in it would mean the clocks really are
+diverging rather than merely rounding.
+
 ### Borrowed from ionograms-handler — the continuous ionogram
 
 `ionograms-handler` renders an ionogram very differently, and the difference is
