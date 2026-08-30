@@ -107,6 +107,21 @@ def pack_lfs_header(tx_name, tx_lat, tx_lon, rx_name, rx_lat, rx_lon,
     return raw
 
 
+def md_secs(metadata):
+    """Seconds from a UHD rx_metadata, or None when it carries no timestamp.
+
+    The python binding exposes time_spec as a TimeSpec with get_real_secs();
+    has_time_spec tells whether it means anything. Written defensively because
+    a missing timestamp must disable gap filling, never crash a sounding.
+    """
+    try:
+        if not getattr(metadata, "has_time_spec", False):
+            return None
+        return float(metadata.time_spec.get_real_secs())
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------------- whitening
 
 # scipy's FFT keeps complex64 where numpy promotes to complex128, which is
@@ -828,7 +843,7 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
             if item is None:
                 dech_q.put(None)
                 return
-            block, count = item
+            block, count, recycle = item
             try:
                 started = time.perf_counter()
                 # Safe to hand the pool buffer straight back afterwards:
@@ -839,7 +854,11 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
                 failure.append(exc)
                 out = None
             finally:
-                free_q.put(block)
+                # Only real pool buffers go back. A gap filler is a throwaway
+                # array of its own size; returning it would hand the receive
+                # loop a buffer too small for the next recv.
+                if recycle:
+                    free_q.put(block)
             if out is not None and len(out):
                 dech_q.put(out)
 
@@ -855,8 +874,10 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
                 item = full_q.get()
                 if item is None:
                     return
-                block, count = item
+                block, count, recycle = item
                 samples = block[0, :count]
+                if not recycle:
+                    block = None            # a gap filler, not a pool buffer
             try:
                 started = time.perf_counter()
                 out = dech.feed(samples)
@@ -872,6 +893,11 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
 
     wanted = result["wanted"]
     got_total = 0
+    fed = 0                       # samples handed to the pipeline, gaps included
+    gap_total = 0
+    t_zero = None
+    fill_gaps = not opts.no_gap_fill
+    MAX_GAP_FILL = int(sr)        # one second; beyond that the capture is lost
     overflows = 0
     short_reads = 0
     stalled = 0.0
@@ -926,8 +952,56 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
                 began = time.time()
             if got != spb:
                 short_reads += 1
+
+            # Close any gap the radio left, before the samples that follow it.
+            #
+            # An overflow does not merely lose signal: the samples after it
+            # arrive with no marker, so the dechirp mixes them against a
+            # replica for the wrong instant. The replica sweeps at `rate`, so
+            # losing `d` seconds of samples moves every subsequent echo by
+            # exactly `d` in apparent delay -- 1 ms of loss is 300 km, and the
+            # delay window is only a few ms wide. One overflow of a few
+            # milliseconds therefore pushes the trace out of the window for the
+            # whole remainder of the sounding, which looks like an ionogram
+            # sharply cut at the frequency the sweep had reached.
+            #
+            # UHD timestamps every buffer, so the true index is knowable.
+            # Padding the gap with zeros rather than re-basing the phase keeps
+            # the whitener, the decimator and the file length all aligned; the
+            # lost stretch goes blank instead of taking the rest with it.
+            if fill_gaps and md_secs(radio.metadata) is not None:
+                ts = md_secs(radio.metadata)
+                if t_zero is None:
+                    t_zero = ts
+                expected = int(round((ts - t_zero) * sr))
+                gap = expected - fed
+                if gap > 0:
+                    gap = min(gap, wanted - fed, MAX_GAP_FILL)
+                    gap_total += gap
+                    while gap > 0:
+                        chunk = min(gap, spb)
+                        zeros = np.zeros((1, chunk), dtype=np.complex64)
+                        if thread is not None:
+                            full_q.put((zeros, chunk, False))
+                        else:
+                            samples = zeros[0, :chunk]
+                            if whit is not None:
+                                samples = whit.feed(samples)
+                            out = dech.feed(samples) if len(samples) else samples
+                            if len(out):
+                                out.tofile(fh)
+                                counters["written"] += len(out)
+                        fed += chunk
+                        got_total += chunk
+                        gap -= chunk
+                elif gap < 0:
+                    # Time ran backwards: a retune or a stream restart. Re-base
+                    # rather than trying to remove samples already written.
+                    t_zero = ts - fed / sr
+
             take = min(got, wanted - got_total)
             got_total += take
+            fed += take
 
             # A tick a second is enough for a progress bar and cheap enough
             # not to matter inside the receive loop.
@@ -939,7 +1013,7 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
                        overflows)
 
             if thread is not None:
-                full_q.put((buf, take))
+                full_q.put((buf, take, True))
                 waited = time.perf_counter()
                 buf = free_q.get()          # blocks if the dechirp fell behind
                 stalled += time.perf_counter() - waited
@@ -994,6 +1068,7 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
     result["busy"] = max(counters["busy"], counters["busy_whiten"])
     result["busy_whiten"] = counters["busy_whiten"]
     result["overflows"] = overflows
+    result["gap_samples"] = gap_total
     result["short_reads"] = short_reads
     result["stalled"] = stalled
     result["elapsed"] = (time.time() - began) if began else 0.0
@@ -1038,6 +1113,12 @@ def report(result, opts, sr, dec, log):
             % (expected, LFS_TOTAL, result["written"] * 8,
                result["bytes"] - expected))
     log("  overflows %d" % result["overflows"])
+    if result.get("gap_samples", 0) > 0:
+        lost_ms = 1000.0 * result["gap_samples"] / sr
+        log("  lost %d samples (%.1f ms) to overflow, zero-filled"
+            % (result["gap_samples"], lost_ms))
+        log("  that stretch of the sweep is blank -- %.0f kHz of it at %.0f Hz/s"
+            % (lost_ms * rate / 1e6, rate))
 
     # Not "how many times real time": the radio delivers samples at exactly sr,
     # so a live capture can never finish faster than the signal arrives and that
@@ -1591,6 +1672,11 @@ def main():
     ap.add_argument("--whiten-n", type=int, default=30000,
                     help="blocks averaged for the noise floor; the archive "
                          "used 30000. Small values wobble and blur the trace")
+    ap.add_argument("--no-gap-fill", action="store_true",
+                    help="do not zero-fill samples lost to an overflow. Off by "
+                         "default: an unfilled gap shifts every later echo by "
+                         "the duration lost, which cuts the ionogram dead at "
+                         "whatever frequency the sweep had reached")
     ap.add_argument("--fft-workers", type=int, default=2,
                     help="threads for the whitening FFT (scipy releases the GIL)")
     ap.add_argument("--config", default="/tmp/out/chirp_config.py")

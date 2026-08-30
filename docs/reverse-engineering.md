@@ -438,6 +438,42 @@ the way past, since `addIg` promotes the previous ionogram each time. Only the
 last two are ever displayed, so `addIg(file, keepControl)` now skips that for
 everything before them — half the work on a 288-file replay.
 
+### An overflow cuts the ionogram dead, and why
+
+An overflow does not merely lose signal for its duration. The samples after it
+arrive with no marker, so the dechirp mixes them against a replica for the
+wrong instant. The replica sweeps at `rate`, so losing `d` seconds of samples
+moves every subsequent echo by exactly `d` in apparent delay. Measured on a
+synthetic echo at 8.9 ms:
+
+| samples lost | beat after the gap | apparent delay |
+|---|---|---|
+| none | −890.0 Hz | 8.90 ms |
+| 1 ms | −790.1 Hz | −1.00 ms (−300 km) |
+| 3 ms | −590.0 Hz | −3.00 ms (−900 km) |
+| 40 ms | +3110.1 Hz | −40.00 ms (−12000 km) |
+
+The delay window is only a few ms wide — 8 to 13.5 ms on the Cyprus circuit,
+with the trace at 9 ms, so barely 1 ms of margin below it. **One overflow of
+more than about a millisecond pushes the trace out of the window for the whole
+remainder of the sounding**, which looks exactly like an ionogram sharply cut at
+whatever frequency the sweep had reached. The cut frequency then varies from
+capture to capture, because overflows happen at random times — 17 MHz in one
+sounding and 30 MHz five minutes later, which is not a rate any ionosphere
+moves at.
+
+UHD timestamps every buffer, so the true sample index is knowable.
+`capture_one` now compares each buffer's timestamp against the count fed so far
+and pads any shortfall with zeros before the samples that follow it. Padding
+rather than re-basing the phase keeps the whitener, the decimator and the file
+length aligned; the lost stretch goes blank instead of taking the rest of the
+sounding with it. Zero-filling restored −890.0 Hz exactly at every gap size
+above. `--no-gap-fill` returns the old behaviour.
+
+The filler blocks travel the same queue as real buffers, so the queue carries a
+recycle flag: a filler is a throwaway array of its own size, and returning it
+to the pool would hand the receive loop a buffer too small for the next `recv`.
+
 ### Borrowed from ionograms-handler — the continuous ionogram
 
 `ionograms-handler` renders an ionogram very differently, and the difference is
