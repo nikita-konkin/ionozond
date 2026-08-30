@@ -30,7 +30,10 @@ SET_MTU="${SET_MTU:-0}"
 CON="usrp-link"
 
 # Exactly the sizes UHD asked for in its warnings.
-RMEM=50000000
+# The sounder asks UHD for recv_buff_size=100000000; the kernel clamps that
+# silently to rmem_max, so this has to be at least as large or the request is
+# quietly halved.
+RMEM=100000000
 WMEM=2500000
 
 SYSCTL_FILE=/etc/sysctl.d/75-uhd-buffers.conf
@@ -130,6 +133,37 @@ else
     say "  *** Log out and back in (or reboot) before running the sounder as"
     say "  *** $TARGET_USER. Running the test script under sudo works right"
     say "  *** away, because root is not subject to the limit."
+fi
+
+# ---- 2b. NIC receive ring -------------------------------------------------
+echo
+echo "--- 2b. NIC receive ring --------------------------------------------"
+if [ -z "$IFACE" ]; then
+    say "  no interface given - skipping"
+elif ! command -v ethtool >/dev/null 2>&1; then
+    say "  ethtool not installed:  sudo apt-get install -y ethtool"
+else
+    # rx_missed_errors counts frames the NIC had nowhere to put because the
+    # driver had not drained the ring. On this station it read 5809541 against
+    # a ring left at the driver default of 256 out of a possible 4096. That is
+    # loss below UHD entirely -- it shows as "D", and no CPU headroom or socket
+    # buffer touches it.
+    RING_MAX=$(ethtool -g "$IFACE" 2>/dev/null | awk '/Pre-set/,/Current/' | awk '/^RX:/{print $2; exit}')
+    RING_NOW=$(ethtool -g "$IFACE" 2>/dev/null | awk '/Current hardware/,0' | awk '/^RX:/{print $2; exit}')
+    say "  $IFACE receive ring: ${RING_NOW:-?} of ${RING_MAX:-?} available"
+    MISSED=$(cat "/sys/class/net/$IFACE/statistics/rx_missed_errors" 2>/dev/null || echo 0)
+    say "  rx_missed_errors so far: $MISSED"
+    if [ -n "${RING_MAX:-}" ] && [ "${RING_NOW:-0}" != "$RING_MAX" ]; then
+        say "  raising it to $RING_MAX"
+        run "ethtool -G $IFACE rx $RING_MAX"
+        if [ "$DRY_RUN" != "1" ]; then
+            say "  now: $(ethtool -g "$IFACE" 2>/dev/null | awk '/Current hardware/,0' | awk '/^RX:/{print $2; exit}')"
+        fi
+        say "  NOTE: this does not survive a reboot. Re-run this script, or add"
+        say "        it to a NetworkManager dispatcher script."
+    else
+        say "  already at maximum"
+    fi
 fi
 
 # ---- 3. MTU on the USRP link (opt-in) -------------------------------------

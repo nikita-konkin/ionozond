@@ -29,7 +29,14 @@ if [ "$MTU" -lt 9000 ] 2>/dev/null; then
     echo "  ***   sudo SET_MTU=9000 bash 12-host-tuning.sh $IFACE"
     echo "  *** The switch and the N210 port must both carry 9000 too."
 else
-    echo "  jumbo frames in use ($((MTU - 28))-byte payloads)"
+    echo "  link is jumbo-capable ($((MTU - 28))-byte payloads possible)"
+    echo "  BUT check what the sounder's startup line actually says:"
+    echo "      [INFO] [USRP2] Current recv frame size: NNNN bytes"
+    echo "  A 9000 MTU with 1472 there means UHD probed and fell back. Tell it"
+    echo "  explicitly, in SOUNDER_ARGS:"
+    echo "      --args recv_frame_size=8000,send_frame_size=8000"
+    echo "  If the stream then dies immediately, the path cannot carry them"
+    echo "  after all -- some hop is still at 1500 -- so drop back."
 fi
 
 echo
@@ -50,6 +57,13 @@ done
 echo "  UDP receive errors (whole host):"
 netstat -su 2>/dev/null | grep -iE 'receive (buffer )?errors|packet receive' | sed 's/^/    /' \
     || echo "    netstat not installed"
+
+echo
+echo "  rx_missed_errors is the one that matters: frames the NIC had nowhere"
+echo "  to put because the driver had not drained the ring yet. It is loss"
+echo "  below UHD entirely, and no CPU headroom or socket buffer touches it."
+echo "  If it is large and the ring above is below its maximum, that is the"
+echo "  cause -- raise the ring first and re-measure."
 
 echo
 echo "== socket buffer ceiling =="

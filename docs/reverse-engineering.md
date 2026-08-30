@@ -512,12 +512,30 @@ The startup line says which regime the link is in:
 100 MB/s is about 68000 packets per second; at 9000 it is under 12500. That
 factor of five is the difference between a link with margin and one without.
 
-`open_radio` now asks for `recv_buff_size=100000000` and `num_recv_frames=4096`
-unless the caller set them, since UHD's defaults are far short of what 100 MB/s
-needs and the kernel clamps the request to `net.core.rmem_max` regardless.
-`tools/host-setup/16-check-packet-loss.sh` reports the MTU, the NIC ring
-buffers, the drop counters and that ceiling together; run it during a capture
-and watch whether the counters move.
+Measured on the station, the counters name the culprit exactly:
+
+```
+rx_missed_errors: 5809541
+RX ring: 256 of 4096 available
+net.core.rmem_max = 50000000
+```
+
+`rx_missed_errors` counts frames the NIC had nowhere to put because the driver
+had not drained the ring — loss *below* UHD entirely, which no CPU headroom or
+socket buffer can touch. The ring was sitting at the driver default of 256 out
+of a possible 4096. That is the cause, and `ethtool -G eno1 rx 4096` is the fix;
+`12-host-tuning.sh` now does it, though the setting does not survive a reboot.
+
+Two things around it. `rmem_max` was 50 MB while the sounder asks UHD for
+100 MB, and the kernel clamps silently, so the script now sets 100 MB.
+And the MTU reads 9000 while UHD still reported `recv frame size: 1472` — its
+probe fell back, and it has to be told: `--args recv_frame_size=8000`.
+
+`open_radio` merges `recv_buff_size=100000000` and `num_recv_frames=4096` into
+the device args unless the caller set them.
+`tools/host-setup/16-check-packet-loss.sh` reports the MTU, the ring, the drop
+counters and the ceiling together; run it during a capture and watch whether
+the counters move.
 
 ### An overflow cuts the ionogram dead, and why
 
