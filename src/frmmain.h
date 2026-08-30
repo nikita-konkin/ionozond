@@ -92,6 +92,9 @@ private:
     void CreateSessionRows();
     /* Rebuild everything the schedule decides, after it has been edited. */
     void RebuildStations(const QString &reason = QString());
+    /* True when the systemd unit holds the radio, in which case the console's
+     * own m_running says nothing about whether a change has been applied. */
+    static bool sounderServiceActive();
     /* Session rows, CPU plot and disk pie in the right-hand panel. */
     void CreateControlPanel();
 

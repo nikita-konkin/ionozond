@@ -633,6 +633,31 @@ The filler blocks travel the same queue as real buffers, so the queue carries a
 recycle flag: a filler is a throwaway array of its own size, and returning it
 to the pool would hand the receive loop a buffer too small for the next `recv`.
 
+### What the console is for, once the service runs
+
+The division is not obvious, because the console looks like the thing that
+sounds and mostly is not:
+
+- **It writes the sounder's configuration.** Accepting the parameters or
+  schedule dialog regenerates `chirp_config.py`, which is the only thing the
+  service reads. Without the console having been through those dialogs at least
+  once, the service has no configuration and fails on start. This is the part
+  that cannot be skipped.
+- **It displays the archive.** Ionograms, the two daily-course panels, disk and
+  CPU. Entirely passive — it reads `.lfs` and `.lfp` files and never touches the
+  radio, so it can be open while the service sounds.
+- **Its START button is the manual alternative to the service**, and only usable
+  when the service is stopped. One process holds the radio; `sounder.sh` refuses
+  to start a second and says which of the two ways forward to take.
+
+The trap this creates: a change accepted in a dialog rewrites `chirp_config.py`,
+but a sounder already running has read the old one. The console warned about
+that only for its *own* sounder, through `m_running` — which is false when the
+service holds the radio, so the operator saw the panels rebuild, concluded the
+change had taken, and the station carried on with the previous settings
+indefinitely. `RebuildStations` now checks `systemctl is-active` as well and
+names the restart command.
+
 ### White stripes in the daily-course panels
 
 The Сигнал/шум and ПЗМ panels are built one column per capture, so anything

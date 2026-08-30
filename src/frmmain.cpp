@@ -129,7 +129,32 @@ void frmMain::RebuildStations(const QString &reason)
         console(QLatin1String("*** the sounder is still running the previous "
                               "schedule -- STOP and START to apply this one"),
                 Qt::red);
+    } else if (sounderServiceActive()) {
+        /*
+         * Without this the trap is silent. The console writes chirp_config.py
+         * when a dialog is accepted, but a sounder already running has read the
+         * old one -- and when that sounder is the service rather than ours,
+         * m_running is false and the warning above never fires. The operator
+         * sees the panels rebuild, concludes the change took, and the station
+         * carries on with the previous settings for as long as nobody restarts
+         * it.
+         */
+        console(QLatin1String("*** ionozond-sounder.service is running and has "
+                              "the previous settings"), Qt::red);
+        console(QLatin1String("***   sudo systemctl restart ionozond-sounder"),
+                Qt::red);
     }
+}
+
+/* Is the systemd unit running? False when systemd is absent, which is the
+ * right answer for anyone running the sounder by hand. */
+bool frmMain::sounderServiceActive()
+{
+    return QProcess::execute(QLatin1String("systemctl"),
+                             QStringList()
+                                 << QLatin1String("is-active")
+                                 << QLatin1String("--quiet")
+                                 << QLatin1String("ionozond-sounder")) == 0;
 }
 
 void frmMain::CreateControlPanel()
