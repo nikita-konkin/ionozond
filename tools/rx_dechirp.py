@@ -516,8 +516,30 @@ def self_test():
 
 # ---------------------------------------------------------------- radio
 
+# 25 MS/s of sc16 is 100 MB/s, four fifths of a gigabit link, and UHD's stock
+# socket buffer is nowhere near enough to absorb a scheduling hiccup at that
+# rate. A shortfall shows up as "D" on stderr -- packets the kernel dropped
+# before UHD ever saw them, which is not the dechirp being slow. Raised here
+# rather than left to the operator, since getting it wrong costs a sounding.
+DEVICE_DEFAULTS = (("recv_buff_size", "100000000"),   # 100 MB, needs rmem_max
+                   ("num_recv_frames", "4096"))
+
+
+def with_device_defaults(args):
+    """Add the socket settings the N210 needs, without overriding the caller."""
+    have = set()
+    for part in (args or "").split(","):
+        if "=" in part:
+            have.add(part.split("=", 1)[0].strip())
+    extra = ["%s=%s" % (k, v) for k, v in DEVICE_DEFAULTS if k not in have]
+    if not extra:
+        return args
+    return ",".join([a for a in [args] if a] + extra)
+
+
 def open_radio(args, subdev, rate, freq, use_gpsdo=True):
     import uhd
+    args = with_device_defaults(args)
     usrp = uhd.usrp.MultiUSRP(args)
     try:
         usrp.set_rx_subdev_spec(uhd.usrp.SubdevSpec(subdev))

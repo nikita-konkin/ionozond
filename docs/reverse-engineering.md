@@ -490,6 +490,35 @@ permanently, which is worth doing once the remote desktop is known to come back
 on its own. The check script reports `ulimit -Hr` rather than only the group,
 since the limit is what actually decides.
 
+### "D" is not the dechirp being slow
+
+UHD prints `D` on stderr for a sequence gap: datagrams the kernel or the NIC
+dropped before UHD ever saw them. `O` and stall time mean the host could not
+consume fast enough; `D` means the samples never arrived. They call for
+opposite fixes, and the sounder's own log shows both.
+
+A capture with real-time priority correctly in place still lost 184.1 ms across
+2 overflows, with two `D` markers in the same window — so the CPU was never the
+constraint. 25 MS/s of sc16 is 100 MB/s, four fifths of a gigabit link.
+
+The startup line says which regime the link is in:
+
+```
+[INFO] [USRP2] Current recv frame size: 1472 bytes
+```
+
+1472 is 1500 minus IP and UDP headers, so the interface MTU is still 1500 and
+**jumbo frames never took**, whatever `SET_MTU=9000` reported. At 1472 bytes,
+100 MB/s is about 68000 packets per second; at 9000 it is under 12500. That
+factor of five is the difference between a link with margin and one without.
+
+`open_radio` now asks for `recv_buff_size=100000000` and `num_recv_frames=4096`
+unless the caller set them, since UHD's defaults are far short of what 100 MB/s
+needs and the kernel clamps the request to `net.core.rmem_max` regardless.
+`tools/host-setup/16-check-packet-loss.sh` reports the MTU, the NIC ring
+buffers, the drop counters and that ceiling together; run it during a capture
+and watch whether the counters move.
+
 ### An overflow cuts the ionogram dead, and why
 
 An overflow does not merely lose signal for its duration. The samples after it
