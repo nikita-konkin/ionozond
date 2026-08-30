@@ -455,9 +455,29 @@ properly; only closing the window did not.
 `closeEvent` now asks (a clean stop lets the sweep finish, up to 250 s, which is
 too long to block a window close on) and the destructor kills unconditionally as
 a backstop. `tools/host-setup/15-check-orphans.sh` finds any left over from
-before, and also reports whether the session is in group `usrp` — without it UHD
-cannot raise its receive thread priority, which is the usual cause of sporadic
-overflows and shows up as `error in pthread_setschedparam` at startup.
+before.
+
+### Real-time priority: the group is not the gate
+
+`error in pthread_setschedparam` at startup means UHD could not raise its
+receive thread priority, which is the usual cause of sporadic overflows. The
+obvious reading — the user is not in group `usrp` — is not the whole story.
+What UHD needs is `RLIMIT_RTPRIO` above zero, and **pam_limits grants that when
+the session starts**. Being added to the group afterwards changes nothing until
+a new login, and `newgrp` does not re-run pam_limits on most distributions. So
+`getent group usrp` can name the user while the running session still has
+`ulimit -Hr` of 0.
+
+The station is reached over a remote desktop, and logging out to pick up a group
+can end the only way in. A fresh PAM session started from inside the existing
+one applies the limit without that risk:
+
+```
+su - $USER -c 'DISPLAY=:0 $HOME/.cache/ionozond-build/ionozond'
+```
+
+`ulimit -Hr` inside that session should read 99. The check script reports the
+limit rather than only the group, since the limit is what actually decides.
 
 ### An overflow cuts the ionogram dead, and why
 
