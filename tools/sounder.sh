@@ -17,6 +17,23 @@
 set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+
+# One process can hold the radio. Started by hand while the service has it --
+# from a terminal, or from the console's START button -- UHD fails to open the
+# device and says so in its own terms, which look nothing like "something else
+# is already using this". Say it plainly instead.
+#
+# IONOZOND_SERVICE is set by the unit, so this does not fire on itself.
+if [ -z "${IONOZOND_SERVICE:-}" ]    && command -v systemctl >/dev/null 2>&1    && systemctl is-active --quiet ionozond-sounder 2>/dev/null; then
+    echo "*** ionozond-sounder.service is already running and holds the radio." >&2
+    echo "*** Only one sounder can have it. Either use the service:" >&2
+    echo "***     journalctl -u ionozond-sounder -f" >&2
+    echo "*** or stop it and run by hand:" >&2
+    echo "***     sudo systemctl stop ionozond-sounder" >&2
+    echo "*** The console can still display the archive either way; it is only" >&2
+    echo "*** its START button that conflicts." >&2
+    exit 3
+fi
 CONFIG="${1:-/tmp/out/chirp_config.py}"
 ARCHIVE="${2:-}"
 

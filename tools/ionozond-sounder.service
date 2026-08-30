@@ -24,6 +24,10 @@ Type=simple
 # upgrade does not overwrite the station's own values.
 EnvironmentFile=/etc/default/ionozond
 
+# Tells sounder.sh that this invocation IS the service, so its "already
+# running" guard does not fire on itself.
+Environment=IONOZOND_SERVICE=1
+
 # The radio link must be up before the USRP can be found. NetworkManager brings
 # usrp-link up on boot only if its autoconnect is enabled -- see
 # tools/host-setup/README.md, step 2.
