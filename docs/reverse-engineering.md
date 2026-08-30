@@ -275,6 +275,35 @@ on the path and on the interference at a site.
 Lower keeps more of a faint trace and more noise; higher gives a sparser but
 cleaner one.
 
+**The LUF and MUF these produce are not measurements.** Measured over a whole
+real day — all 288 captures of 2026-02-04, cyprus1 → yoshkar-ola — LUF is 7.66
+and MUF is 32.34 in almost every one: the two ends of the 7.5–32.5 MHz sweep.
+276 of 288 report MUF ≥ 32.0, and there is no diurnal variation whatsoever, on
+a circuit where `ionograms-handler`'s own archive of the same path shows the
+MUF swinging from ~11 MHz at night to ~32 by 06 UTC.
+
+Profiling surviving points per spectrum shows why. On a 14:15 capture whose
+visible trace ends near 20 MHz:
+
+| band | surviving points per spectrum |
+|---|---|
+| 8.5–10.6 MHz | 25–28 |
+| 12.6–20.8 MHz | **3–7** ← where the trace actually is |
+| 22.9–31.1 MHz | 12–31 |
+
+The trace is a *minority* of what survives the gate. `usage_frequencies` asks
+only for three consecutive spectra each holding three consecutive non-zero
+points, which residual interference at the band edges satisfies trivially — and
+because the speckle filter clusters what it keeps, it satisfies it more easily
+than random noise would. So the numbers describe the interference environment,
+not the ionosphere. Changing `obj_level` changes which noise survives, not
+where the trace ends: the 31.84 → 28.11 shift in the table above is noise
+moving, not a MUF measurement responding.
+
+The picture is trustworthy; the two numbers derived from it are not. A real
+extractor has to require delay continuity across spectra — the trace is a
+connected curve, and that is the property the current test ignores.
+
 **The threshold has cliffs, not a gradient.** The filter counts surviving
 neighbours, so a trace occupying `k` delay rows inside the window contributes at
 most `obj_size_horizontal · k`. Counts on a clean trace are therefore quantised
