@@ -1329,6 +1329,23 @@ def run_live(opts, cfg, sounders):
     radio = Radio(opts, cfg, float(first["cf"]))
     if not opts.no_gpsdo:
         radio.discipline(log)
+    # Say it here rather than leave UHD's warning to be scrolled past. This has
+    # caught the station twice: the limit is granted per session, so a sounder
+    # started from a terminal that never had it runs without real-time
+    # priority even though the group and the limits file are both correct.
+    try:
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_RTPRIO)
+        if hard == 0:
+            log("  *** RLIMIT_RTPRIO is 0 in this shell, so UHD cannot raise")
+            log("  *** its receive thread priority -- expect overflows. Fix it")
+            log("  *** for this shell and anything it starts:")
+            log("  ***     sudo prlimit --pid $$ --rtprio=99")
+            log("  *** (pam_limits grants it per session; a shell that never")
+            log("  *** had it does not inherit it from anywhere.)")
+    except Exception:
+        pass
+
     log("  %d receive buffers of %d samples, dechirp on %s"
         % (radio.nbuf, radio.spb,
            "a worker thread" if opts.threads else "the receive thread"))
