@@ -642,13 +642,48 @@ class Radio:
             self.usrp.set_rx_freq(self.uhd.types.TuneRequest(cf), 0)
             self.tuned = cf
 
-    def gps_locked(self):
+    def gps_locked(self, tries=3):
+        """Is the GPSDO locked? Retried, because one read is not evidence.
+
+        UHD logs "update_cache(): Malformed GPSDO string" against this FireFly,
+        and a read that raises is indistinguishable here from a receiver that
+        genuinely cannot see the sky. Demoting the clock to NTP on a single
+        failed parse costs real delay accuracy -- a millisecond is 300 km -- so
+        ask a few times before believing it.
+        """
+        last = None
+        for attempt in range(max(1, tries)):
+            try:
+                value = getattr(self.usrp.get_mboard_sensor("gps_locked", 0),
+                                "value", "")
+                last = str(value).lower()
+                if "true" in last:
+                    return True
+            except Exception as exc:
+                last = "read failed: %s" % exc
+            if attempt + 1 < tries:
+                time.sleep(0.5)
+        self.gps_detail = last
+        return False
+
+    def gps_why_unlocked(self):
+        """A line explaining an unlocked GPSDO: satellites, or a failed read."""
+        detail = getattr(self, "gps_detail", None)
         try:
-            value = getattr(self.usrp.get_mboard_sensor("gps_locked", 0),
-                            "value", "")
-            return "true" in str(value).lower()
+            gga = str(getattr(self.usrp.get_mboard_sensor("gps_gpgga", 0),
+                              "value", ""))
         except Exception:
-            return False
+            gga = ""
+        # $GPGGA,time,lat,N,lon,E,quality,satellites,...
+        parts = gga.split(",")
+        if len(parts) > 7 and parts[6].strip().isdigit():
+            quality, sats = parts[6].strip(), parts[7].strip()
+            return ("fix quality %s, %s satellites in use"
+                    % (quality, sats or "0"))
+        if detail and "read failed" in detail:
+            return ("the sensor could not be read (%s) -- note UHD's "
+                    "\"Malformed GPSDO string\" warning" % detail)
+        return "no NMEA available from the GPSDO"
 
     @staticmethod
     def host_synced():
@@ -679,6 +714,8 @@ class Radio:
         locked = self.gps_locked()
         if locked != self.gps:
             log("  GPS %s" % ("locked" if locked else "LOST LOCK"))
+            if not locked:
+                log("  %s" % self.gps_why_unlocked())
         self.gps = locked
 
         try:
