@@ -422,12 +422,27 @@ or `"snr"`. **LUF, MUF, SNR and PDP are derived from the gated array in both
 modes** — verified identical, 7.67 / 9.83 MHz either way — so switching changes
 what is displayed and nothing that is measured.
 
-Note the noise coefficient is theirs, not ours: `NOISE_FACTOR` here is 2·ln2
-and theirs is 4·ln2, both commented as converting the median of an exponential
-to its mean. The textbook factor is 1/ln2 = 1.4427, so ours is 4% high and
-theirs is 2×, about 3 dB conservative. Reproducing their scale means using
-their coefficient, since their 20 and 45 dB thresholds are calibrated against
-it.
+Note the noise coefficient is theirs, not ours: `NOISE_FACTOR` here is 2·ln2 =
+1.3863 and theirs is 4·ln2 = 2.7726, both commented as converting the median of
+an exponential to its mean. That conversion is 1/ln2 = 1.4427, since the median
+of an exponential is `mean·ln2`. Ours is 3.9% below it (−0.17 dB) — close by
+coincidence, because 2·ln²2 = 0.961 — and theirs is exactly 2× ours, +2.84 dB
+above the correct value.
+
+Where the constant multiplies the median to form a **threshold**, the fraction
+of pure-noise cells that survive is exactly `2^-F`:
+
+| F | value | dB above median | noise cells passing |
+|---|---|---|---|
+| 2·ln2 (ours) | 1.3863 | 1.42 | 38.3% |
+| 1/ln2 (median→mean) | 1.4427 | 1.59 | 36.8% (= 1/e) |
+| 4·ln2 (theirs) | 2.7726 | 4.43 | 14.6% |
+
+Which is right depends on the job. As a *divisor* — their use — it only sets
+where the colour window sits, and theirs is calibrated against it, so
+reproducing their scale means keeping 4·ln2. As a *threshold* — our use, in the
+second gate — 2·ln2 passes 38% of noise, which is why the Rosin threshold and
+the speckle filter have to do the real work downstream.
 
 The `.lfp` header gained `min_value_db` at 0x120 and the mode flag at 0x124,
 which were unused padding. Sidecars written before this read back as 0.0 and
