@@ -159,8 +159,29 @@ else
         if [ "$DRY_RUN" != "1" ]; then
             say "  now: $(ethtool -g "$IFACE" 2>/dev/null | awk '/Current hardware/,0' | awk '/^RX:/{print $2; exit}')"
         fi
-        say "  NOTE: this does not survive a reboot. Re-run this script, or add"
-        say "        it to a NetworkManager dispatcher script."
+        # Persist it. ethtool settings live in the driver, not in any config,
+        # so without this the ring silently returns to 256 on the next boot and
+        # the packet loss comes back with it.
+        DISP=/etc/NetworkManager/dispatcher.d/50-usrp-ring
+        say "  making it survive a reboot: $DISP"
+        if [ "$DRY_RUN" = "1" ]; then
+            say "    [dry-run] would write $DISP"
+        else
+            cat > "$DISP" <<DISPATCH
+#!/bin/sh
+# Restore the USRP link's receive ring after NetworkManager brings it up.
+# The driver default of 256 entries loses packets at 100 MB/s -- see
+# rx_missed_errors. Written by 12-host-tuning.sh.
+[ "\$1" = "$IFACE" ] || exit 0
+case "\$2" in
+    up|dhcp4-change|dhcp6-change) ;;
+    *) exit 0 ;;
+esac
+/sbin/ethtool -G "$IFACE" rx $RING_MAX 2>/dev/null || true
+DISPATCH
+            chmod 0755 "$DISP"
+            say "    written; NetworkManager runs it whenever $IFACE comes up"
+        fi
     else
         say "  already at maximum"
     fi

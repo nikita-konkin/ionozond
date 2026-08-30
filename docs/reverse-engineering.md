@@ -524,7 +524,10 @@ net.core.rmem_max = 50000000
 had not drained the ring — loss *below* UHD entirely, which no CPU headroom or
 socket buffer can touch. The ring was sitting at the driver default of 256 out
 of a possible 4096. That is the cause, and `ethtool -G eno1 rx 4096` is the fix;
-`12-host-tuning.sh` now does it, though the setting does not survive a reboot.
+`12-host-tuning.sh` now does it, and installs
+`/etc/NetworkManager/dispatcher.d/50-usrp-ring` to reapply it — ethtool settings
+live in the driver rather than in any config file, so without that the ring
+silently returns to 256 on the next boot and the loss returns with it.
 
 Two things around it. `rmem_max` was 50 MB while the sounder asks UHD for
 100 MB, and the kernel clamps silently, so the script now sets 100 MB.
