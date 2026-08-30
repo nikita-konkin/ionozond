@@ -1,14 +1,16 @@
 [Unit]
-# Continuous chirp sounding. Install with:
+# Continuous chirp sounding, with no operator logged in.
 #
-#   sudo cp tools/ionozond-sounder.service /etc/systemd/system/
-#   sudo systemctl edit ionozond-sounder      # adjust the paths below
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable --now ionozond-sounder
+# Install with tools/host-setup/18-install-service.sh, which writes the site
+# settings to /etc/default/ionozond and enables this. Then:
+#
+#   systemctl status ionozond-sounder
 #   journalctl -u ionozond-sounder -f
 #
-# The archive also gets its own chirp.log, so there are two places to look and
-# neither depends on anyone being logged in.
+# NOT alongside the console's START button. Both open the same radio, and the
+# second one to try will fail. Use the service for unattended operation and the
+# console for looking at what it produced; press START only when the service is
+# stopped.
 Description=ionozond chirp sounder
 Documentation=https://github.com/nikita-konkin/ionozond
 After=network-online.target
@@ -17,28 +19,37 @@ Wants=network-online.target
 [Service]
 Type=simple
 
-# The radio link needs to be up before this can find the USRP. NetworkManager
-# brings usrp-link up on boot only if its autoconnect was enabled -- see
-# tools/host-setup/README.md, step 2.
-ExecStartPre=/bin/sh -c 'until ping -c1 -W1 192.168.10.3 >/dev/null 2>&1; do sleep 2; done'
+# Site settings: RADIO_ADDR, JUMBO, IONOZOND_CONFIG, IONOZOND_ARCHIVE, IFACE.
+# Written by 18-install-service.sh; edit it rather than this unit, so an
+# upgrade does not overwrite the station's own values.
+EnvironmentFile=/etc/default/ionozond
 
-ExecStart=/usr/bin/python3 /home/samsung/projects/ionozond/tools/rx_dechirp.py \
-    --config /home/samsung/chirp_config.py \
-    --outdir /home/samsung/ionograms \
-    --args addr=192.168.10.3 \
-    --loop
+# The radio link must be up before the USRP can be found. NetworkManager brings
+# usrp-link up on boot only if its autoconnect is enabled -- see
+# tools/host-setup/README.md, step 2.
+ExecStartPre=/bin/sh -c 'until ping -c1 -W1 "$RADIO_ADDR" >/dev/null 2>&1; do sleep 2; done'
+
+# Restore the NIC receive ring. The NetworkManager dispatcher installed by
+# 12-host-tuning.sh normally does this, but it is cheap insurance and the
+# measured cost of getting it wrong was 5.8 million missed frames. The leading
+# + runs this step as root even though the service itself does not.
+ExecStartPre=+/bin/sh -c 'ethtool -G "$IFACE" rx 4096 2>/dev/null || true'
+
+# Through sounder.sh rather than straight to rx_dechirp.py, so the service and
+# the console's START button take exactly the same path and JUMBO applies to
+# both.
+ExecStart=/bin/bash tools/sounder.sh ${IONOZOND_CONFIG} ${IONOZOND_ARCHIVE}
 
 WorkingDirectory=/home/samsung/projects/ionozond
 
-# Run as the operator, not root. This needs the usrp group for the rtprio
-# limit -- 12-host-tuning.sh creates it and adds the user. Without that UHD
-# cannot raise its receive thread's priority and will drop samples under load.
+# Run as the operator, not root.
 User=samsung
 Group=samsung
 SupplementaryGroups=usrp
 
-# UHD asks for a 50 MB receive socket; 12-host-tuning.sh sets net.core.rmem_max
-# to match. If that sysctl is missing this still runs, just badly.
+# The whole point of running under systemd: the real-time limit is granted to
+# the service directly, so none of the login-session business applies. Without
+# it UHD cannot raise its receive thread priority and drops samples under load.
 LimitRTPRIO=99
 LimitMEMLOCK=infinity
 
@@ -47,8 +58,9 @@ LimitMEMLOCK=infinity
 KillSignal=SIGTERM
 TimeoutStopSec=300
 
-# Restart on failure, but slowly. A sounder that respawns every second against
-# a radio that is not there fills the journal and hides the actual problem.
+# Restart on failure, but slowly. A sounder respawning every second against a
+# radio that is not there fills the journal and hides the actual problem. The
+# sounder already stops itself after three empty soundings in a row.
 Restart=on-failure
 RestartSec=60
 

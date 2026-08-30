@@ -633,6 +633,31 @@ The filler blocks travel the same queue as real buffers, so the queue carries a
 recycle flag: a filler is a throwaway array of its own size, and returning it
 to the pool would hand the receive loop a buffer too small for the next `recv`.
 
+### White stripes in the daily-course panels
+
+The Сигнал/шум and ПЗМ panels are built one column per capture, so anything
+that costs a capture leaves a white column. Reading the striping is the fastest
+way to tell what a night went wrong, because the *shape* of the white separates
+the causes:
+
+| Stripe | Meaning |
+|---|---|
+| Full height, one column | A sounding produced no usable file. `.partial` from a failed capture, or the run guard having stopped the loop. |
+| Full height, several adjacent columns | The loop stopped and was restarted — the guard gives up after three empty soundings, so a block of them is the signature. |
+| Upper part only, ragged lower edge | The capture completed but the trace was cut. Everything above the cut frequency has no signal to report, so the SNR column ends where the trace did. |
+| Speckled white through the body | Gate too strict: individual spectra with nothing surviving. Not a capture problem. |
+
+The whole-day view from 30 August makes the point. Dense striping up to about
+17:30 and none after: the fixes described above — receive ring, `rmem_max`,
+4000-byte frames — landed in that hour, and every capture since has been clean.
+Before them the ragged upper edges were overflow cutting the trace mid-sweep,
+and the full-height columns were the guard stopping a loop that had produced
+three empty soundings in a row.
+
+So the daily-course panels are a fault log as well as a propagation record.
+A day of continuous colour is the evidence that the receive path is healthy;
+that is worth more than any single ionogram looking good.
+
 ### The station, once it worked
 
 Twelve clean captures in a row, zero overflows, after three independent fixes:

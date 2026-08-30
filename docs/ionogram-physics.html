@@ -350,6 +350,7 @@ footer {
     <li><a href="#axes">Sweep to pixel</a></li>
     <li><a href="#anatomy">Reading a trace</a></li>
     <li><a href="#causes">Appearance → cause</a></li>
+    <li><a href="#stripes">Daily-course stripes</a></li>
     <li><a href="#budget">Error budget</a></li>
     <li><a href="#limits">What this cannot measure</a></li>
   </ol>
@@ -744,9 +745,58 @@ footer {
   </div>
 </section>
 
+<!-- ============================================================== STRIPES -->
+<section id="stripes">
+  <span class="part-no">Part 9 · Reading</span>
+  <h2 class="part">White stripes in the daily-course panels</h2>
+  <p class="part-lede">The signal-to-noise and power-delay panels are built one column per capture, so anything that costs a capture leaves a white column. The <em>shape</em> of the white says which thing went wrong — these panels are a fault log as much as a propagation record.</p>
+
+  <div class="tablewrap">
+    <table>
+      <caption>Read the striping before reading the colour. A day of continuous colour is evidence the receive path is healthy, which is worth more than any single ionogram looking good.</caption>
+      <thead>
+        <tr><th>Stripe</th><th>Meaning</th><th>Stage</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Full height, one column</td>
+          <td>A sounding produced no usable file — a <span class="mono">.partial</span> from a failed capture.</td>
+          <td><span class="tag inst">receive</span></td>
+        </tr>
+        <tr>
+          <td>Full height, several adjacent columns</td>
+          <td>The loop stopped and was restarted. The run guard gives up after three empty soundings, so a <em>block</em> of them is its signature rather than a coincidence.</td>
+          <td><span class="tag inst">receive</span></td>
+        </tr>
+        <tr>
+          <td>Upper part only, ragged lower edge</td>
+          <td>The capture completed but the trace was cut mid-sweep. Above the cut there is no signal to report, so the column ends where the trace did.</td>
+          <td><span class="tag inst">receive</span></td>
+        </tr>
+        <tr>
+          <td>Speckled white through the body</td>
+          <td>Gate too strict — individual spectra with nothing surviving. Not a capture problem.</td>
+          <td><span class="tag inst">gate</span></td>
+        </tr>
+        <tr>
+          <td>Broad white region, smooth edges, follows the clock</td>
+          <td>Propagation. The band closing at dusk is a shape, not a stripe.</td>
+          <td><span class="tag phys">propagate</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <span class="lbl">A whole day, read this way</span>
+    <p>30 August 2026 on this circuit: dense striping until roughly 17:30 and none afterwards. Three fixes landed in that hour — the NIC receive ring raised from 256 to 4096 entries, <span class="mono">rmem_max</span> from 50 to 100 MB, and 4000-byte UDP frames — and every capture since has been clean.</p>
+    <p>Before them, the ragged upper edges were overflows cutting the trace mid-sweep, and the full-height blocks were the guard stopping a loop that had produced three empty soundings in a row. Neither was propagation, and neither would have been visible from a single ionogram.</p>
+  </div>
+</section>
+
 <!-- =============================================================== BUDGET -->
 <section id="budget">
-  <span class="part-no">Part 9 · Instrument</span>
+  <span class="part-no">Part 10 · Instrument</span>
   <h2 class="part">Error budget</h2>
   <p class="part-lede">Measured on this station, not estimated. Each row converts an instrumental error into the range error it produces, because range is what the ionogram claims to show.</p>
 
@@ -784,7 +834,7 @@ footer {
 
 <!-- =============================================================== LIMITS -->
 <section id="limits">
-  <span class="part-no">Part 10</span>
+  <span class="part-no">Part 11</span>
   <h2 class="part">What this instrument cannot currently measure</h2>
   <p class="part-lede">Stated plainly so nobody builds on it by accident.</p>
 

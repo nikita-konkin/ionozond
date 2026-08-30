@@ -23,45 +23,50 @@ ARCHIVE="${2:-}"
 ARGS=(--config "$CONFIG" --loop)
 [ -n "$ARCHIVE" ] && ARGS+=(--outdir "$ARCHIVE")
 
-# Jumbo frames, when the link to the radio actually carries them.
+# Device arguments: the radio's address and, optionally, the frame size.
 #
-# UHD probes the path and falls back to 1472-byte payloads when the probe is
-# inconclusive -- observed on this station with the interface MTU sitting at
-# 9000. At 1472 bytes, 25 MS/s is about 68000 packets per second; at 8000 it is
-# under 12500, and the packet rate is what the NIC's receive ring has to keep
-# up with. So ask explicitly rather than accept the fallback.
+# Composed into ONE --args, because argparse keeps only the last occurrence --
+# passing address and frame size as two flags silently discards the first.
+# SOUNDER_ARGS carrying its own --args overrides all of this.
 #
-# OPT-IN, not opt-out. A host MTU of 9000 does not mean the radio and every
-# hop between will carry 8000-byte frames: asked for them on this station, UHD
-# agreed, and then the stream died on the first sample of every sounding until
-# the run guard stopped it. UHD honours the request without checking that the
-# other end can honour it, so the only proof is a capture that completes.
+# Jumbo frames are OPT-IN. UHD probes the path and falls back to 1472-byte
+# payloads when the probe is inconclusive, which it was on this station with
+# the interface MTU sitting at 9000. At 1472 bytes 25 MS/s is about 68000
+# packets per second; at 4000 it is under 26000, and packet rate is what the
+# NIC's receive ring has to keep up with.
 #
-# Find the largest size this link actually carries with
-# tools/host-setup/17-probe-frame-size.sh, then set JUMBO to it.
-#
-# Skipped when SOUNDER_ARGS already carries --args, since argparse keeps only
-# the last one and silently dropping the operator's address would be worse than
-# not tuning. RADIO_ADDR points the MTU lookup elsewhere.
-if [ "${JUMBO:-0}" != "0" ] && [[ "${SOUNDER_ARGS:-}" != *"--args"* ]]; then
-    ADDR="${RADIO_ADDR:-192.168.10.2}"
-    MTU=$(ip -o route get "$ADDR" 2>/dev/null           | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}'           | head -1           | xargs -I{} cat /sys/class/net/{}/mtu 2>/dev/null)
-    # JUMBO=1 means "work it out from the MTU"; JUMBO=<n> means "use n".
-    if [ "${JUMBO}" = "1" ]; then
-        FRAME=""
-        if [ -n "${MTU:-}" ] && [ "$MTU" -ge 4000 ] 2>/dev/null; then
-            FRAME=$(( MTU - 28 ))
-            [ "$FRAME" -gt 8000 ] && FRAME=8000
+# But a host MTU of 9000 does not mean the radio and every hop between will
+# carry 8000-byte frames. Asked for 8000 here, UHD agreed and then every
+# sounding died on its first samples until the run guard stopped the loop; 4000
+# carries fine. UHD honours the request without checking the far end can, so
+# the only proof is a capture that completes. Find the largest size that works
+# with tools/host-setup/17-probe-frame-size.py, then set JUMBO to it.
+if [[ "${SOUNDER_ARGS:-}" != *"--args"* ]]; then
+    DEVARGS=""
+    [ -n "${RADIO_ADDR:-}" ] && DEVARGS="addr=${RADIO_ADDR}"
+
+    if [ "${JUMBO:-0}" != "0" ]; then
+        MTU=$(ip -o route get "${RADIO_ADDR:-192.168.10.2}" 2>/dev/null               | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}'               | head -1               | xargs -I{} cat /sys/class/net/{}/mtu 2>/dev/null)
+        # JUMBO=1 means "work it out from the MTU"; JUMBO=<n> means "use n".
+        if [ "${JUMBO}" = "1" ]; then
+            FRAME=""
+            if [ -n "${MTU:-}" ] && [ "$MTU" -ge 4000 ] 2>/dev/null; then
+                FRAME=$(( MTU - 28 ))
+                [ "$FRAME" -gt 8000 ] && FRAME=8000
+            fi
+        else
+            FRAME="${JUMBO}"
         fi
-    else
-        FRAME="${JUMBO}"
+        if [ -n "${FRAME:-}" ]; then
+            echo "JUMBO=${JUMBO}: asking UHD for ${FRAME}-byte frames (link MTU ${MTU:-?})"
+            echo "  if soundings fail immediately this link cannot carry them;"
+            echo "  unset JUMBO, or probe with 17-probe-frame-size.py"
+            [ -n "$DEVARGS" ] && DEVARGS="${DEVARGS},"
+            DEVARGS="${DEVARGS}recv_frame_size=${FRAME},send_frame_size=${FRAME}"
+        fi
     fi
-    if [ -n "${FRAME:-}" ]; then
-        echo "JUMBO set: asking UHD for ${FRAME}-byte frames (link MTU ${MTU:-?})"
-        echo "  if soundings fail immediately, this link cannot carry them --"
-        echo "  drop JUMBO, or probe with 17-probe-frame-size.sh"
-        ARGS+=(--args "recv_frame_size=$FRAME,send_frame_size=$FRAME")
-    fi
+
+    [ -n "$DEVARGS" ] && ARGS+=(--args "$DEVARGS")
 fi
 
 # Unbuffered, or the console sees nothing until a pipe buffer fills. The
