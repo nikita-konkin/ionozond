@@ -1,4 +1,6 @@
 #include "parametersdialog.h"
+
+#include <cmath>
 #include "ui_parametersdialog.h"
 
 #include "common.h"
@@ -188,28 +190,40 @@ void ParametersDialog::WriteSettings()
 
 void ParametersDialog::UpdateObjLevelHint()
 {
-    const int window = ui->spbObjSizeH->value() * ui->spbObjSizeV->value();
+    const int w = ui->spbObjSizeH->value();
+    const int h = ui->spbObjSizeV->value();
+    const int window = w * h;
     const double level = ui->spbObjLevel->value();
     ui->spbObjLevel->setMaximum(window);
 
-    QString text = tr("из %1 в окне").arg(window);
+    /*
+     * The useful thing to say is not what fraction of the window the threshold
+     * is, but how thick a trace has to be to meet it.
+     *
+     * The filter counts surviving neighbours, so a trace occupying k delay rows
+     * inside the window contributes at most w*k. Counts on a clean trace are
+     * therefore quantised to multiples of w -- measured 9, 18 for a 9x3 window
+     * at one, two and three rows -- and the threshold has cliffs there rather
+     * than a gradient. Anything above w deletes a one-row-thick trace outright
+     * however strong it is, and above w*h nothing can survive at all.
+     */
+    const int needRows = (w > 0) ? (int)std::ceil(level / w) : 0;
+
+    QString text;
     QString colour = QLatin1String("#808080");
 
-    if (window > 0) {
-        const double share = level / window;
-        if (share > 0.5) {
-            /* Above half the window a point needs more lit neighbours than
-             * dark ones. An oblique trace is one or two rows thick, so most of
-             * a 9x3 window around it is background and it cannot reach that --
-             * the trace is deleted along with the speckle, and the SNR and
-             * usage-frequency products, which are computed from what survives,
-             * go with it. */
-            text += tr("  --  жёстко: слабый след и ОСШ пропадут");
+    if (needRows > h) {
+        text = tr("невозможно: нужен след толще окна (%1 строк)").arg(h);
+        colour = QLatin1String("#c04040");
+    } else {
+        text = tr("след должен быть не тоньше %1 из %2 строк").arg(needRows).arg(h);
+        if (needRows >= h) {
+            /* The trace has to fill the window's whole height: only the
+             * thickest part of a strong trace will, and everything else goes. */
+            text += tr("  --  жёстко, останется только ядро следа");
             colour = QLatin1String("#c04040");
-        } else if (share < 0.2) {
+        } else if (needRows <= 1) {
             text += tr("  --  мягко: фон останется шумным");
-        } else {
-            text += tr("  --  исходное 11 из 27");
         }
     }
 

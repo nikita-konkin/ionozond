@@ -275,14 +275,31 @@ on the path and on the interference at a site.
 Lower keeps more of a faint trace and more noise; higher gives a sparser but
 cleaner one.
 
-**Do not go above half the window.** 9 x 3 is 27 cells, so `obj_level` 14 asks a
-point to have more lit neighbours than dark ones. An oblique trace is one or two
-delay rows thick, so most of the window around even a strong trace is background
-and it cannot meet that test: level 14 keeps 4179 points where 11 keeps 14028.
-The SNR and usage-frequency panels are computed from whatever survives the gate,
-so they thin out with it and look broken rather than empty. The dialog now warns
-when the threshold crosses half the window, and restates it as "N из 27" —
-a threshold means nothing without the window it is measured against. Note what the band edges do: at level 11 the LUF/MUF span nearly
+**The threshold has cliffs, not a gradient.** The filter counts surviving
+neighbours, so a trace occupying `k` delay rows inside the window contributes at
+most `obj_size_horizontal · k`. Counts on a clean trace are therefore quantised
+to multiples of the window width — measured 9 and 18 for a 9 x 3 window at one
+and two rows thick — and what `obj_level` really selects is **how thick a trace
+has to be to survive at all**:
+
+| obj_level (9 x 3) | trace must be | effect |
+|---|---|---|
+| ≤ 9 | 1 row | keeps everything, background stays noisy |
+| 10–18 | 2 rows | the default 11 and 14 both live here |
+| 19–27 | 3 rows | only the core of a strong trace |
+| > 27 | impossible | deletes the whole ionogram |
+
+Above `obj_size_horizontal` a one-row-thick trace is deleted outright however
+strong it is. Between the cliffs the threshold only changes how much *noise*
+clumping survives: measured on a synthetic ionogram at the 38% density the
+statistical gate passes, a clean two-row trace survives 100% at every level from
+6 to 14 while noise falls from 96.9% to 14.3%.
+
+Real traces are not uniformly two rows thick, which is why the measured table
+above shows level 14 keeping 4179 points against 11's 14028 — the thin parts go
+first, and the SNR and usage-frequency panels, computed from what survives,
+thin out with them. The dialog states the required thickness rather than a
+fraction of the window, since the fraction is not what the filter tests. Note what the band edges do: at level 11 the LUF/MUF span nearly
 the whole sweep, which means noise is still being counted as signal. Stricter
 cleaning narrows it to something physically plausible — worth remembering that
 LUF and MUF are only as good as the gate that feeds them.
