@@ -545,7 +545,14 @@ entirely on frame size:
 | 1472 B | ~68000 | 60 ms |
 | 8000 B | ~12500 | 327 ms |
 
-A 78 ms stall exhausts the first and not the second. `sounder.sh` therefore
+A 78 ms stall exhausts the first and not the second.
+
+The report now also says *where* in the sweep the losses fell, because the
+pattern names the cause. A capture with 17 gaps put all of them between 0 and
+65 s of a 245 s sweep and none after — losses bunched at the start mean
+something else on the machine is busy just after a sounding lands, the console
+rendering the capture that just arrived being the obvious candidate. A link
+that simply cannot hold the rate loses steadily throughout instead. `sounder.sh` therefore
 looks up the MTU on the route to the radio and, when it is jumbo, asks UHD for
 frames that size rather than accepting its fallback — `NO_JUMBO=1` disables it,
 and `rx_dechirp` already recognises a stream that dies immediately as the

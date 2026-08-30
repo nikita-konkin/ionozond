@@ -920,6 +920,7 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
     got_total = 0
     fed = 0                       # samples handed to the pipeline, gaps included
     gap_total = 0
+    gap_marks = []                # (seconds into the sweep, seconds lost)
     t_zero = None
     fill_gaps = not opts.no_gap_fill
     MAX_GAP_FILL = int(sr)        # one second; beyond that the capture is lost
@@ -1003,6 +1004,12 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
                 if gap > 0:
                     gap = min(gap, wanted - fed, MAX_GAP_FILL)
                     gap_total += gap
+                    # Where in the sweep, so a pattern is visible. Losses
+                    # bunched at the start mean something else on the machine
+                    # is busy then -- the console rendering the capture that
+                    # just landed, say -- while losses spread evenly mean the
+                    # link simply cannot hold the rate.
+                    gap_marks.append((fed / sr, gap / sr))
                     while gap > 0:
                         chunk = min(gap, spb)
                         zeros = np.zeros((1, chunk), dtype=np.complex64)
@@ -1094,6 +1101,7 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
     result["busy_whiten"] = counters["busy_whiten"]
     result["overflows"] = overflows
     result["gap_samples"] = gap_total
+    result["gap_marks"] = gap_marks
     result["short_reads"] = short_reads
     result["stalled"] = stalled
     result["elapsed"] = (time.time() - began) if began else 0.0
@@ -1142,6 +1150,18 @@ def report(result, opts, sr, dec, log):
         lost_ms = 1000.0 * result["gap_samples"] / sr
         log("  lost %d samples (%.1f ms) to overflow, zero-filled"
             % (result["gap_samples"], lost_ms))
+        marks = result.get("gap_marks") or []
+        if len(marks) > 1:
+            first, last = marks[0][0], marks[-1][0]
+            span = result["elapsed"] if result["elapsed"] > 1.0 else 1.0
+            log("  %d gaps between %.0f s and %.0f s of the %.0f s sweep"
+                % (len(marks), first, last, span))
+            if last < 0.4 * span:
+                log("  *** all of them in the first %.0f%% of the capture, so"
+                    % (100.0 * last / span))
+                log("  *** something else on this machine is busy just after a")
+                log("  *** sounding lands -- the console rendering it, most")
+                log("  *** likely. A steady rate of loss would look different.")
         sweep_rate = float(result.get("rate", 0.0))
         if sweep_rate > 0.0:
             log("  that stretch of the sweep is blank -- %.1f kHz of band, "
