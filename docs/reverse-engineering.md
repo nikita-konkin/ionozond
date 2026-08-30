@@ -570,6 +570,19 @@ entirely on frame size:
 
 A 78 ms stall exhausts the first and not the second.
 
+**But this link does not carry them.** Asked for 8000-byte frames, UHD reported
+`Current recv frame size: 8000 bytes` and then every sounding died on its first
+samples — 972, 973 and 1944 out of 6.125 billion — until the run guard stopped
+the loop. UHD honours a `recv_frame_size` request without checking the far end
+can honour it, so the agreement it reports is not evidence, and a host MTU of
+9000 is not evidence either. Only a capture that completes is.
+
+Jumbo frames are therefore **opt-in**, `JUMBO=<size>` on `sounder.sh`, not a
+default derived from the MTU: the failure mode is total loss of service, which
+is too high a price for an optimisation. `17-probe-frame-size.py` streams a
+short burst at each candidate size and reports which actually deliver samples,
+so the size can be chosen from evidence rather than from the MTU.
+
 The report now also says *where* in the sweep the losses fell, because the
 pattern names the cause. A capture with 17 gaps put all of them between 0 and
 65 s of a 245 s sweep and none after — losses bunched at the start mean
