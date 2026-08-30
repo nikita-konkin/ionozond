@@ -438,6 +438,27 @@ the way past, since `addIg` promotes the previous ionogram each time. Only the
 last two are ever displayed, so `addIg(file, keepControl)` now skips that for
 everything before them — half the work on a 288-file replay.
 
+### The console orphaned its sounder
+
+`QProcess: Destroyed while process is still running`, repeated once per console
+exit, naming `sounder.sh`. There is one `QProcess`, parented to the main window,
+and `~frmMain()` did nothing but `delete ui` — so Qt destroyed it during
+teardown without stopping the child. The shell died; python kept the radio and
+kept writing `.lfs` files.
+
+That matters more than a stray process. Start the console again and two
+sounders compete for one N210, which presents as overflows appearing from
+nowhere on a host with 2.2x of dechirp headroom — and by the entry below, one
+overflow cuts the rest of the sounding. The `STOP` button always stopped it
+properly; only closing the window did not.
+
+`closeEvent` now asks (a clean stop lets the sweep finish, up to 250 s, which is
+too long to block a window close on) and the destructor kills unconditionally as
+a backstop. `tools/host-setup/15-check-orphans.sh` finds any left over from
+before, and also reports whether the session is in group `usrp` — without it UHD
+cannot raise its receive thread priority, which is the usual cause of sporadic
+overflows and shows up as `error in pthread_setschedparam` at startup.
+
 ### An overflow cuts the ionogram dead, and why
 
 An overflow does not merely lose signal for its duration. The samples after it

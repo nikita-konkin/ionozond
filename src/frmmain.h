@@ -32,6 +32,12 @@ public:
     explicit frmMain(QWidget *parent = 0);
     ~frmMain();
 
+protected:
+    /* Stops the sounder before the window goes. Without this Qt destroys the
+     * QProcess while the child is still running, which orphans a sounding that
+     * then keeps the radio and writes captures nobody is watching. */
+    virtual void closeEvent(QCloseEvent *event);
+
     QString getSoundAppFileName() const;
     QString getConfigFileName() const;
     QString getRxName() const;

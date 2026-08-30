@@ -13,6 +13,7 @@
 #include <QFileInfo>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QCloseEvent>
 #include <QMessageBox>
 #include <QSizePolicy>
 #include <QTextCursor>
@@ -344,8 +345,50 @@ void frmMain::ScanForNewCaptures()
     }
 }
 
+void frmMain::closeEvent(QCloseEvent *event)
+{
+    /*
+     * "QProcess: Destroyed while process is still running" was the symptom:
+     * the QProcess is parented to this window, so Qt destroyed it during
+     * teardown without stopping the child. The shell died and left python
+     * holding the radio -- an invisible sounder still streaming at 100 MB/s
+     * and still writing .lfs files. Start the console again and the two
+     * compete for the same N210, which is exactly the shape of an overflow
+     * problem that appears from nowhere.
+     *
+     * A clean stop lets the sweep in progress finish, which is up to 250 s --
+     * far too long to block a window close on -- so this asks instead of
+     * choosing for the operator. Whatever they answer, nothing is orphaned.
+     */
+    if (m_soundProcess && m_soundProcess->state() != QProcess::NotRunning) {
+        const QMessageBox::StandardButton answer = QMessageBox::question(
+            this, tr("Идёт зондирование"),
+            tr("Сеанс зондирования ещё не закончен.\n\n"
+               "Прервать его и выйти?"),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes) {
+            event->ignore();
+            return;
+        }
+        console(QLatin1String("stopping the sounder before exit..."), Qt::gray);
+        m_soundProcess->terminate();
+        if (!m_soundProcess->waitForFinished(15000)) {
+            console(QLatin1String("it did not stop; killing it"), Qt::red);
+            m_soundProcess->kill();
+            m_soundProcess->waitForFinished(5000);
+        }
+    }
+    QMainWindow::closeEvent(event);
+}
+
 frmMain::~frmMain()
 {
+    /* Belt and braces: closeEvent covers the window being closed, this covers
+     * every other way the object can go. Nothing may outlive the console. */
+    if (m_soundProcess && m_soundProcess->state() != QProcess::NotRunning) {
+        m_soundProcess->kill();
+        m_soundProcess->waitForFinished(5000);
+    }
     delete ui;
 }
 
