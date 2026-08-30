@@ -212,14 +212,31 @@ void frmMain::LoadLatestCaptures()
     QStringList dayDirs = root.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
 
     /*
-     * Load every capture we can find for each station, oldest first, so the
-     * two variation panels build up their daily course instead of showing a
-     * single column. Capped so opening a large archive stays responsive.
+     * How far back to load is set by what the variation panels are asked to
+     * show, not by a fixed count.
+     *
+     * This was 24 captures. At the standard 300 s repetition that is exactly
+     * two hours, so "период 24 ч" drew two hours of data and the setting
+     * looked broken -- the panels trim to the period correctly, they were
+     * simply never given more than two hours to trim.
+     *
+     * Both panels are fed from the same pass, so take whichever period is
+     * longer. The ceiling is there because a short repetition and a long
+     * period multiply: 24 h at 60 s would be 1440 files, and on an archive
+     * whose sidecars have not been built yet each one costs 80 MB and 610
+     * FFTs. Loading stays sidecar-first and cheap in the normal case.
      */
-    const int MAX_CAPTURES = 24;
+    const SnrVarParams snrParams = getSnrVarParams();
+    const PdpVarParams pdpParams = getPdpVarParams();
+    const int periodHour = qMax(qMax(snrParams.periodHour, pdpParams.periodHour), 1);
+    const int CAPTURE_CEILING = 600;
 
     for (int f = 0; f < m_igFrames.size(); ++f) {
         QIGFrame *frame = m_igFrames.at(f);
+
+        const quint32 rep = (f < m_sessionParams.size()) ? m_sessionParams.at(f).rep : 0;
+        int maxCaptures = (rep > 0) ? (periodHour * 3600) / int(rep) : 24;
+        maxCaptures = qBound(1, maxCaptures, CAPTURE_CEILING);
 
         QStringList found;
         for (int d = 0; d < dayDirs.size(); ++d) {
@@ -237,12 +254,28 @@ void frmMain::LoadLatestCaptures()
         for (int i = 0; i < found.size(); ++i)
             m_loadedCaptures.insert(found.at(i));
 
-        const int first = qMax(0, found.size() - MAX_CAPTURES);
+        const int first = qMax(0, found.size() - maxCaptures);
+        const int count = found.size() - first;
+        if (count > 0) {
+            console(QString(QLatin1String("loading %1 capture(s) for %2 "
+                                          "-- %3 h at %4 s"))
+                        .arg(count).arg(frame->stationName())
+                        .arg(periodHour).arg(rep), Qt::gray);
+        }
         for (int i = first; i < found.size(); ++i) {
-            console(QString(QLatin1String("loading  %1"))
-                        .arg(QFileInfo(found.at(i)).fileName()), Qt::gray);
+            /* One line per file floods the console at 288 of them, but silence
+             * is worse on a first run with no sidecars, where each file is a
+             * real wait. Every tenth, plus the last. */
+            const int n = i - first + 1;
+            if (n % 10 == 0 || i == found.size() - 1) {
+                console(QString(QLatin1String("  %1/%2  %3"))
+                            .arg(n).arg(count)
+                            .arg(QFileInfo(found.at(i)).fileName()), Qt::gray);
+            }
             QApplication::processEvents();
-            frame->addIg(found.at(i));
+            /* Only the last two end up on screen; everything before them is
+             * loaded for the variation panels alone. */
+            frame->addIg(found.at(i), i >= found.size() - 2);
         }
     }
 }

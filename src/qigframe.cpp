@@ -90,13 +90,13 @@ QLabel *QIGFrame::makeCaption(const QString &text) const
     return l;
 }
 
-bool QIGFrame::addIg(const QString &igFileName)
+bool QIGFrame::addIg(const QString &igFileName, bool keepControl)
 {
     /*
      * The panel that was "current" becomes the control ionogram, and the new
      * capture takes the current slot.
      */
-    if (!m_current->igFileName().isEmpty())
+    if (keepControl && !m_current->igFileName().isEmpty())
         m_control->load(m_current->igFileName());
 
     /* Sidecar-first: skips 80 MB and 610 FFTs when one exists, and writes one

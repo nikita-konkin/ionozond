@@ -365,6 +365,24 @@ nothing else; there is no "better" setting, only a choice of which axis matters:
 Going coarser in one axis to gain the other is a real choice, but leaving it
 matched is the reason the default is where it is.
 
+### The variation panels' period — `snr_period_hour`, `pdp_period_hour`
+
+Setting the period to 24 h drew only the last two hours. The panels trim
+correctly; they were never given more than two hours to trim. `LoadLatestCaptures`
+capped the archive replay at a fixed 24 captures, and at the standard 300 s
+repetition 24 captures *is* exactly two hours — the coincidence is why it looked
+like a working setting rather than a hard limit.
+
+The cap is now `periodHour * 3600 / rep` per station, ceilinged at 600. The
+ceiling matters because a short repetition and a long period multiply: 24 h at
+60 s would be 1440 files, and on an archive whose sidecars have not been built
+each one costs 80 MB and 610 FFTs.
+
+Replaying history also used to re-render every capture into the control panel on
+the way past, since `addIg` promotes the previous ionogram each time. Only the
+last two are ever displayed, so `addIg(file, keepControl)` now skips that for
+everything before them — half the work on a 288-file replay.
+
 ### Sidecars must be rebuilt
 
 The console reads the `.lfp` in preference to the capture, so changing any of

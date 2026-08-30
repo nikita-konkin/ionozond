@@ -41,7 +41,10 @@ public:
 
     /* Load a capture into the "current" panel; the previous current becomes
      * the control panel, which is how the original's two-panel view works. */
-    bool addIg(const QString &igFileName);
+    /* `keepControl` false when replaying archive history: only the last two
+     * captures are ever shown, so re-rendering each one into the control panel
+     * on the way past doubles the work for nothing. */
+    bool addIg(const QString &igFileName, bool keepControl = true);
 
     QRxIonogram *controlIonogram() const { return m_control; }
     QRxIonogram *currentIonogram() const { return m_current; }
