@@ -744,7 +744,10 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
     result = {"path": path, "sounder": sounder["name"], "t0": t0,
               "overflows": 0, "got": 0, "written": 0, "short_reads": 0,
               "busy": 0.0, "stalled": 0.0, "elapsed": 0.0, "wanted": int(sr * dur),
-              "incomplete": True, "error": None, "aborted": False}
+              "incomplete": True, "error": None, "aborted": False,
+              # report() gets sr and dec but not the sweep rate, and it needs
+              # it to say how much of the band a gap cost.
+              "rate": rate}
 
     radio.tune(cf)
 
@@ -1117,8 +1120,11 @@ def report(result, opts, sr, dec, log):
         lost_ms = 1000.0 * result["gap_samples"] / sr
         log("  lost %d samples (%.1f ms) to overflow, zero-filled"
             % (result["gap_samples"], lost_ms))
-        log("  that stretch of the sweep is blank -- %.0f kHz of it at %.0f Hz/s"
-            % (lost_ms * rate / 1e6, rate))
+        sweep_rate = float(result.get("rate", 0.0))
+        if sweep_rate > 0.0:
+            log("  that stretch of the sweep is blank -- %.1f kHz of band, "
+                "against %.0f kHz/s swept"
+                % (lost_ms * sweep_rate / 1e6, sweep_rate / 1e3))
 
     # Not "how many times real time": the radio delivers samples at exactly sr,
     # so a live capture can never finish faster than the signal arrives and that
@@ -1169,15 +1175,28 @@ def report(result, opts, sr, dec, log):
     # nowhere to put samples while it catches up. The stall time is the
     # giveaway: it tracks the overflow count almost exactly.
     bursty = result["stalled"] > 1.0
-    if result["overflows"] <= 5 and not bursty:
-        log("  %d overflow%s -- gaps of well under a millisecond each; a chirp"
-            % (result["overflows"], "" if result["overflows"] == 1 else "s"))
-        log("  sounding integrates across the whole sweep, so this costs a"
-            " little SNR rather than the trace")
+
+    # How much was actually lost, now that it is measured rather than assumed.
+    # This used to say "gaps of well under a millisecond each" on faith. A real
+    # capture reported two overflows totalling 143.4 ms -- some seventy
+    # milliseconds each, not a fraction of one -- so the verdict is taken from
+    # the gap, not the count.
+    lost_ms = 1000.0 * result.get("gap_samples", 0) / sr
+    if result["overflows"] <= 5 and not bursty and lost_ms < 1.0:
+        log("  %d overflow%s, %.2f ms lost in total -- a chirp sounding"
+            % (result["overflows"], "" if result["overflows"] == 1 else "s",
+               lost_ms))
+        log("  integrates across the whole sweep, so this costs a little SNR"
+            " rather than the trace")
         return 0
 
-    log("  *** %d overflows, %.1f s with no free buffer -- complete file, lost SNR"
-        % (result["overflows"], result["stalled"]))
+    log("  *** %d overflows, %.1f ms of samples lost, %.1f s with no free buffer"
+        % (result["overflows"], lost_ms, result["stalled"]))
+    if lost_ms >= 1.0:
+        log("  *** zero-filled, so the sweep stays aligned and only that")
+        log("  *** stretch is blank. Without the fill each lost millisecond")
+        log("  *** would move every later echo 300 km and cut the ionogram")
+        log("  *** dead at the frequency the sweep had reached.")
 
     # The explanation is the same every time and this log runs for days. Say it
     # once per run and let the one-line summary above stand thereafter.
