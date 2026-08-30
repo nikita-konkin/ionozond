@@ -469,15 +469,26 @@ a new login, and `newgrp` does not re-run pam_limits on most distributions. So
 `ulimit -Hr` of 0.
 
 The station is reached over a remote desktop, and logging out to pick up a group
-can end the only way in. A fresh PAM session started from inside the existing
-one applies the limit without that risk:
+can end the only way in. `su - $USER` looked like a way to get a fresh PAM
+session from inside the existing one, but it is not: it wipes `XAUTHORITY`, so
+the console cannot reach the display, and on this host it did not raise
+`ulimit -Hr` either.
+
+The limit is a per-process resource limit, inherited by children, and root can
+raise it on a running process. So the reliable route needs no new session at
+all:
 
 ```
-su - $USER -c 'DISPLAY=:0 $HOME/.cache/ionozond-build/ionozond'
+sudo prlimit --pid $$ --rtprio=99
+ulimit -Hr                          # want 99
+$HOME/.cache/ionozond-build/ionozond &
 ```
 
-`ulimit -Hr` inside that session should read 99. The check script reports the
-limit rather than only the group, since the limit is what actually decides.
+The console inherits it, and so does the sounder the console spawns. It lasts
+as long as that shell; a reboot makes pam_limits apply it everywhere
+permanently, which is worth doing once the remote desktop is known to come back
+on its own. The check script reports `ulimit -Hr` rather than only the group,
+since the limit is what actually decides.
 
 ### An overflow cuts the ionogram dead, and why
 

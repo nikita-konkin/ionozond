@@ -53,12 +53,18 @@ if [ "${RT}" = "0" ]; then
     echo "  ***"
     echo "  *** DO NOT log out if a remote desktop is your only way in --"
     echo "  *** ending the session can take the remote desktop with it."
-    echo "  *** Start a fresh PAM session instead and launch the console from"
-    echo "  *** inside it, which applies the limit without logging out:"
     echo "  ***"
-    echo "  ***   su - ${USER} -c 'DISPLAY=${DISPLAY:-:0} \$HOME/.cache/ionozond-build/ionozond'"
+    echo "  *** Raise the limit on THIS shell instead; children inherit it,"
+    echo "  *** so the console and the sounder it spawns both get it. No new"
+    echo "  *** session, no display juggling:"
     echo "  ***"
-    echo "  *** Confirm it took, inside that session:  ulimit -Hr   (want 99)"
+    echo "  ***   sudo prlimit --pid \$\$ --rtprio=99"
+    echo "  ***   ulimit -Hr                 # want 99"
+    echo "  ***   \$HOME/.cache/ionozond-build/ionozond &"
+    echo "  ***"
+    echo "  *** That lasts as long as the shell. A reboot makes pam_limits"
+    echo "  *** apply it to every session permanently -- but check that the"
+    echo "  *** remote desktop starts on its own before rebooting."
 fi
 
 echo
