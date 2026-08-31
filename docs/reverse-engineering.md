@@ -251,6 +251,83 @@ ray distance versus +56.0 km above the decimal one. Full evidence in
 [`lfs-format.md`](lfs-format.md). Not corrected here: it would move every
 existing display, and the call belongs to the archive's owner.
 
+## The HDF5 archive, so `.lfs` can be pruned
+
+288 captures a day at 80 MB is **23.0 GB/day, 691 GB/month** — measured, not
+estimated. The `.lfp` sidecar beside each is 70 kB and holds everything the
+console displays, so the obvious move is to delete the capture. Two things stop
+that: the console enumerates `*.lfs`, so a pruned capture silently vanishes from
+the UI even though its sidecar is intact; and the sidecar is lossy and terminal,
+holding only the *gated* dB array, so there is no re-tuning `obj_level`, no
+switching to `--iono-mode snr`, and no reprocessing after a DSP fix.
+
+`python/h5_archive.py` writes a third artifact: a windowed, median-normalised
+power spectrogram in **chirpsounder2's `lfm_ionogram-*.h5` format**, 0–8000 km of
+delay, **1.25 MB — 64× smaller than the capture**. Enable with `--h5` on
+`lfp_products.py`, or `h5_archive = True` in the config for the sounder.
+
+### Why that format reads without a line of new code
+
+`ionograms-handler` already parses it (`muf/io_chirp.py`), and its loader
+dispatches on the `lfm_ionogram-` filename prefix. The only non-obvious mapping
+is `SNR`: `io_chirp.snr_to_power` returns `max(SNR + 1, 0)/NOISE_COEF`, and
+`muf/spectro.py` computes the same quantity from a `.lfs` as
+`row/(NOISE_COEF·median(row))`. Our `build_spectra` has already divided each
+spectrum by its median, so **`SNR = normalised power − 1`** is the whole
+conversion.
+
+Verified against a real capture, loading the `.lfs` and the `.h5` through
+`muf.loader` and comparing:
+
+| | result |
+|---|---|
+| frequency axis | max difference 7 × 10⁻¹⁵ MHz |
+| range axis | max difference **0 km** |
+| power correlation | **0.9999999731** |
+| median relative difference | 9.7 × 10⁻⁵ |
+| cells within one float16 ulp | 88% |
+| **MUF, all three extractors** | **identical to 0.000 MHz** |
+
+Three conventions had to be right, and each was wrong first:
+
+- **Frequency labels are bin centres, not starts.** A spectrum integrates
+  `fft_count/if_rate` seconds; labelling it with the start put every column half
+  a bin — 20.5 kHz — low.
+- **The range step is `2·half_span/N`, not `/(N−1)`.** Bin *k* of an N-point FFT
+  sits at exactly `k·sr/N`. `geometry()` uses `N−1`, treating the axis as
+  symmetric and inclusive; over a 60000 km half-span the two differ by 3.7 km,
+  half a delay bin. The archive uses the FFT's version. Correcting the console
+  would move every stored `.lfp` axis, so that is left alone.
+- **Light speed is 3e5, not 299792.458.** chirpsounder2 uses scipy's `c`, but
+  `lfp_products.py`, `src/common.h` *and* ionograms-handler's own `.lfs` reader
+  all use 3e5. Being exact here would put the archive's range axis 41 km from
+  the sidecar's at the edge of the span — the same echo reading differently
+  depending on which file you opened.
+
+### What the threshold costs
+
+chirpsounder2 NaNs out cells below `storage_snr_threshold` so deflate can
+collapse the background. Measured on a real capture:
+
+| threshold | file | vs `.lfs` | discards |
+|---|---|---|---|
+| none (our default) | 1.25 MB | 64× | nothing |
+| 0.0 | 0.88 MB | 91× | `P < 1` — **half the cells** |
+| 2.0 (their default) | 0.31 MB | 255× | `P < 3` |
+
+`SNR = P − 1`, so a threshold of 0 is not the mild choice it looks: it drops
+everything below the noise *median*, and `io_chirp` reads NaN back as a
+constant. For an archive whose purpose is reprocessing, 0.37 MB is not worth
+half the distribution.
+
+### What the archive still cannot do
+
+Not a substitute for the capture in three respects, and pruning accepts all
+three: `fft_count` is baked in at write time; the Rosin gate cannot be
+re-derived, because `power_dynamic_limit` needs the *whole* spectrum and the
+archive keeps only a window; and there is no complex time series, so no Doppler,
+coherent integration or O/X separation.
+
 ## The physics, and reading a trace
 
 `docs/ionogram-physics.html` is the standing reference for how an ionogram is
