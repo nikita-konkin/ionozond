@@ -323,7 +323,8 @@ def usage_frequencies(data):
 
 def compute(path, fft_count=16384, noise_gate=True, progress=None,
             obj_w=OBJ_SIZE_HORIZONTAL, obj_h=OBJ_SIZE_VERTICAL,
-            obj_level=OBJ_LEVEL, iono_mode=IONO_MODE_GATED):
+            obj_level=OBJ_LEVEL, iono_mode=IONO_MODE_GATED,
+            archive_range_km=None):
     """Run the whole pipeline. Returns (meta, {section: array}).
 
     `iono_mode` decides only what the IONO section holds; LUF, MUF, SNR and
@@ -337,6 +338,12 @@ def compute(path, fft_count=16384, noise_gate=True, progress=None,
     the ordinary/extraordinary split live in exactly the faint structure the
     gate removes, which is why their ionograms read as sharper than ours
     despite coming off a comparable receiver.
+
+    `archive_range_km` asks for a wide-window spectrogram alongside, returned
+    as a fourth item for python/h5_archive.py to write. It rides along here
+    rather than in a pass of its own because the 80 MB is streamed exactly
+    once: reading it twice would double the cost of every capture to save a
+    few lines.
     """
     header = read_lfs_header(path)
     samples = (os.path.getsize(path) - LFS_HEADER_SIZE) // 8
@@ -355,6 +362,16 @@ def compute(path, fft_count=16384, noise_gate=True, progress=None,
     win_max = 0.0
     at = 0
 
+    arc_lo = arc_hi = 0
+    archive = None
+    if archive_range_km is not None:
+        import h5_archive
+        arc_lo, arc_hi = h5_archive.window_rows(header, fft_count,
+                                                archive_range_km)
+        # float16 because that is what the format stores and what the reader
+        # casts to anyway; holding it wider here would only round later.
+        archive = np.zeros((spec_count, arc_hi - arc_lo), dtype=np.float16)
+
     for block in build_spectra(path, fft_count, spec_count):
         for row in block:
             # The gate must see the WHOLE spectrum: the threshold comes from
@@ -368,6 +385,11 @@ def compute(path, fft_count=16384, noise_gate=True, progress=None,
             keep = ~(limit > db)
             gated_db[at] = np.where(keep, db, 0.0)
             window_linear[at] = row[row_low:row_low + rows]
+            if archive is not None:
+                # SNR as chirpsounder2 defines it. build_spectra has already
+                # divided by the row median, so subtracting one is the whole
+                # conversion -- see h5_archive's module docstring.
+                archive[at] = row[arc_lo:arc_hi] - 1.0
             if snr_db is not None:
                 # muf/spectro.py: floor = NOISE_COEF * median(spectrum) taken
                 # over the WHOLE spectrum before range gating, then row/floor.
@@ -387,6 +409,8 @@ def compute(path, fft_count=16384, noise_gate=True, progress=None,
         gated_db = gated_db[:at]
         if snr_db is not None:
             snr_db = snr_db[:at]
+        if archive is not None:
+            archive = archive[:at]
         window_linear = window_linear[:at]
         limits = limits[:at]
         spec_count = at
@@ -447,9 +471,19 @@ def compute(path, fft_count=16384, noise_gate=True, progress=None,
         "luf_index": luf_index, "muf_index": muf_index,
         "luf_mhz": to_mhz(luf_index), "muf_mhz": to_mhz(muf_index),
     })
-    return meta, {"IONO": gated_db if snr_db is None else snr_db,
-                  "SNR ": snr.reshape(1, -1),
-                  "PDP ": pdp.reshape(1, -1)}
+    sections = {"IONO": gated_db if snr_db is None else snr_db,
+                "SNR ": snr.reshape(1, -1),
+                "PDP ": pdp.reshape(1, -1)}
+    if archive is None:
+        return meta, sections
+
+    import h5_archive
+    axis, _step = h5_archive.range_axis(header, fft_count)
+    return meta, sections, {
+        "snr": archive,
+        "freqs_hz": h5_archive.freq_axis(header, fft_count, spec_count),
+        "ranges_km": axis[arc_lo:arc_hi],
+    }
 
 
 # ---------------------------------------------------------------- writing
@@ -517,21 +551,50 @@ def sidecar_path(lfs_path):
     return os.path.splitext(lfs_path)[0] + ".lfp"
 
 
-def build_one(lfs_path, fft_count=16384, force=False, quiet=False, **clean):
+def h5_path_for(lfs_path, meta):
+    """Where the HDF5 archive goes: beside the capture, but under
+    chirpsounder2's name, because muf/loader.py globs for that prefix."""
+    import h5_archive
+    return os.path.join(os.path.dirname(lfs_path), h5_archive.archive_name(meta))
+
+
+def build_one(lfs_path, fft_count=16384, force=False, quiet=False,
+              h5_archive_km=None, **clean):
+    """Build the .lfp sidecar, and optionally the .h5 archive beside it.
+
+    `h5_archive_km` is the (lo, hi) km window the archive keeps, or None for
+    no archive. Both come out of one pass over the capture, because the 80 MB
+    is the expensive part and reading it twice would double the cost.
+    """
     out = sidecar_path(lfs_path)
-    if not force and os.path.exists(out) and \
-            os.path.getmtime(out) >= os.path.getmtime(lfs_path):
+    fresh = (not force and os.path.exists(out) and
+             os.path.getmtime(out) >= os.path.getmtime(lfs_path))
+    if fresh and h5_archive_km is None:
         if not quiet:
             print("  %s is up to date" % os.path.basename(out))
         return out, 0
 
-    meta, sections = compute(lfs_path, fft_count=fft_count, **clean)
+    result = compute(lfs_path, fft_count=fft_count,
+                     archive_range_km=h5_archive_km, **clean)
+    meta, sections = result[0], result[1]
     size = write(out, meta, sections)
+
+    h5_size = 0
+    if h5_archive_km is not None:
+        import h5_archive as _h5
+        arc = result[2]
+        h5_size = _h5.write(h5_path_for(lfs_path, meta), meta, arc["snr"],
+                            arc["freqs_hz"], arc["ranges_km"])
+
     if not quiet:
         raw = os.path.getsize(lfs_path)
         print("  %s  %.1f kB  (%.0fx smaller)  LUF %.2f  MUF %.2f MHz"
               % (os.path.basename(out), size / 1024.0, raw / float(size),
                  meta["luf_mhz"], meta["muf_mhz"]))
+        if h5_size:
+            print("  %s  %.2f MB  (%.0fx smaller than the capture)"
+                  % (os.path.basename(h5_path_for(lfs_path, meta)),
+                     h5_size / 1e6, raw / float(h5_size)))
     return out, size
 
 
@@ -553,6 +616,12 @@ def main():
                     help="what the IONO section holds: 'gated' (the original: "
                          "thresholded and despeckled) or 'snr' (chirpsounder2: "
                          "the continuous field, nothing deleted)")
+    ap.add_argument("--h5", action="store_true",
+                    help="also write a chirpsounder2 lfm_ionogram-*.h5 archive, "
+                         "which is what makes deleting the .lfs survivable")
+    ap.add_argument("--h5-range-km", default="0,8000",
+                    help="delay window the archive keeps, km (default 0,8000 -- "
+                         "covers 1F through 3F on a 2634 km path)")
     ap.add_argument("--recurse", action="store_true")
     ap.add_argument("--verify", action="store_true",
                     help="read the sidecar back and print what it holds")
@@ -573,13 +642,19 @@ def main():
         return 1
 
     total_raw = total_side = 0
+    h5_window = None
+    if opts.h5:
+        lo, hi = (float(v) for v in opts.h5_range_km.split(","))
+        h5_window = (lo, hi)
+
     failed = 0
     for path in targets:
         try:
             out, size = build_one(path, fft_count=opts.fft, force=opts.force,
                                   obj_w=opts.obj_w, obj_h=opts.obj_h,
                                   obj_level=opts.obj_level,
-                                  iono_mode=opts.iono_mode)
+                                  iono_mode=opts.iono_mode,
+                                  h5_archive_km=h5_window)
             if size:
                 total_raw += os.path.getsize(path)
                 total_side += size

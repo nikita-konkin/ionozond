@@ -1514,6 +1514,14 @@ def run_live(opts, cfg, sounders):
         # The sidecar is what anything downstream actually reads, and there is
         # a whole repetition period of idle time to build it in. Doing it here
         # means the console never has to touch the 80 MB capture.
+        # A chirpsounder2-format archive beside the sidecar, which is what
+        # makes deleting the 80 MB capture survivable: 1.25 MB, and
+        # ionograms-handler reads it with no new code. Off unless asked for.
+        h5_window = None
+        if cfg.get("h5_archive"):
+            h5_window = (float(cfg.get("h5_range_lo_km", 0.0)),
+                         float(cfg.get("h5_range_hi_km", 8000.0)))
+
         if products and rc <= 1 and not result["incomplete"]:
             try:
                 began_side = time.time()
@@ -1526,7 +1534,8 @@ def run_live(opts, cfg, sounders):
                     obj_w=int(cfg.get("obj_size_horizontal", 9)),
                     obj_h=int(cfg.get("obj_size_vertical", 3)),
                     obj_level=float(cfg.get("obj_level", 11.0)),
-                    iono_mode=str(cfg.get("iono_mode", "gated")))
+                    iono_mode=str(cfg.get("iono_mode", "gated")),
+                    h5_archive_km=h5_window)
                 raw = os.path.getsize(result["path"])
                 log("  sidecar   %s  %.1f kB  (%.0fx smaller, %.1f s)"
                     % (os.path.basename(out), size / 1024.0,
