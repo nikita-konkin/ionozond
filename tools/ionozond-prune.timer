@@ -1,0 +1,15 @@
+[Unit]
+Description=ionozond archive pruning, hourly
+Documentation=https://github.com/nikita-konkin/ionozond
+
+[Timer]
+# Hourly rather than daily: the check is cheap when there is nothing to do
+# (it stops at the free-space test), and a disk that fills between two daily
+# runs costs a night of soundings.
+OnCalendar=hourly
+# Not on the hour, where the sounder is most likely to be mid-capture.
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

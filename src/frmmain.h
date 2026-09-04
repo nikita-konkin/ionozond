@@ -95,6 +95,10 @@ private:
     /* True when the systemd unit holds the radio, in which case the console's
      * own m_running says nothing about whether a change has been applied. */
     static bool sounderServiceActive();
+    /* Captures in one day directory as .lfs paths, found through either the
+     * capture or its sidecar, so a pruned archive stays visible. */
+    static QStringList CapturesIn(const class QDir &day, const QString &station);
+    static bool CaptureSettled(const QString &lfsPath, QHash<QString, qint64> &growing);
     /* Session rows, CPU plot and disk pie in the right-hand panel. */
     void CreateControlPanel();
 

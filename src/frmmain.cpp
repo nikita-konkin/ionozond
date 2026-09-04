@@ -14,6 +14,7 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QCloseEvent>
+#include <QSet>
 #include <QMessageBox>
 #include <QSizePolicy>
 #include <QTextCursor>
@@ -227,6 +228,58 @@ void frmMain::CreateIgAreas()
     }
 }
 
+/*
+ * Every capture in one day directory, as .lfs paths, whether or not the .lfs
+ * still exists.
+ *
+ * Pruning deletes the 80 MB capture and keeps the 70 kB sidecar, so a glob for
+ * *.lfs alone stops finding archived soundings -- silently, since a file that
+ * is not enumerated raises nothing. QRxIonogram::load() is already happy to
+ * work from the sidecar and never opens the capture when one is there, so all
+ * that is needed is to enumerate both and hand it the .lfs name it expects.
+ */
+QStringList frmMain::CapturesIn(const QDir &day, const QString &station)
+{
+    QSet<QString> stems;
+    const char *const patterns[] = { "_*.lfs", "_*.lfp" };
+    for (int p = 0; p < 2; ++p) {
+        const QStringList found = day.entryList(
+            QStringList() << (station + QLatin1String(patterns[p])),
+            QDir::Files, QDir::Name);
+        for (int i = 0; i < found.size(); ++i)
+            stems.insert(QFileInfo(found.at(i)).completeBaseName());
+    }
+
+    QStringList out;
+    for (QSet<QString>::const_iterator it = stems.constBegin();
+         it != stems.constEnd(); ++it)
+        out << day.filePath(*it + QLatin1String(".lfs"));
+    out.sort();                         /* by name, which is by time */
+    return out;
+}
+
+/* Has this capture finished being written?
+ *
+ * A sounding takes 250 s and half of one renders as noise, so the size has to
+ * stop changing before it is touched. With the .lfs pruned there is nothing to
+ * watch -- but there is also nothing to wait for: Python writes the sidecar
+ * with os.replace, so it appears whole or not at all. */
+bool frmMain::CaptureSettled(const QString &lfsPath, QHash<QString, qint64> &growing)
+{
+    const QFileInfo raw(lfsPath);
+    if (!raw.exists()) {
+        growing.remove(lfsPath);
+        return true;
+    }
+    const qint64 size = raw.size();
+    if (growing.value(lfsPath, -1) != size) {
+        growing.insert(lfsPath, size);
+        return false;
+    }
+    growing.remove(lfsPath);
+    return true;
+}
+
 void frmMain::LoadLatestCaptures()
 {
     const QString dataDir = getIgDirName();
@@ -267,11 +320,7 @@ void frmMain::LoadLatestCaptures()
         QStringList found;
         for (int d = 0; d < dayDirs.size(); ++d) {
             QDir day(root.filePath(dayDirs.at(d)));
-            const QStringList caps = day.entryList(
-                QStringList() << (frame->stationName() + QLatin1String("_*.lfs")),
-                QDir::Files, QDir::Name);
-            for (int c = 0; c < caps.size(); ++c)
-                found << day.filePath(caps.at(c));
+            found << CapturesIn(day, frame->stationName());
         }
 
         /* Everything found is remembered as seen, including what the cap skips
@@ -337,29 +386,15 @@ void frmMain::ScanForNewCaptures()
 
         for (int d = 0; d < dayDirs.size(); ++d) {
             QDir day(root.filePath(dayDirs.at(d)));
-            const QStringList caps = day.entryList(
-                QStringList() << (frame->stationName() + QLatin1String("_*.lfs")),
-                QDir::Files, QDir::Name);
+            const QStringList caps = CapturesIn(day, frame->stationName());
 
             for (int c = 0; c < caps.size(); ++c) {
-                const QString path = day.filePath(caps.at(c));
+                const QString path = caps.at(c);
                 if (m_loadedCaptures.contains(path))
                     continue;
-
-                /*
-                 * A capture takes a whole sounding to write -- 250 s at the
-                 * standard schedule -- and half of one renders as noise. Wait
-                 * until its size has stopped changing between two scans before
-                 * touching it. That works whether or not sidecars are enabled,
-                 * where waiting for the .lfp would not.
-                 */
-                const qint64 size = QFileInfo(path).size();
-                if (m_growing.value(path, -1) != size) {
-                    m_growing.insert(path, size);
+                if (!CaptureSettled(path, m_growing))
                     continue;
-                }
 
-                m_growing.remove(path);
                 m_loadedCaptures.insert(path);
                 console(QString(QLatin1String("new capture  %1"))
                             .arg(QFileInfo(path).fileName()), Qt::cyan);

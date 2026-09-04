@@ -320,6 +320,53 @@ everything below the noise *median*, and `io_chirp` reads NaN back as a
 constant. For an archive whose purpose is reprocessing, 0.37 MB is not worth
 half the distribution.
 
+### Pruning: a floor and a ceiling, not an age
+
+`tools/prune_lfs.py` deletes captures whose products exist. It deliberately
+does **not** take a plain "delete older than N days", because age is not the
+constraint — the disk is, and a fixed window either wastes space when the
+archive is small or overruns when it is not, with the operator finding out
+which only when a sounding fails for want of room.
+
+Two numbers instead, deleting oldest first:
+
+- `--keep-days` is a **floor**. Nothing newer is deleted whatever the disk
+  looks like. This is the reprocessing window, since only the capture can be
+  re-run at a different FFT length.
+- `--free-gb` is a **ceiling**. Nothing is deleted at all while that much is
+  already free; below it, pruning runs until the target is met and then stops.
+  `0` prunes by age alone.
+
+A capture is deleted only when its `.lfp` and `.h5` both exist, are newer than
+it, and — for the archive — actually open with every required dataset and
+matching axes. Existence is not enough: a file truncated by a power cut still
+has a name and a size, and deleting 80 MB against it loses the sounding for
+good. Verified on a fixture of three captures, where only the sound one was
+selected:
+
+```
+kept:
+  no .h5 archive                     1
+  .h5 unreadable: ... truncated file 1
+```
+
+Dry-run by default; `--apply` deletes. `ionozond-prune.timer` runs it hourly
+rather than daily — the check is cheap when there is nothing to do, and a disk
+that fills between two daily runs costs a night of soundings.
+
+The console had to change first. It enumerated `station_*.lfs`, so a pruned
+capture simply stopped being listed — silently, since a file that is not
+enumerated raises nothing. `CapturesIn()` now globs both extensions and dedupes
+by stem, handing `QRxIonogram::load()` the `.lfs` name it expects; that function
+already prefers the sidecar and never opens the capture when one is there.
+`CaptureSettled()` skips the size-stability wait when there is no `.lfs` to
+watch, which is correct rather than merely convenient: Python writes the sidecar
+with `os.replace`, so it appears whole or not at all.
+
+Verified end to end — after pruning, the capture still renders from its sidecar
+and still yields MUF 25.338 / 25.379 / 25.420 MHz from ionograms-handler's three
+extractors, identical to what the `.lfs` gave.
+
 ### What the archive still cannot do
 
 Not a substitute for the capture in three respects, and pruning accepts all

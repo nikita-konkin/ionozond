@@ -1,0 +1,26 @@
+[Unit]
+# Delete raw captures whose derived products exist. Driven by the timer beside
+# this file; see tools/prune_lfs.py for why it takes a floor and a ceiling
+# rather than a plain age.
+Description=ionozond archive pruning
+Documentation=https://github.com/nikita-konkin/ionozond
+After=ionozond-sounder.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/default/ionozond
+User=samsung
+Group=samsung
+WorkingDirectory=/home/samsung/projects/ionozond
+
+# PRUNE_KEEP_DAYS and PRUNE_FREE_GB come from /etc/default/ionozond. Without
+# --apply this would only ever report, so the flag is here and the safety is in
+# the two thresholds and in prune_lfs.py's refusal to touch a capture whose .h5
+# is missing or unreadable.
+ExecStart=/usr/bin/python3 tools/prune_lfs.py ${IONOZOND_ARCHIVE} \
+    --keep-days ${PRUNE_KEEP_DAYS} --free-gb ${PRUNE_FREE_GB} --apply
+
+# Deleting 80 MB files is IO, not CPU, and the sounder is receiving at
+# 100 MB/s. Stay out of its way.
+IOSchedulingClass=idle
+Nice=19
