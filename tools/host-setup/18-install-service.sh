@@ -60,9 +60,25 @@ echo
 # ---- 1. site settings -----------------------------------------------------
 echo "--- 1. $DEFAULTS ----------------------------------------"
 if [ -f "$DEFAULTS" ]; then
-    say "  exists already - leaving it alone. Current contents:"
+    # Values already set are the station's and are never touched. But a file
+    # written by an older version of this script is missing whatever has been
+    # added since -- and a unit that reads an unset variable fails in a way
+    # that points at systemd rather than at here. So append what is absent.
+    say "  exists already - keeping its values, adding anything new"
+    added=0
+    for pair in "PRUNE_KEEP_DAYS=7" "PRUNE_FREE_GB=50" "JUMBO=4000"; do
+        key="${pair%%=*}"
+        if ! grep -q "^${key}=" "$DEFAULTS" 2>/dev/null; then
+            say "    adding $pair"
+            if [ "$DRY_RUN" != "1" ]; then
+                printf '%s\n' "$pair" >> "$DEFAULTS"
+            fi
+            added=$((added + 1))
+        fi
+    done
+    [ "$added" -eq 0 ] && say "    nothing missing"
+    say "  current contents:"
     sed 's/^/    /' "$DEFAULTS"
-    say "  (delete it and re-run to regenerate)"
 else
     say "  writing it"
     if [ "$DRY_RUN" = "1" ]; then
@@ -152,7 +168,10 @@ for unit in ionozond-prune.service ionozond-prune.timer; do
     if [ -f "$src" ]; then
         say "  installing $unit"
         if [ "$DRY_RUN" != "1" ]; then
-            sed -e "s#^WorkingDirectory=.*#WorkingDirectory=$HOME_DIR/projects/ionozond#" \n                -e "s#^User=.*#User=$OPER#" \n                -e "s#^Group=.*#Group=$OPER#" \n                "$src" > "/etc/systemd/system/$unit"
+            sed -e "s#^WorkingDirectory=.*#WorkingDirectory=$HOME_DIR/projects/ionozond#" \
+                -e "s#^User=.*#User=$OPER#" \
+                -e "s#^Group=.*#Group=$OPER#" \
+                "$src" > "/etc/systemd/system/$unit"
             chmod 0644 "/etc/systemd/system/$unit"
         fi
     fi

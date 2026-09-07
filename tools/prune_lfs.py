@@ -180,6 +180,34 @@ def main():
     total_gb = sum(c[2] for c in captures) / 1e9
     print("  found   %d captures, %.1f GB" % (len(captures), total_gb))
 
+    # Is the operator's keep window even possible on this disk?
+    #
+    # Nothing else here would say so. --keep-days blocks deletion and
+    # --free-gb asks for space, and the two can be quietly unsatisfiable: on a
+    # 117 GB disk carrying 23 GB of captures a day, seven days is 161 GB and
+    # no amount of pruning reaches it. The run then reports "still short of
+    # the target" every hour, which reads like a fault rather than a setting.
+    daily_gb = 0.0
+    if len(captures) > 1:
+        span_days = (captures[-1][0] - captures[0][0]) / 86400.0
+        if span_days > 0.25:
+            daily_gb = total_gb / span_days
+    if daily_gb > 0:
+        # What the captures may occupy once the free target is met.
+        budget_gb = free_gb + total_gb - want_gb
+        sustainable = budget_gb / daily_gb
+        print("  rate    %.1f GB/day, so the disk holds about %.1f days of captures"
+              % (daily_gb, max(0.0, sustainable)))
+        if sustainable < opts.keep_days:
+            print()
+            print("  *** --keep-days %.1f cannot be met here. Keeping that long"
+                  % opts.keep_days)
+            print("  *** needs %.0f GB of captures and only %.0f GB is available"
+                  % (opts.keep_days * daily_gb, max(0.0, budget_gb)))
+            print("  *** once %.0f GB is left free. Either lower --keep-days to"
+                  % want_gb)
+            print("  *** about %.1f, or lower --free-gb." % max(0.5, sustainable))
+
     if want_gb > 0 and free_gb >= want_gb:
         print()
         print("  Nothing to do: already above the target with %.1f GB to spare."

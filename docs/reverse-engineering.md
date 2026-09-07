@@ -367,6 +367,30 @@ Verified end to end — after pruning, the capture still renders from its sideca
 and still yields MUF 25.338 / 25.379 / 25.420 MHz from ionograms-handler's three
 extractors, identical to what the `.lfs` gave.
 
+### The keep window has to fit the disk
+
+Measured on the station: 117.5 GB total with 52 GB of it not captures, so about
+65 GB is available to hold soundings. At 23 GB/day that is **under three days**,
+and the seven-day default cannot be met at any free-space target — seven days is
+161 GB. Nothing in the tool would have said so: `--keep-days` blocks deletion,
+`--free-gb` asks for space, and the two can be quietly unsatisfiable, leaving an
+hourly job reporting "still short of the target" as though something were
+broken.
+
+So the pruner now estimates the daily rate from the captures it finds and says
+what the disk can actually hold, refusing to leave the arithmetic to the
+operator:
+
+```
+rate    23.0 GB/day, so the disk holds about 2.0 days of captures
+*** --keep-days 7.0 cannot be met here.
+```
+
+Workable settings for this station are `--keep-days 2 --free-gb 15`. The
+archives are what make that tolerable: two days of raw captures is the
+reprocessing window, while the `.h5` files behind them cost 0.36 GB/day and can
+be kept indefinitely.
+
 ### What the archive still cannot do
 
 Not a substitute for the capture in three respects, and pruning accepts all
