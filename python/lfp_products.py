@@ -198,7 +198,14 @@ def build_spectra(path, fft_count, spec_count, chunk=64):
             power = np.fft.fftshift(power, axes=1)
             # getMedian is not a textbook median for odd n, but fft_count is a
             # power of two, and for even n it is the ordinary one.
-            power /= np.median(power, axis=1, keepdims=True)
+            #
+            # A zero median is possible now that overflow gaps are zero-filled:
+            # lose more than one FFT window in a row and the whole spectrum is
+            # zeros, whose median is zero. Dividing gave 0/0 -- NaN across that
+            # column, which then propagated into the gate, the SNR sum and the
+            # sidecar. Leave such a spectrum as zeros, which is what it is.
+            med = np.median(power, axis=1, keepdims=True)
+            np.divide(power, med, out=power, where=med > 0.0)
             yield power[:, ::-1]
             done += got
 

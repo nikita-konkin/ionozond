@@ -637,6 +637,39 @@ class Radio:
         self.pool = [np.empty((1, self.spb), dtype=np.complex64)
                      for _ in range(self.nbuf)]
 
+    def reset_stream(self, log=None):
+        """Throw the receive streamer away and build a new one.
+
+        After a sustained overflow -- 135 of them, 27 s of samples lost, the
+        receiver stalled 45 s of a 280 s capture -- this station's N210 stops
+        answering: every following sounding returns
+        rx_metadata_error_code.timeout with zero samples, and the run guard
+        gives up after three. Draining between captures is not enough, because
+        what is wedged is the stream itself rather than the socket.
+
+        A new streamer is cheap next to re-opening the device, which would mean
+        re-disciplining the clock from GPS and losing the schedule. Whether it
+        clears this particular wedge is UNVERIFIED -- it could not be tested
+        without provoking the fault on the radio -- so the guard is left in
+        place behind it. If the timeouts survive a reset, the device really
+        does want a power cycle and the guard still says so.
+        """
+        try:
+            self.streamer.issue_stream_cmd(
+                self.uhd.types.StreamCMD(self.uhd.types.StreamMode.stop_cont))
+        except Exception:
+            pass
+        try:
+            del self.streamer
+        except Exception:
+            pass
+        stream_args = self.uhd.usrp.StreamArgs("fc32", "sc16")
+        stream_args.channels = [0]
+        self.streamer = self.usrp.get_rx_stream(stream_args)
+        self.metadata = self.uhd.types.RXMetadata()
+        if log:
+            log("  receive stream rebuilt after a failed capture")
+
     def tune(self, cf):
         if cf != self.tuned:
             self.usrp.set_rx_freq(self.uhd.types.TuneRequest(cf), 0)
@@ -1559,6 +1592,15 @@ def run_live(opts, cfg, sounders):
         # the good captures either side.
         if rc >= 2:
             failures += 1
+            # Rebuild the stream before trying again. The observed failure is
+            # not a bad sounding but a wedged receiver: one capture stalls for
+            # tens of seconds, and every capture after it times out with no
+            # samples at all until the guard stops the station. Three lost
+            # soundings became a dead station overnight.
+            try:
+                radio.reset_stream(log)
+            except Exception as exc:
+                log("  *** could not rebuild the receive stream: %s" % exc)
             if failures >= 3:
                 log("")
                 log("*** three soundings in a row produced no data. Stopping.")
@@ -1567,7 +1609,9 @@ def run_live(opts, cfg, sounders):
                 log("*** If the messages above name a clock, this host and the")
                 log("*** radio disagree about the time; if they say timeout")
                 log("*** with no samples at all, the radio has most likely")
-                log("*** stopped answering and wants a power cycle.")
+                log("*** stopped answering and wants a power cycle -- the")
+                log("*** receive stream was already rebuilt between attempts")
+                log("*** and that did not clear it.")
                 worst = max(worst, 2)
                 break
         else:

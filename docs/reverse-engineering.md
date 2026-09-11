@@ -832,6 +832,56 @@ change had taken, and the station carried on with the previous settings
 indefinitely. `RebuildStations` now checks `systemctl is-active` as well and
 names the restart command.
 
+### The console and the service were not the same configuration
+
+`sounder.sh` read `JUMBO` and `RADIO_ADDR` from its environment only. The
+systemd unit supplies them through `EnvironmentFile=`; nothing supplied them to
+the console, so pressing START ran the same script in a materially different
+configuration — UHD fell back to 1472-byte frames, five times the packet rate,
+which is exactly the overflow storm the tuning exists to prevent. The two logs
+differ by one INFO line:
+
+```
+[INFO] [USRP2] Current recv frame size: 1472 bytes     <- console
+[INFO] [USRP2] Current recv frame size: 4000 bytes     <- service
+```
+
+`sounder.sh` now reads `/etc/default/ionozond` itself, with anything already in
+the environment winning, so the service's values and a one-off
+`JUMBO=8000 sounder.sh …` both still override it. Routing both paths through
+one script was supposed to guarantee they behaved alike; it only guaranteed
+they ran the same code.
+
+Watch for the other half of the same failure: `The recv buffer could not be
+resized sufficiently. Actual sock buff size: 50000000` means `rmem_max` has
+reverted to its default — the sysctl file survives a reboot but a manual
+`sysctl -w` does not, and neither does `ethtool -G`. Re-run `12-host-tuning.sh`.
+
+### A wedged receiver, not a bad sounding
+
+The failure that killed the station overnight was not gradual. One capture
+stalls badly — 135 overflows, 27 s of samples lost, the receiver stalled 45 s
+of 280 — and then *every* capture after it returns
+`rx_metadata_error_code.timeout` with zero samples, until the guard stops after
+three. Draining between captures does not clear it, because what is wedged is
+the stream rather than the socket.
+
+`Radio.reset_stream()` throws the streamer away and builds a new one, and the
+failure path calls it before each retry. That is far cheaper than re-opening
+the device, which would mean re-disciplining the clock from GPS and losing the
+schedule. **Whether it clears this particular wedge is unverified** — it could
+not be tested without provoking the fault on the radio — so the guard stays
+behind it, and its message now says the reset was already tried.
+
+### Zero-filled gaps can make a whole spectrum zero
+
+`build_spectra` divides each spectrum by its own median. Once overflow gaps are
+zero-filled, losing more than one FFT window in a row makes a spectrum entirely
+zeros, whose median is zero: the divide became 0/0 and put NaN across that
+column, which propagated into the gate, the SNR sum and the sidecar. Visible as
+`RuntimeWarning: invalid value encountered in divide` in the sounder's output.
+Such a spectrum is now left as zeros, which is what it is.
+
 ### White stripes in the daily-course panels
 
 The Сигнал/шум and ПЗМ panels are built one column per capture, so anything

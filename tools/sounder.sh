@@ -18,6 +18,29 @@ set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
+# Site settings, for the console's START button as well as the service.
+#
+# The unit gets these through EnvironmentFile=. Nothing gave them to the
+# console, so pressing START ran with no JUMBO and no RADIO_ADDR -- UHD fell
+# back to 1472-byte frames and the packet rate went up fivefold, which is
+# exactly the overflow storm the tuning was meant to prevent. Same script, two
+# very different configurations, and the log looked identical apart from one
+# INFO line.
+#
+# Anything already in the environment wins, so the service's values and a
+# one-off `JUMBO=8000 sounder.sh ...` both still override this.
+IONOZOND_DEFAULTS="${IONOZOND_DEFAULTS:-/etc/default/ionozond}"
+if [ -r "$IONOZOND_DEFAULTS" ]; then
+    while IFS='=' read -r _key _value; do
+        case "$_key" in ''|'#'*) continue ;; esac
+        _key="${_key%"${_key##*[![:space:]]}"}"      # trim trailing space
+        [ -z "$_key" ] && continue
+        if [ -z "${!_key:-}" ]; then
+            export "$_key=$_value"
+        fi
+    done < "$IONOZOND_DEFAULTS"
+fi
+
 # One process can hold the radio. Started by hand while the service has it --
 # from a terminal, or from the console's START button -- UHD fails to open the
 # device and says so in its own terms, which look nothing like "something else
