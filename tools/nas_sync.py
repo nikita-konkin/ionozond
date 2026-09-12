@@ -53,6 +53,36 @@ PRODUCTS = ("*.h5", "*.lfp")
 RAW = "*.lfs"
 
 
+def read_console_config(path):
+    """Top-level literal assignments from the console's chirp_config.py.
+
+    A cut-down copy of rx_dechirp.load_config, and deliberately a copy: that
+    lives in a 2000-line script which this tool has no other reason to import,
+    and importing it under systemd to read two strings would be the tail
+    wagging the dog. Parsed, never executed -- the file is generated, but it
+    is still a file on disk that this runs against.
+    """
+    import ast
+
+    cfg = {}
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename=path)
+    except (IOError, OSError, SyntaxError):
+        return cfg
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if not isinstance(target, ast.Name):
+            continue
+        try:
+            cfg[target.id] = ast.literal_eval(node.value)
+        except (ValueError, SyntaxError):
+            pass
+    return cfg
+
+
 def is_remote(dest):
     """Does this destination go through SSH?
 
@@ -316,19 +346,27 @@ def main():
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("archive", help="the ionograms directory")
-    ap.add_argument("--dest", default=os.environ.get("NAS_DEST", ""),
+    ap.add_argument("--dest", default="",
                     help="rsync destination: a mounted path, or user@host:/path. "
-                         "Defaults to $NAS_DEST.")
+                         "Normally left unset -- it comes from nas_dest in the "
+                         "console's parameters dialog. $NAS_DEST is the "
+                         "fallback for a station with no console.")
+    ap.add_argument("--config",
+                    default=os.environ.get("IONOZOND_CONFIG",
+                                           os.path.expanduser("~/chirp_config.py")),
+                    help="the console's chirp_config.py, which carries "
+                         "nas_dest and nas_keep_h5_days")
     ap.add_argument("--ssh-key", default=os.environ.get("NAS_SSH_KEY", ""),
                     help="private key for an SSH destination. Defaults to "
                          "$NAS_SSH_KEY, and to ssh's own search when unset. "
                          "Name it for unattended runs: systemd has no agent.")
     ap.add_argument("--include-lfs", action="store_true",
                     help="also upload the 80 MB raw captures")
-    ap.add_argument("--keep-h5-days", type=float, default=-1.0,
+    ap.add_argument("--keep-h5-days", type=float, default=None,
                     help="delete local .h5 older than this once the NAS has "
-                         "them, verified by checksum. Negative (the default) "
-                         "uploads and deletes nothing.")
+                         "them, verified by checksum. Negative uploads and "
+                         "deletes nothing. Unset takes nas_keep_h5_days from "
+                         "the dialog, then $NAS_KEEP_H5_DAYS, then -1.")
     ap.add_argument("--bwlimit", type=int, default=0,
                     help="KB/s ceiling for the transfer. Worth setting: the "
                          "sounder and rsync share one disk and one NIC.")
@@ -352,9 +390,33 @@ def main():
     if not os.path.isdir(root):
         log("%s is not a directory" % root)
         return 2
+
+    # Where the settings come from, most specific first. The dialog is the
+    # normal place: it is where the operator already sets everything else
+    # about this station, and it needs no root. The environment is the
+    # fallback for a host with no console, and the flags override both for a
+    # run by hand.
+    console = read_console_config(os.path.expanduser(opts.config))
     if not opts.dest:
-        log("no destination: pass --dest or set NAS_DEST")
-        return 2
+        opts.dest = (console.get("nas_dest")
+                     or os.environ.get("NAS_DEST", "") or "")
+    opts.dest = os.path.expanduser(str(opts.dest).strip())
+    if opts.keep_h5_days is None:
+        fallback = console.get("nas_keep_h5_days",
+                               os.environ.get("NAS_KEEP_H5_DAYS", -1.0))
+        try:
+            opts.keep_h5_days = float(fallback)
+        except (TypeError, ValueError):
+            opts.keep_h5_days = -1.0
+
+    if not opts.dest:
+        # Not an error. A station with no NAS is a perfectly good station,
+        # and an hourly timer that fails on one is how an operator learns to
+        # ignore its failures.
+        log("No NAS destination configured -- nothing to do.")
+        log("Set it in the console's parameters dialog (Сохранение данных),")
+        log("or pass --dest.")
+        return 0
     if shutil.which("rsync") is None:
         log("rsync is missing:  sudo apt-get install -y rsync")
         return 2

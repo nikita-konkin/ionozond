@@ -116,6 +116,20 @@ void ParametersDialog::ReadSettings()
         m_settings->value(QLatin1String("keep_lfs_hours"), 0).toInt());
     ui->spbKeepLfsHours->setEnabled(keepLfs);
     ui->lblKeepLfsHours->setEnabled(keepLfs);
+
+    /*
+     * Where the NAS sync puts things, and how long the local copy stays.
+     *
+     * Here rather than in /etc/default/ionozond because this is the operator's
+     * setting, not the host's: it needs no root, and it is where everything
+     * else about this station is already changed. ionozond-nas.service reads
+     * it out of chirp_config.py, and falls back to NAS_DEST in the defaults
+     * file only for a host with no console.
+     */
+    ui->edtNasDir->setText(
+        m_settings->value(QLatin1String("nas_dest")).toString());
+    ui->spbNasKeepH5->setValue(
+        m_settings->value(QLatin1String("nas_keep_h5_days"), -1).toInt());
     UpdateFormatsHint();
 
     /* Colour map combo: one entry per recovered map, index carried in UserRole. */
@@ -194,6 +208,15 @@ void ParametersDialog::WriteSettings()
     m_settings->setValue(QLatin1String("h5_archive"), ui->chbH5Archive->isChecked());
     m_settings->setValue(QLatin1String("keep_lfs"), ui->chbKeepLfs->isChecked());
     m_settings->setValue(QLatin1String("keep_lfs_hours"), ui->spbKeepLfsHours->value());
+
+    /* Trailing separators are stripped: rsync treats "dir" and "dir/"
+     * differently for the source, and a stored value that sometimes has one
+     * is a difference nobody will think to look for. */
+    QString nasDir = ui->edtNasDir->text().trimmed();
+    while (nasDir.size() > 1 && nasDir.endsWith(QLatin1Char('/')))
+        nasDir.chop(1);
+    m_settings->setValue(QLatin1String("nas_dest"), nasDir);
+    m_settings->setValue(QLatin1String("nas_keep_h5_days"), ui->spbNasKeepH5->value());
 
     m_settings->setValue(QLatin1String("ig_colormap_index"), ui->cmbIgColormap->currentIndex());
     m_settings->setValue(QLatin1String("colormap_gradient"), ui->chbColorGradient->isChecked());
@@ -373,6 +396,19 @@ void ParametersDialog::on_btnPyConfig_clicked()
         this, QString::fromUtf8("Конфигурация"), ui->edtPyConfig->text());
     if (!f.isEmpty())
         ui->edtPyConfig->setText(f);
+}
+
+void ParametersDialog::on_btnNasDir_clicked()
+{
+    /* Starts at /mnt rather than at the home directory: the destination is a
+     * mounted share, and every one on this station lives there. */
+    QString start = ui->edtNasDir->text();
+    if (start.isEmpty())
+        start = QLatin1String("/mnt");
+    const QString d = QFileDialog::getExistingDirectory(
+        this, QString::fromUtf8("Каталог на NAS"), start);
+    if (!d.isEmpty())
+        ui->edtNasDir->setText(d);
 }
 
 void ParametersDialog::on_btnIGDir_clicked()

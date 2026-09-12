@@ -107,7 +107,10 @@ QString buildChirpConfig(QSettings &schedule, QSettings &config)
             continue;
 
         QString value = pythonValue(config.value(key).toString());
-        if (key == QLatin1String("data_dir"))
+        /* Paths are Python strings. Without the quotes chirp_config.py is a
+         * syntax error and the sounder will not start at all -- a long way
+         * from the setting the operator thought they were changing. */
+        if (key == QLatin1String("data_dir") || key == QLatin1String("nas_dest"))
             value = QLatin1Char('"') + value + QLatin1Char('"');
         else if (key == QLatin1String("sample_rate"))
             value += QLatin1String("e3");

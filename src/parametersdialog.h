@@ -42,6 +42,7 @@ private slots:
     void on_btnSoundApp_clicked();
     void on_btnPyConfig_clicked();
     void on_btnIGDir_clicked();
+    void on_btnNasDir_clicked();
     /* Restates the speckle threshold as a fraction of the window, and warns
      * when it is high enough to take the trace with the noise. */
     void UpdateObjLevelHint();

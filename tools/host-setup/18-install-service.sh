@@ -114,17 +114,20 @@ IONOZOND_ARCHIVE=$HOME_DIR/ionograms/
 PRUNE_KEEP_DAYS=7
 PRUNE_FREE_GB=50
 
-# NAS. Empty NAS_DEST means this station has no NAS and the sync unit skips
-# itself -- not a failure, and not something to be mailed about hourly.
+# NAS.
+#
+# NAS_DEST and NAS_KEEP_H5_DAYS are FALLBACKS. The normal place for both is
+# the console's parameters dialog, under "Сохранение данных" -- it needs no
+# root and it is where the operator changes everything else. These are read
+# only when chirp_config.py does not carry them, for a host with no console.
 #
 # Either a mounted share (/mnt/nas/ionozond) or an rsync-over-ssh target
 # (user@host:/volume1/ionozond). Use a key for the latter; a password on the
 # command line would be readable in `ps` by every user on this host.
 #
-# NAS_KEEP_H5_DAYS is a floor: local archives newer than this are never
-# deleted, and older ones only once rsync has confirmed by checksum that the
-# NAS holds the same bytes. NAS_BWLIMIT is KB/s, 0 for no limit -- worth
-# setting, since rsync and the sounder share one disk and one NIC.
+# NAS_BWLIMIT is the one that genuinely belongs here: it is a property of this
+# host's link, not of the science. KB/s, 0 for no limit -- worth setting,
+# since rsync and the sounder share one disk and one NIC.
 # NAS_SSH_KEY names the private key for an SSH destination. Worth setting:
 # the unit runs with no agent and no login shell, so ssh has only its own
 # default search to fall back on. Empty is fine when ~/.ssh/id_* is the key.
@@ -223,8 +226,14 @@ say "      python3 tools/prune_lfs.py \$IONOZOND_ARCHIVE"
 say "  which deletes nothing, and only then:"
 say "      sudo systemctl enable --now ionozond-prune.timer"
 say
-say "  NAS sync is installed but NOT enabled, and does nothing while"
-say "  NAS_DEST is empty. Set it in $DEFAULTS, check the run with"
-say "      python3 tools/nas_sync.py \$IONOZOND_ARCHIVE --dest \$NAS_DEST"
-say "  which uploads but deletes nothing, and then:"
+say "  NAS sync is installed but NOT enabled, and does nothing until a"
+say "  destination is set in the console's parameters dialog, under"
+say "  \"Сохранение данных\". Check the run first with"
+say "      python3 tools/nas_sync.py \$IONOZOND_ARCHIVE --days 1"
+say "  which uploads but deletes nothing. If the destination is a mounted"
+say "  share, tell systemd to wait for it:"
+say "      sudo systemctl edit ionozond-nas.service"
+say "      [Unit]"
+say "      RequiresMountsFor=/mnt/your_share"
+say "  and then:"
 say "      sudo systemctl enable --now ionozond-nas.timer"

@@ -7,6 +7,15 @@ Documentation=https://github.com/nikita-konkin/ionozond
 After=ionozond-sounder.service network-online.target
 Wants=network-online.target
 
+# If the destination is a mounted share, add the mount point here in a drop-in
+# so systemd triggers the automount and waits for it:
+#
+#     sudo systemctl edit ionozond-nas.service
+#     [Unit]
+#     RequiresMountsFor=/mnt/ionozond_16tb
+#
+# Not in this file because the path is the station's, not the project's.
+
 [Service]
 Type=oneshot
 EnvironmentFile=/etc/default/ionozond
@@ -14,20 +23,19 @@ User=samsung
 Group=samsung
 WorkingDirectory=/home/samsung/projects/ionozond
 
-# NAS_DEST empty means the station has no NAS, which is not a failure. Without
-# this the timer would mail a failure every hour on a perfectly healthy host.
-# systemd expands ${NAS_DEST} itself before sh runs, and an unset or empty
-# one expands to an empty argument, so this reads `test -n ""` and the
-# unit is skipped. sh's own ${VAR:-} syntax would NOT work here: systemd
-# does not implement it and would look for a variable named "NAS_DEST:-".
-ExecCondition=/bin/sh -c 'test -n "${NAS_DEST}"'
-
-# NAS_KEEP_H5_DAYS is a floor in the same sense as PRUNE_KEEP_DAYS: local .h5
-# newer than it are never deleted. Nothing is deleted at all unless rsync has
-# just confirmed, by checksum, that the NAS holds the same bytes.
+# The destination and the retention window come from the console's parameters
+# dialog, through chirp_config.py, like every other setting the operator can
+# change. NAS_DEST and NAS_KEEP_H5_DAYS in /etc/default are read by
+# nas_sync.py itself as a fallback for a host with no console, and are
+# deliberately NOT passed as flags here: a flag would outrank the dialog, and
+# the dialog is where anyone will look first.
+#
+# A station with no NAS configured anywhere exits 0 with a line saying so. An
+# hourly timer that fails on a healthy host is how an operator learns to
+# ignore its failures.
 ExecStart=/usr/bin/python3 tools/nas_sync.py ${IONOZOND_ARCHIVE} \
-    --dest ${NAS_DEST} --keep-h5-days ${NAS_KEEP_H5_DAYS} \
-    --bwlimit ${NAS_BWLIMIT} --ssh-key ${NAS_SSH_KEY} --apply
+    --config ${IONOZOND_CONFIG} --bwlimit ${NAS_BWLIMIT} \
+    --ssh-key ${NAS_SSH_KEY} --apply
 
 # The sounder is receiving at 100 MB/s onto the same disk and through the same
 # host. Uploading is never urgent enough to compete with that.

@@ -575,6 +575,23 @@ No credentials anywhere: SSH keys for a remote target, `/etc/fstab` with a
 root-owned mode-600 credentials file for a CIFS mount. A password on the
 command line is readable in `ps` by every user on the host.
 
+Settings come from the parameters dialog (`nas_dest`, `nas_keep_h5_days`),
+not from `/etc/default/ionozond`, and the unit deliberately does **not** pass
+them as flags — a flag would outrank the dialog, and the dialog is where
+anyone will look first. Precedence is `--dest` > the dialog > `$NAS_DEST`,
+with the environment kept only as the fallback for a host with no console.
+`NAS_BWLIMIT` stays in the defaults file, because it is a property of the
+link rather than of the science.
+
+`configwriter.cpp` has to quote `nas_dest` the way it quotes `data_dir`: an
+unquoted path makes `chirp_config.py` a syntax error, and the symptom is a
+sounder that will not start at all — a long way from the setting the operator
+thought they were changing.
+
+A station with no destination configured anywhere exits 0 with a line saying
+so, rather than failing. An hourly timer that fails on a healthy host is how
+an operator learns to ignore its failures.
+
 `ExecCondition` skips the unit when `NAS_DEST` is empty, so a station with no
 NAS does not mail a failure every hour. The form matters —
 `test -n "${NAS_DEST}"` works because *systemd* expands the variable before

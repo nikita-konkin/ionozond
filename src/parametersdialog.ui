@@ -160,12 +160,31 @@ m-последовательности:</string></property></widget></item>
 Удаление идёт между зондированиями и только при исправном
 архиве .h5. Ноль -- хранить бессрочно.</string></property></widget></item>
 
-       <item row="21" column="0" colspan="5"><widget class="QLabel" name="lblFormatsHint">
+       <item row="21" column="0"><widget class="QLabel" name="lblNasDir">
+        <property name="text"><string>Каталог на NAS:</string></property>
+        <property name="toolTip"><string>Смонтированная сетевая папка, например
+/mnt/ionozond_16tb/ionozond. Туда копируются .h5 и .lfp;
+пусто -- выгрузка отключена.</string></property></widget></item>
+       <item row="21" column="1" colspan="3"><widget class="QLineEdit" name="edtNasDir"/></item>
+       <item row="21" column="4"><widget class="QPushButton" name="btnNasDir">
+        <property name="text"><string>Обзор...</string></property></widget></item>
+
+       <item row="22" column="0"><widget class="QLabel" name="lblNasKeepH5">
+        <property name="text"><string>хранить .h5 локально (сут):</string></property></widget></item>
+       <item row="22" column="1"><widget class="QSpinBox" name="spbNasKeepH5">
+        <property name="minimum"><number>-1</number></property>
+        <property name="maximum"><number>3650</number></property>
+        <property name="specialValueText"><string>не удалять</string></property>
+        <property name="toolTip"><string>Через сколько суток удалять локальные .h5 -- и только
+после того, как rsync подтвердит по контрольной сумме, что
+на NAS лежат те же байты. -1 -- не удалять никогда.</string></property></widget></item>
+
+       <item row="23" column="0" colspan="5"><widget class="QLabel" name="lblFormatsHint">
         <property name="styleSheet"><string notr="true">color: #808080;</string></property>
         <property name="text"><string/></property>
         <property name="wordWrap"><bool>true</bool></property></widget></item>
 
-       <item row="22" column="0" colspan="5">
+       <item row="24" column="0" colspan="5">
         <spacer name="vspBase">
          <property name="orientation"><enum>Qt::Vertical</enum></property>
          <property name="sizeHint" stdset="0"><size><width>20</width><height>10</height></size></property>
