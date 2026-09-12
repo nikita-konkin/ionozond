@@ -522,10 +522,28 @@ backwards deletes files the NAS never received.
 
 The failure this guards against, met on the station before the sync ran in
 anger: `mount_shares.sh` reported all four CIFS shares "already mounted" while
-every one of them was dead — `cd` returned `ENODEV`, and `mount | grep cifs`
-listed nothing at all. `mountpoint -q` only compares device IDs, so it reports
-a corpse as healthy; the script gated both its cleanup *and* its remount on
-that test and could therefore never repair the state it was in.
+`cd` into any of them returned `ENODEV` and `findmnt -t cifs` listed nothing.
+
+`/proc/self/mountinfo` gave the answer, and it was not the stale CIFS mount it
+looked like:
+
+```
+47 32 0:36 / /mnt/ionozond_16tb rw,relatime shared:29 - autofs systemd-1 ...
+```
+
+**autofs**, from `x-systemd.automount` entries in `/etc/fstab` — triggers
+standing in front of CIFS mounts that had never once succeeded (`dmesg`:
+`cifs_mount failed w/return code = -113`, `EHOSTUNREACH`). `mountpoint -q`
+sees the autofs and says "mounted", so the script skipped all four and did
+nothing at all, while the real configuration lived in fstab where nobody was
+looking.
+
+An autofs trigger is the hardest case for a destination check: it answers
+`stat()` happily, and it can list *empty without error* when the mount behind
+it fails. Neither a device comparison nor a test listing catches it. Only the
+mount table does, so `mount_entry_for()` reads `/proc/self/mountinfo`, finds
+the longest mount point prefixing the destination, and refuses outright when
+its type is `autofs`.
 
 For the sync the consequence is worse than confusing. `/mnt/nas/ionozond` with
 nothing mounted on it is indistinguishable from an empty directory by every
@@ -536,11 +554,12 @@ for want of space.
 So `local_dest_is_safe()` makes two tests, because each alone has a false
 negative:
 
-1. **`st_dev` differs from `/`** — something is mounted there.
+1. **not `autofs`, and not the root filesystem**, from `/proc/self/mountinfo`
+   (falling back to an `st_dev` comparison where there is no mountinfo).
 2. **the directory lists, under a 10 s alarm** — the session behind the mount
-   is alive. A stale CIFS mount passes test 1 (the mount entry outlives the
-   SMB session) and fails this one. The timeout is not decoration: I/O on a
-   stale hard mount blocks rather than failing.
+   is alive. A stale CIFS mount passes test 1, since the mount entry outlives
+   the SMB session, and fails this one. The timeout is not decoration: I/O on
+   a stale hard mount blocks rather than failing.
 
 `--allow-local-disk` overrides both, for testing only.
 

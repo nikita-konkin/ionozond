@@ -64,6 +64,40 @@ def is_remote(dest):
     return ":" in head
 
 
+def mount_entry_for(path):
+    """(mount point, fstype) of the filesystem holding `path`, from
+    /proc/self/mountinfo. (None, None) where that does not exist.
+
+    The longest mount point that prefixes the path wins, which is how the
+    kernel resolves it too. Fields before the " - " separator are variable in
+    number, so the separator is found rather than counted.
+    """
+    try:
+        with open("/proc/self/mountinfo", "r") as fh:
+            lines = fh.readlines()
+    except (IOError, OSError):
+        return None, None
+
+    try:
+        target = os.path.realpath(path)
+    except OSError:
+        target = path
+
+    best = (None, None)
+    best_len = -1
+    for line in lines:
+        try:
+            head, tail = line.split(" - ", 1)
+            point = head.split()[4].replace("\\040", " ")
+            fstype = tail.split()[0]
+        except (IndexError, ValueError):
+            continue
+        if target == point or target.startswith(point.rstrip("/") + "/"):
+            if len(point) > best_len:
+                best, best_len = (point, fstype), len(point)
+    return best
+
+
 def local_dest_is_safe(dest):
     """Is a local destination actually a mounted share? (ok, why)
 
@@ -85,12 +119,28 @@ def local_dest_is_safe(dest):
     if not os.path.isdir(probe):
         return False, "%s does not exist" % probe
 
-    try:
-        if os.stat(probe).st_dev == os.stat("/").st_dev:
-            return False, ("%s is on the root filesystem. If it is a mount "
-                           "point, the share is not mounted." % probe)
-    except OSError as exc:
-        return False, "cannot stat %s: %s" % (probe, exc)
+    point, fstype = mount_entry_for(probe)
+    if fstype == "autofs":
+        # An automount trigger that has not fired, or whose mount failed.
+        # It answers stat() and can list empty without error, so neither the
+        # st_dev test nor the listing below would catch it -- met on the
+        # station, where four CIFS shares were autofs triggers standing in
+        # front of mounts that had never once succeeded.
+        return False, ("%s is an autofs trigger with nothing mounted behind "
+                       "it. The share failed to mount: check `journalctl -u "
+                       "$(systemd-escape -p --suffix=mount %s)` and "
+                       "`dmesg | grep -i cifs`." % (point, point))
+    if fstype is None:
+        # Not Linux, or no mountinfo. Fall back to the device comparison.
+        try:
+            if os.stat(probe).st_dev == os.stat("/").st_dev:
+                return False, ("%s is on the root filesystem. If it is a "
+                               "mount point, the share is not mounted." % probe)
+        except OSError as exc:
+            return False, "cannot stat %s: %s" % (probe, exc)
+    elif point == "/":
+        return False, ("%s is on the root filesystem. If it is a mount point, "
+                       "the share is not mounted." % probe)
 
     # Listing it proves the session behind the mount is alive. A stale CIFS
     # mount answers stat() from cache and fails or hangs on this.
