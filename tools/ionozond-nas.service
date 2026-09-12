@@ -27,7 +27,7 @@ ExecCondition=/bin/sh -c 'test -n "${NAS_DEST}"'
 # just confirmed, by checksum, that the NAS holds the same bytes.
 ExecStart=/usr/bin/python3 tools/nas_sync.py ${IONOZOND_ARCHIVE} \
     --dest ${NAS_DEST} --keep-h5-days ${NAS_KEEP_H5_DAYS} \
-    --bwlimit ${NAS_BWLIMIT} --apply
+    --bwlimit ${NAS_BWLIMIT} --ssh-key ${NAS_SSH_KEY} --apply
 
 # The sounder is receiving at 100 MB/s onto the same disk and through the same
 # host. Uploading is never urgent enough to compete with that.

@@ -476,13 +476,35 @@ Two conveniences that turned out to be one design question each.
 
 #### `tools/nas_sync.py`
 
-Not a port of chirpsounder2's scripts, which do different jobs than the names
-suggest: `sync_iono_data.py` HTTP-POSTs dashboard PNGs to a web server, and
-`iono_housekeeping.py` deletes digital_rf ringbuffer scratch off a RAM disk in
-a `sleep(1)` loop. Neither moves an ionogram anywhere.
+chirpsounder2 does have a sync, in `examples/sgo/backup*.sh`, and it is the
+thing to compare against:
 
-What does carry over is the *shape*: a separate retention pass for the derived
-products, on its own timer. Here it is one tool rather than two, because
+```bash
+while true
+do
+    rsync -e "ssh -i ~/.ssh/id_rsa" -av --progress /data0/2* j@host:noire/iva/
+done
+```
+
+Launched as a background child of the station's own launch script, so it lives
+inside the receiver unit's control group rather than being a unit of its own
+(`sgo_kuu_backup.sh` is the same with `sleep 120`; `backup_iva.sh` has no sleep
+at all). The two scripts whose *names* suggest this job do something else
+entirely: `sync_iono_data.py` HTTP-POSTs dashboard PNGs to a web server, and
+`iono_housekeeping.py` deletes digital_rf ringbuffer scratch off a RAM disk.
+
+Same transport, then, and **the explicit key is worth borrowing** — under
+systemd there is no agent and no login shell to have loaded one, so naming it
+is the difference between a sync that works unattended and one that works only
+from a terminal. `BatchMode=yes` is ours and matters more: without it `ssh`
+*prompts* for a passphrase or an unknown host key, and a prompt with no
+terminal does not fail, it blocks. A timer whose last run never exited is a
+sync that silently stops for ever.
+
+The rest differs. Theirs pushes everything under `/data0` with `-av`, never
+verifies, never deletes, and has no bandwidth limit; there is no `.h5` pruning
+anywhere in chirpsounder2, so that half has no counterpart to copy. Here it is
+one tool rather than two, because
 uploading and pruning are one decision — a local `.h5` may be deleted exactly
 when the NAS has a byte-identical copy, so the prune set is derived from the
 verification rather than from a second age rule that would have to agree with

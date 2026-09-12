@@ -66,7 +66,7 @@ if [ -f "$DEFAULTS" ]; then
     # that points at systemd rather than at here. So append what is absent.
     say "  exists already - keeping its values, adding anything new"
     added=0
-    for pair in "PRUNE_KEEP_DAYS=7" "PRUNE_FREE_GB=50" "JUMBO=4000"                 "NAS_DEST=" "NAS_KEEP_H5_DAYS=30" "NAS_BWLIMIT=0"; do
+    for pair in "PRUNE_KEEP_DAYS=7" "PRUNE_FREE_GB=50" "JUMBO=4000"                 "NAS_DEST=" "NAS_KEEP_H5_DAYS=30" "NAS_BWLIMIT=0" "NAS_SSH_KEY="; do
         key="${pair%%=*}"
         if ! grep -q "^${key}=" "$DEFAULTS" 2>/dev/null; then
             say "    adding $pair"
@@ -125,7 +125,11 @@ PRUNE_FREE_GB=50
 # deleted, and older ones only once rsync has confirmed by checksum that the
 # NAS holds the same bytes. NAS_BWLIMIT is KB/s, 0 for no limit -- worth
 # setting, since rsync and the sounder share one disk and one NIC.
+# NAS_SSH_KEY names the private key for an SSH destination. Worth setting:
+# the unit runs with no agent and no login shell, so ssh has only its own
+# default search to fall back on. Empty is fine when ~/.ssh/id_* is the key.
 NAS_DEST=
+NAS_SSH_KEY=
 NAS_KEEP_H5_DAYS=30
 NAS_BWLIMIT=0
 EOF

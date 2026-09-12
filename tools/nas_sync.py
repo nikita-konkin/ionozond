@@ -74,6 +74,26 @@ def day_dirs(root):
     return out
 
 
+def ssh_transport(key):
+    """rsync's -e argument for an SSH destination, or None for a local path.
+
+    Borrowed from chirpsounder2's backup scripts, which pass
+    `-e "ssh -i ~/.ssh/id_rsa"` -- naming the key matters under systemd, where
+    there is no agent and no login shell to have loaded one.
+
+    BatchMode=yes is ours, and is the part that makes this survivable
+    unattended. Without it ssh *prompts*: for a passphrase, or to accept an
+    unknown host key. A prompt with no terminal attached does not fail, it
+    blocks -- and a timer whose last run never exited is a sync that silently
+    stops for ever. With BatchMode it exits non-zero at once and the journal
+    says why; the fix is then to ssh in by hand once and accept the host key.
+    """
+    parts = ["ssh", "-o", "BatchMode=yes"]
+    if key:
+        parts += ["-i", os.path.expanduser(key)]
+    return " ".join(parts)
+
+
 def run(cmd, log, dry=False):
     if dry:
         log("    would run: %s" % " ".join(cmd))
@@ -86,7 +106,7 @@ def run(cmd, log, dry=False):
     return proc.returncode, proc.stdout.decode("utf-8", "replace")
 
 
-def upload(root, dest, day, include_lfs, bwlimit, log):
+def upload(root, dest, day, include_lfs, bwlimit, ssh, log):
     """Push one day's products. Returns rsync's exit code.
 
     -a without -H/-A/-X: the NAS may be a CIFS share that cannot hold owners,
@@ -99,6 +119,8 @@ def upload(root, dest, day, include_lfs, bwlimit, log):
     # a sync that quietly never happens again.
     cmd = ["rsync", "-rt", "--partial", "--stats", "--human-readable",
            "--timeout=120"]
+    if ssh:
+        cmd += ["-e", ssh]
     if bwlimit:
         cmd += ["--bwlimit=%d" % bwlimit]
     for pattern in PRODUCTS:
@@ -139,7 +161,7 @@ def parse_itemized(out):
     return names
 
 
-def confirmed_remote(paths, dest, day, log):
+def confirmed_remote(paths, dest, day, ssh, log):
     """Which of these local files the NAS already holds, byte for byte.
 
     `rsync -n -c` compares by checksum rather than by size and mtime. That
@@ -153,8 +175,10 @@ def confirmed_remote(paths, dest, day, log):
     """
     if not paths:
         return set()
-    cmd = ["rsync", "-nci", "--checksum", "--timeout=120"] + list(paths) \
-        + ["%s/%s/" % (dest.rstrip("/"), day)]
+    cmd = ["rsync", "-nci", "--checksum", "--timeout=120"]
+    if ssh:
+        cmd += ["-e", ssh]
+    cmd += list(paths) + ["%s/%s/" % (dest.rstrip("/"), day)]
     rc, out = run(cmd, log)
     if rc != 0:
         log("  *** could not verify %s against the NAS (exit %d); nothing "
@@ -174,6 +198,10 @@ def main():
     ap.add_argument("--dest", default=os.environ.get("NAS_DEST", ""),
                     help="rsync destination: a mounted path, or user@host:/path. "
                          "Defaults to $NAS_DEST.")
+    ap.add_argument("--ssh-key", default=os.environ.get("NAS_SSH_KEY", ""),
+                    help="private key for an SSH destination. Defaults to "
+                         "$NAS_SSH_KEY, and to ssh's own search when unset. "
+                         "Name it for unattended runs: systemd has no agent.")
     ap.add_argument("--include-lfs", action="store_true",
                     help="also upload the 80 MB raw captures")
     ap.add_argument("--keep-h5-days", type=float, default=-1.0,
@@ -213,7 +241,11 @@ def main():
     log("=" * 68)
     log(" syncing %s -> %s" % (root, opts.dest))
     log("=" * 68)
-    log("  transport  %s" % ("ssh" if is_remote(opts.dest) else "local path"))
+    ssh = ssh_transport(opts.ssh_key) if is_remote(opts.dest) else None
+    log("  transport  %s" % (ssh if ssh else "local path"))
+    if ssh and opts.ssh_key and not os.path.exists(os.path.expanduser(opts.ssh_key)):
+        log("  *** %s does not exist" % opts.ssh_key)
+        return 2
     log("  products   %s" % ", ".join(PRODUCTS +
                                       ((RAW,) if opts.include_lfs else ())))
     log("  days       %d" % len(days))
@@ -238,7 +270,7 @@ def main():
     uploaded = 0
     for name, _path in days:
         rc, out = upload(root, opts.dest, name, opts.include_lfs,
-                         opts.bwlimit, log)
+                         opts.bwlimit, ssh, log)
         if rc != 0:
             failed += 1
             continue
@@ -281,7 +313,7 @@ def main():
         if not candidates:
             continue
 
-        ok = confirmed_remote(candidates, opts.dest, name, log)
+        ok = confirmed_remote(candidates, opts.dest, name, ssh, log)
         unverified += len(candidates) - len(ok)
         day_removed = 0
         day_freed = 0
