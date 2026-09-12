@@ -518,6 +518,32 @@ means present on the NAS** — parsed by `parse_itemized()`, which is a separate
 function precisely so it could be tested without rsync, since getting it
 backwards deletes files the NAS never received.
 
+#### An unmounted mount point is an empty directory
+
+The failure this guards against, met on the station before the sync ran in
+anger: `mount_shares.sh` reported all four CIFS shares "already mounted" while
+every one of them was dead — `cd` returned `ENODEV`, and `mount | grep cifs`
+listed nothing at all. `mountpoint -q` only compares device IDs, so it reports
+a corpse as healthy; the script gated both its cleanup *and* its remount on
+that test and could therefore never repair the state it was in.
+
+For the sync the consequence is worse than confusing. `/mnt/nas/ionozond` with
+nothing mounted on it is indistinguishable from an empty directory by every
+means that does not consult the mount table, and rsync would write a day of
+archives onto the station's own root disk, silently, until the sounder stopped
+for want of space.
+
+So `local_dest_is_safe()` makes two tests, because each alone has a false
+negative:
+
+1. **`st_dev` differs from `/`** — something is mounted there.
+2. **the directory lists, under a 10 s alarm** — the session behind the mount
+   is alive. A stale CIFS mount passes test 1 (the mount entry outlives the
+   SMB session) and fails this one. The timeout is not decoration: I/O on a
+   stale hard mount blocks rather than failing.
+
+`--allow-local-disk` overrides both, for testing only.
+
 `.lfp` is uploaded and never pruned. It is 20 MB a day and it is what the
 console reads; making the display depend on the network buys nothing.
 

@@ -64,6 +64,77 @@ def is_remote(dest):
     return ":" in head
 
 
+def local_dest_is_safe(dest):
+    """Is a local destination actually a mounted share? (ok, why)
+
+    An unmounted mount point is indistinguishable from an empty directory by
+    every means that does not consult the mount table, so this is the one
+    check that matters for a NAS path: rsync writing a day of archives onto
+    the station's own root filesystem, under /mnt, is silent until the disk
+    is full and the sounder stops.
+
+    Two tests, because either alone has a false negative. st_dev differing
+    from the root filesystem's proves something is mounted there. But a dead
+    CIFS mount also passes that -- the mount entry outlives the SMB session,
+    which is exactly how `mountpoint -q` reports a corpse as healthy -- so
+    the directory is also listed, under a timeout, since I/O on a stale hard
+    mount blocks rather than failing.
+    """
+    path = dest.rstrip("/") or "/"
+    probe = path if os.path.isdir(path) else (os.path.dirname(path) or "/")
+    if not os.path.isdir(probe):
+        return False, "%s does not exist" % probe
+
+    try:
+        if os.stat(probe).st_dev == os.stat("/").st_dev:
+            return False, ("%s is on the root filesystem. If it is a mount "
+                           "point, the share is not mounted." % probe)
+    except OSError as exc:
+        return False, "cannot stat %s: %s" % (probe, exc)
+
+    # Listing it proves the session behind the mount is alive. A stale CIFS
+    # mount answers stat() from cache and fails or hangs on this.
+    try:
+        with _time_limit(10):
+            os.listdir(probe)
+    except Exception as exc:
+        return False, ("%s is mounted but not readable (%s). A stale CIFS "
+                       "mount looks fine to stat and fails on use: "
+                       "sudo umount -lf %s, then remount." % (probe, exc, probe))
+    return True, ""
+
+
+class _time_limit(object):
+    """SIGALRM around a block, so a hung mount cannot hang the sync.
+
+    A no-op where SIGALRM does not exist (Windows), which is fine: the check
+    it guards only ever runs against a local path on the station.
+    """
+
+    def __init__(self, seconds):
+        self.seconds = seconds
+        self.previous = None
+
+    def __enter__(self):
+        try:
+            import signal
+            self.signal = signal
+            self.previous = signal.signal(signal.SIGALRM, self._fire)
+            signal.alarm(self.seconds)
+        except (ImportError, AttributeError, ValueError):
+            self.previous = None
+        return self
+
+    def _fire(self, signum, frame):
+        raise TimeoutError("timed out after %d s" % self.seconds)
+
+    def __exit__(self, *exc):
+        if self.previous is not None:
+            self.signal.alarm(0)
+            self.signal.signal(self.signal.SIGALRM, self.previous)
+        return False
+
+
 def day_dirs(root):
     """The archive's YYYY.MM.DD directories, oldest first."""
     out = []
@@ -214,6 +285,10 @@ def main():
     ap.add_argument("--days", type=int, default=0,
                     help="only sync the most recent N day directories "
                          "(default: all of them)")
+    ap.add_argument("--allow-local-disk", action="store_true",
+                    help="write to a local destination that is not a mounted "
+                         "share. Only for testing: on the station this means "
+                         "filling the disk the sounder is recording to.")
     ap.add_argument("--apply", action="store_true",
                     help="actually delete. Uploading always happens; only "
                          "the irreversible half needs this.")
@@ -256,15 +331,18 @@ def main():
             % opts.keep_h5_days)
     log("")
 
-    # A destination that is a mount point but is not mounted looks exactly
-    # like an empty directory, and rsync will happily fill the local disk
-    # under it. Checked before the first byte moves.
+    # Checked before the first byte moves: writing a day of archives onto the
+    # station's own root disk, under an unmounted /mnt/..., is silent until
+    # the disk is full and the sounder stops for want of space.
     if not is_remote(opts.dest):
-        parent = os.path.dirname(opts.dest.rstrip("/")) or "/"
-        if not os.path.isdir(parent):
-            log("  *** %s does not exist. If it is a mount point, the share "
-                "is not mounted." % parent)
-            return 2
+        ok, why = local_dest_is_safe(opts.dest)
+        if not ok:
+            log("  *** %s" % why)
+            if not opts.allow_local_disk:
+                log("  *** Nothing was uploaded. Pass --allow-local-disk if "
+                    "the destination really is meant to be on this machine.")
+                return 2
+            log("  *** --allow-local-disk given; continuing anyway.")
 
     failed = 0
     uploaded = 0
