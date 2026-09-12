@@ -118,6 +118,56 @@ def classify(lfs, mtime, keep_before):
     return True, ""
 
 
+def sweep_aged(root, keep_hours, log=None, apply=True):
+    """Delete every capture older than `keep_hours` that has sound products.
+
+    This is the sounder's own retention sweep, not the disk-pressure pruner:
+    one number, no free-space target, and it runs between soundings rather
+    than on a timer. It shares classify() with main() so that a capture the
+    operator's settings would keep and one the timer would keep are the same
+    capture.
+
+    Returns (removed, bytes_freed).
+    """
+    if keep_hours <= 0:
+        return 0, 0
+    keep_before = time.time() - keep_hours * 3600.0
+    removed = 0
+    freed = 0
+    blocked = {}
+    for mtime, path, size in scan(root):
+        if mtime > keep_before:
+            break                      # scan() is oldest-first; so is the rest
+        ok, why = classify(path, mtime, keep_before)
+        if not ok:
+            blocked[why] = blocked.get(why, 0) + 1
+            continue
+        if apply:
+            try:
+                os.remove(path)
+            except OSError as exc:
+                if log:
+                    log("  *** could not delete %s: %s"
+                        % (os.path.basename(path), exc))
+                continue
+        removed += 1
+        freed += size
+
+    if log and removed:
+        log("  retention %d capture%s past %.1f h deleted, %.1f MB freed"
+            % (removed, "" if removed == 1 else "s", keep_hours, freed / 1e6))
+    # Said once per sweep rather than per file: a capture with no archive is
+    # a capture that will never be deleted, and an operator who has asked for
+    # a retention window needs to know the window is not being honoured.
+    if log:
+        stuck = sum(n for why, n in blocked.items() if why != "inside the keep window")
+        if stuck:
+            worst = max(blocked, key=lambda k: blocked[k] if k != "inside the keep window" else -1)
+            log("  retention %d old capture%s kept: %s"
+                % (stuck, "" if stuck == 1 else "s", worst))
+    return removed, freed
+
+
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__,

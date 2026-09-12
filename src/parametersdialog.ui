@@ -143,12 +143,22 @@ m-последовательности:</string></property></widget></item>
 пригодная для повторной обработки и читаемая ionograms-handler
 без преобразований.</string></property></widget></item>
 
-       <item row="20" column="0" colspan="5"><widget class="QCheckBox" name="chbKeepLfs">
+       <item row="20" column="0" colspan="2"><widget class="QCheckBox" name="chbKeepLfs">
         <property name="text"><string>Хранить исходные записи .lfs</string></property>
         <property name="toolTip"><string>80 МБ на зондирование, 23 ГБ в сутки при периоде 300 с.
 Без галочки запись удаляется сразу после того, как архив .h5
 записан и проверен на чтение. Только по .lfs можно пересчитать
 ионограмму с другим числом точек БПФ.</string></property></widget></item>
+       <item row="20" column="2"><widget class="QLabel" name="lblKeepLfsHours">
+        <property name="text"><string>глубина хранения (ч):</string></property></widget></item>
+       <item row="20" column="3"><widget class="QSpinBox" name="spbKeepLfsHours">
+        <property name="minimum"><number>0</number></property>
+        <property name="maximum"><number>720</number></property>
+        <property name="singleStep"><number>6</number></property>
+        <property name="specialValueText"><string>без ограничения</string></property>
+        <property name="toolTip"><string>Сколько часов хранить записи, прежде чем удалить.
+Удаление идёт между зондированиями и только при исправном
+архиве .h5. Ноль -- хранить бессрочно.</string></property></widget></item>
 
        <item row="21" column="0" colspan="5"><widget class="QLabel" name="lblFormatsHint">
         <property name="styleSheet"><string notr="true">color: #808080;</string></property>

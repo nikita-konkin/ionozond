@@ -29,6 +29,10 @@ ParametersDialog::ParametersDialog(QSettings *settings, QWidget *parent)
 
     connect(ui->chbH5Archive, SIGNAL(toggled(bool)), this, SLOT(UpdateFormatsHint()));
     connect(ui->chbKeepLfs, SIGNAL(toggled(bool)), this, SLOT(UpdateFormatsHint()));
+    connect(ui->spbKeepLfsHours, SIGNAL(valueChanged(int)), this, SLOT(UpdateFormatsHint()));
+    /* The window only means anything when something is being kept. */
+    connect(ui->chbKeepLfs, SIGNAL(toggled(bool)), ui->spbKeepLfsHours, SLOT(setEnabled(bool)));
+    connect(ui->chbKeepLfs, SIGNAL(toggled(bool)), ui->lblKeepLfsHours, SLOT(setEnabled(bool)));
 
     connect(ui->chbDirectSignalCutting, SIGNAL(toggled(bool)),
             ui->edtLfsrPolynomeDegree, SLOT(setEnabled(bool)));
@@ -106,8 +110,12 @@ void ParametersDialog::ReadSettings()
      */
     ui->chbH5Archive->setChecked(
         m_settings->value(QLatin1String("h5_archive"), true).toBool());
-    ui->chbKeepLfs->setChecked(
-        m_settings->value(QLatin1String("keep_lfs"), false).toBool());
+    const bool keepLfs = m_settings->value(QLatin1String("keep_lfs"), false).toBool();
+    ui->chbKeepLfs->setChecked(keepLfs);
+    ui->spbKeepLfsHours->setValue(
+        m_settings->value(QLatin1String("keep_lfs_hours"), 0).toInt());
+    ui->spbKeepLfsHours->setEnabled(keepLfs);
+    ui->lblKeepLfsHours->setEnabled(keepLfs);
     UpdateFormatsHint();
 
     /* Colour map combo: one entry per recovered map, index carried in UserRole. */
@@ -185,6 +193,7 @@ void ParametersDialog::WriteSettings()
 
     m_settings->setValue(QLatin1String("h5_archive"), ui->chbH5Archive->isChecked());
     m_settings->setValue(QLatin1String("keep_lfs"), ui->chbKeepLfs->isChecked());
+    m_settings->setValue(QLatin1String("keep_lfs_hours"), ui->spbKeepLfsHours->value());
 
     m_settings->setValue(QLatin1String("ig_colormap_index"), ui->cmbIgColormap->currentIndex());
     m_settings->setValue(QLatin1String("colormap_gradient"), ui->chbColorGradient->isChecked());
@@ -222,7 +231,14 @@ void ParametersDialog::UpdateFormatsHint()
 {
     const bool h5 = ui->chbH5Archive->isChecked();
     const bool lfs = ui->chbKeepLfs->isChecked();
+    const int hours = ui->spbKeepLfsHours->value();
 
+    /*
+     * Two numbers, because they answer different questions. The daily rate
+     * says whether the station is sustainable at all; the standing total says
+     * whether it fits on this disk -- and with a retention window those are
+     * not the same number.
+     */
     const double perDay = 288.0;
     double gb = perDay * 0.06e-3;                 /* the sidecars alone */
     if (h5)  gb += perDay * 1.3e-3;
@@ -243,6 +259,15 @@ void ParametersDialog::UpdateFormatsHint()
         text += tr("  --  без архива записи не удаляются автоматически");
     } else if (!lfs) {
         text += tr("  --  запись удаляется после проверки архива");
+    } else if (hours > 0) {
+        /* What the window actually occupies, which is the number that decides
+         * whether the setting is possible on this disk. */
+        const double standing = hours * (perDay / 24.0) * 80.0e-3;
+        text = tr("около %1 ГБ записей в хранении (%2 ч) плюс %3 ГБ архива в сутки")
+                   .arg(standing, 0, 'f', 1).arg(hours)
+                   .arg(perDay * 1.3e-3, 0, 'f', 2);
+    } else {
+        text += tr("  --  записи не удаляются");
     }
 
     ui->lblFormatsHint->setStyleSheet(

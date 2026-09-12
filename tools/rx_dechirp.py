@@ -1443,6 +1443,29 @@ def drop_capture(lfs_path, h5_path, archive, log):
     return True
 
 
+def sweep_retention(outroot, keep_hours, log):
+    """Delete captures that have aged out of the operator's keep window.
+
+    Between soundings, where there is a whole repetition period of idle time
+    and nothing else wants the disk. Delegated to prune_lfs so that the
+    conditions on deleting a capture are written down once.
+    """
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import prune_lfs
+    except Exception as exc:
+        log("  *** retention sweep unavailable: %s" % exc)
+        return
+    try:
+        prune_lfs.sweep_aged(outroot, keep_hours, log=log)
+    except Exception as exc:
+        # Never fatal. A sweep that fails costs disk; a sweep that stops the
+        # station costs soundings, and only one of those can be caught up on.
+        log("  *** retention sweep failed: %s" % exc)
+
+
 def run_live(opts, cfg, sounders):
     import signal as signal_module
 
@@ -1486,18 +1509,46 @@ def run_live(opts, cfg, sounders):
     want_h5 = (bool(cfg.get("h5_archive", True)) and products is not None
                and not getattr(opts, "no_h5", False))
     keep_lfs = bool(cfg.get("keep_lfs", False)) or getattr(opts, "keep_lfs", False)
+
+    # How long a kept capture is kept for. One number, because "keep" and
+    # "keep for a while" are the same decision at different settings:
+    #
+    #   keep_lfs off              delete as soon as the archive verifies
+    #   keep_lfs on,  hours = 0   keep indefinitely
+    #   keep_lfs on,  hours > 0   keep that long, then delete
+    #
+    # The window is swept between soundings rather than on a timer, so that
+    # the setting the operator chose in the dialog is the setting that acts.
+    # prune_lfs.py remains for the other axis -- disk pressure -- and shares
+    # classify() with this, so the two cannot disagree about one capture.
+    keep_hours = float(cfg.get("keep_lfs_hours", 0.0) or 0.0)
+    if getattr(opts, "keep_lfs", False):
+        keep_hours = 0.0            # an override asked for by hand means keep
+
     archive = load_archive_writer(log) if want_h5 else None
     if want_h5 and archive is None:
         want_h5 = False
     if not want_h5 and not keep_lfs:
         keep_lfs = True
+        keep_hours = 0.0
         log("  *** keeping the .lfs captures after all: without a .h5 archive")
         log("  *** deleting them would leave only the gated sidecar, which")
         log("  *** cannot be reprocessed.")
+
+    if not keep_lfs:
+        lfs_says = "lfs deleted once archived"
+    elif keep_hours > 0:
+        lfs_says = "lfs kept %g h" % keep_hours
+    else:
+        lfs_says = "keeping lfs"
     log("  formats  %s"
         % ", ".join(["h5" if want_h5 else "no h5",
-                     "lfp" if products else "no lfp",
-                     "keeping lfs" if keep_lfs else "lfs deleted once archived"]))
+                     "lfp" if products else "no lfp", lfs_says]))
+    if keep_lfs and keep_hours > 0:
+        # Worth saying in GB, because hours do not mean anything next to a
+        # disk and 23 GB a day does.
+        log("           about %.1f GB of captures at rep=300"
+            % (keep_hours * 288.0 / 24.0 * 0.080))
 
     radio = Radio(opts, cfg, float(first["cf"]))
     if not opts.no_gpsdo:
@@ -1656,6 +1707,8 @@ def run_live(opts, cfg, sounders):
                            raw / float(os.path.getsize(h5_out) or 1)))
                 if h5_out and not keep_lfs:
                     drop_capture(result["path"], h5_out, archive, log)
+                elif keep_lfs and keep_hours > 0:
+                    sweep_retention(outroot, keep_hours, log)
             except Exception as exc:
                 log("  *** sidecar failed: %s" % exc)
 

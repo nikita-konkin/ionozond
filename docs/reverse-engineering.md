@@ -418,15 +418,25 @@ dialog as `h5_archive` and `keep_lfs`, which reach the sounder through
 `QRxIonogram::load()` opens, so a station that stopped writing it would run
 perfectly and display nothing.
 
-The capture is deleted by the sounder itself, immediately after the products
-are written, rather than left for the hourly pruner. That is a deliberate
-difference from `prune_lfs.py` and the two coexist:
+How long a capture survives is one number, `keep_lfs_hours`, because "keep"
+and "keep for a while" are the same decision at different settings:
 
-- **Immediate**, `keep_lfs = False`: the disk never accumulates captures at
-  all, and there is no reprocessing window. Right for a station whose disk
-  cannot hold even two days — which is this one.
-- **Deferred**, `keep_lfs = True` plus the prune timer: captures survive
-  `--keep-days`, and can be re-run at a different `fft_count` within it.
+| dialog | effect |
+|---|---|
+| unchecked | deleted as soon as the archive verifies |
+| checked, `без ограничения` (0) | kept indefinitely |
+| checked, *N* hours | kept *N* hours, then deleted |
+
+The window is swept **between soundings**, in the repetition period's idle
+time, rather than on a timer — the setting the operator chose in the dialog is
+the setting that acts, with no second place to look. `prune_lfs.py` remains for
+the other axis, disk *pressure*, and both share `classify()`, so a capture the
+dialog would keep and one the timer would keep are the same capture.
+
+Sizing, which is the part hours do not make obvious: at rep=300 a retention
+window costs **0.96 GB per hour** of it. The dialog's hint converts for you —
+24 h is 23 GB standing, which on this station's 65 GB of usable space is about
+the most that fits alongside anything else.
 
 #### Two guards, both at the decision and not at the delete
 
