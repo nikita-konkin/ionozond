@@ -816,6 +816,22 @@ void frmMain::ParamsDlgClose()
      * re-renders the stored captures through the new filter settings.
      */
     RebuildStations(QLatin1String("parameters"));
+
+    /*
+     * And write chirp_config.py, which until now only START did.
+     *
+     * That was defensible while the file only described a sounding: nothing
+     * read it between runs. It is not defensible now that it carries settings
+     * for tools which run on their own -- the NAS sync on its hourly timer
+     * reads nas_dest from here, and a destination typed into the dialog that
+     * reaches no file until the next START is a setting that silently does
+     * nothing.
+     *
+     * Safe against a running sounder: it reads the file once at startup and
+     * never again, and writeChirpConfig now commits atomically.
+     */
+    if (!CreateConfigFile())
+        console(QLatin1String("Error writing configuration file"), Qt::red);
 }
 void frmMain::ScheduleDlgClose()
 {

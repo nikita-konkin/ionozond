@@ -1,6 +1,7 @@
 #include "configwriter.h"
 
 #include <QFile>
+#include <QSaveFile>
 #include <QSettings>
 #include <QStringList>
 #include <QTextStream>
@@ -129,13 +130,25 @@ QString buildChirpConfig(QSettings &schedule, QSettings &config)
 
 bool writeChirpConfig(const QString &path, QSettings &schedule, QSettings &config)
 {
-    QFile file(path);
+    /*
+     * QSaveFile, not QFile: this is now rewritten every time the parameters
+     * dialog is closed, not only on START, so it can be written while the
+     * sounder is starting and reading it. A truncate-in-place leaves a window
+     * in which the file is empty or half a config, and rx_dechirp's own error
+     * for that case ("the console truncates this file when it starts") exists
+     * because it has happened. Committing a complete temporary file over the
+     * old one closes the window.
+     */
+    QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
         return false;
 
     QTextStream out(&file);
     out << buildChirpConfig(schedule, config);
-    const bool ok = (out.status() == QTextStream::Ok);
-    file.close();
-    return ok;
+    out.flush();
+    if (out.status() != QTextStream::Ok) {
+        file.cancelWriting();
+        return false;
+    }
+    return file.commit();
 }
