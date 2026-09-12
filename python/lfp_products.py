@@ -598,6 +598,28 @@ def build_one(lfs_path, fft_count=16384, force=False, quiet=False,
             print("  %s is up to date" % os.path.basename(out))
         return out, 0, None
 
+    if fresh:
+        # The sidecar is current; is the archive too?
+        #
+        # Without this, asking for an archive forced a full recompute even
+        # when both products were already there, because the archive's name
+        # is not derivable from the capture's. It is derivable from the
+        # capture's *header*, which is 512 bytes -- cheap enough to read that
+        # the alternative is indefensible for a backfill over a whole
+        # archive, where a run interrupted at hour one would otherwise start
+        # again from the beginning.
+        try:
+            head = read_lfs_header(lfs_path)
+            done = h5_path_for(lfs_path, head)
+            if (os.path.exists(done) and
+                    os.path.getmtime(done) >= os.path.getmtime(lfs_path)):
+                if not quiet:
+                    print("  %s and its archive are up to date"
+                          % os.path.basename(out))
+                return out, 0, done
+        except Exception:
+            pass          # unreadable header: fall through and rebuild
+
     result = compute(lfs_path, fft_count=fft_count,
                      archive_range_km=h5_archive_km, **clean)
     meta, sections = result[0], result[1]
