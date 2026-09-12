@@ -470,6 +470,60 @@ a sounder log is exactly the kind of noise that hides a real warning. Both
 writers now clip before the cast. The affected cells are the transmitter's own
 carrier at 48 dB above the noise median, not an echo.
 
+### Off the station: NAS sync, and the launcher
+
+Two conveniences that turned out to be one design question each.
+
+#### `tools/nas_sync.py`
+
+Not a port of chirpsounder2's scripts, which do different jobs than the names
+suggest: `sync_iono_data.py` HTTP-POSTs dashboard PNGs to a web server, and
+`iono_housekeeping.py` deletes digital_rf ringbuffer scratch off a RAM disk in
+a `sleep(1)` loop. Neither moves an ionogram anywhere.
+
+What does carry over is the *shape*: a separate retention pass for the derived
+products, on its own timer. Here it is one tool rather than two, because
+uploading and pruning are one decision — a local `.h5` may be deleted exactly
+when the NAS has a byte-identical copy, so the prune set is derived from the
+verification rather than from a second age rule that would have to agree with
+it by luck.
+
+The verification is `rsync -n -c`, not size and mtime. Those agree for a file
+truncated at a block boundary or written by a different run, and this is the
+only check between a copy that exists and deleting the one that does not.
+rsync itemises only what it *would* transfer, so **absent from the output
+means present on the NAS** — parsed by `parse_itemized()`, which is a separate
+function precisely so it could be tested without rsync, since getting it
+backwards deletes files the NAS never received.
+
+`.lfp` is uploaded and never pruned. It is 20 MB a day and it is what the
+console reads; making the display depend on the network buys nothing.
+
+Ordering against the other pruner: `NAS_KEEP_H5_DAYS` defaults to 30 and
+`PRUNE_KEEP_DAYS` to 7, so captures go long before archives. Reversed, nothing
+breaks — `prune_lfs.classify()` simply refuses to delete a capture whose `.h5`
+is gone, which errs toward keeping data.
+
+No credentials anywhere: SSH keys for a remote target, `/etc/fstab` with a
+root-owned mode-600 credentials file for a CIFS mount. A password on the
+command line is readable in `ps` by every user on the host.
+
+`ExecCondition` skips the unit when `NAS_DEST` is empty, so a station with no
+NAS does not mail a failure every hour. The form matters —
+`test -n "${NAS_DEST}"` works because *systemd* expands the variable before
+`sh` runs, while `${NAS_DEST:-}` would not: systemd does not implement that
+syntax and would look for a variable literally named `NAS_DEST:-`.
+
+#### The launcher
+
+`tools/ionozond.desktop.in` plus `19-install-desktop.sh`, rendered into
+`~/.local/share/applications` with the binary's absolute path — no sudo, since
+a system-wide entry would point at one user's build directory anyway. Two
+details cost time if missed: GNOME on 24.04 shows a *desktop* icon only when
+the file is both executable and carries `metadata::trusted`, and the icon is
+32×32 because that is all the original `.ico` ever held. Dropping a larger PNG
+at the same path is the whole fix.
+
 ## The physics, and reading a trace
 
 `docs/ionogram-physics.html` is the standing reference for how an ionogram is

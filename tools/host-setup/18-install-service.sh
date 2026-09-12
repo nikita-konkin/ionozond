@@ -66,7 +66,7 @@ if [ -f "$DEFAULTS" ]; then
     # that points at systemd rather than at here. So append what is absent.
     say "  exists already - keeping its values, adding anything new"
     added=0
-    for pair in "PRUNE_KEEP_DAYS=7" "PRUNE_FREE_GB=50" "JUMBO=4000"; do
+    for pair in "PRUNE_KEEP_DAYS=7" "PRUNE_FREE_GB=50" "JUMBO=4000"                 "NAS_DEST=" "NAS_KEEP_H5_DAYS=30" "NAS_BWLIMIT=0"; do
         key="${pair%%=*}"
         if ! grep -q "^${key}=" "$DEFAULTS" 2>/dev/null; then
             say "    adding $pair"
@@ -113,6 +113,21 @@ IONOZOND_ARCHIVE=$HOME_DIR/ionograms/
 # already free. Set it to 0 to prune by age alone.
 PRUNE_KEEP_DAYS=7
 PRUNE_FREE_GB=50
+
+# NAS. Empty NAS_DEST means this station has no NAS and the sync unit skips
+# itself -- not a failure, and not something to be mailed about hourly.
+#
+# Either a mounted share (/mnt/nas/ionozond) or an rsync-over-ssh target
+# (user@host:/volume1/ionozond). Use a key for the latter; a password on the
+# command line would be readable in `ps` by every user on this host.
+#
+# NAS_KEEP_H5_DAYS is a floor: local archives newer than this are never
+# deleted, and older ones only once rsync has confirmed by checksum that the
+# NAS holds the same bytes. NAS_BWLIMIT is KB/s, 0 for no limit -- worth
+# setting, since rsync and the sounder share one disk and one NIC.
+NAS_DEST=
+NAS_KEEP_H5_DAYS=30
+NAS_BWLIMIT=0
 EOF
         chmod 0644 "$DEFAULTS"
         say "  written"
@@ -173,7 +188,7 @@ echo "--- 4. enabling ------------------------------------------------------"
 # only enabled when the archive exists to prune against -- deleting captures
 # with nothing but the lossy sidecar behind them is the one irreversible
 # mistake available here.
-for unit in ionozond-prune.service ionozond-prune.timer; do
+for unit in ionozond-prune.service ionozond-prune.timer             ionozond-nas.service ionozond-nas.timer; do
     src="$(dirname "$UNIT_SRC")/$unit"
     if [ -f "$src" ]; then
         say "  installing $unit"
@@ -203,3 +218,9 @@ say "  parameters dialog first, let it run a day, check the archives with"
 say "      python3 tools/prune_lfs.py \$IONOZOND_ARCHIVE"
 say "  which deletes nothing, and only then:"
 say "      sudo systemctl enable --now ionozond-prune.timer"
+say
+say "  NAS sync is installed but NOT enabled, and does nothing while"
+say "  NAS_DEST is empty. Set it in $DEFAULTS, check the run with"
+say "      python3 tools/nas_sync.py \$IONOZOND_ARCHIVE --dest \$NAS_DEST"
+say "  which uploads but deletes nothing, and then:"
+say "      sudo systemctl enable --now ionozond-nas.timer"

@@ -87,6 +87,15 @@ grep -E "^(data_dir|sound_app|config_file)=" "$CONFIG_DIR/config.ini" | sed 's/^
 
 chmod +x "$HERE/tools/sounder.sh" 2>/dev/null || true
 
+# ---- the menu entry ------------------------------------------------------
+# So the console can be started by clicking. Never fatal: a headless or
+# minimal host has no applications menu and does not need one.
+if [ -x "$HERE/tools/host-setup/19-install-desktop.sh" ] ||    [ -f "$HERE/tools/host-setup/19-install-desktop.sh" ]; then
+    echo
+    echo "--- applications menu ------------------------------------------------"
+    BUILD="$BUILD" bash "$HERE/tools/host-setup/19-install-desktop.sh"         2>&1 | sed 's/^/  /' || true
+fi
+
 echo
 echo "=================================================================="
 echo " run it:"

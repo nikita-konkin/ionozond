@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Ionozond
+GenericName=Ionosonde console
+Name[ru]=Ионозонд
+GenericName[ru]=Пульт ионозонда
+Comment=Visualise and analyse ionospheric sounding data
+Comment[ru]=Визуализация и анализ данных зондирования ионосферы
+Exec=@EXEC@
+Icon=ionozond
+Terminal=false
+Categories=Science;Education;
+Keywords=ionosonde;ionogram;chirp;HF;
+StartupNotify=true
+StartupWMClass=ionozond
