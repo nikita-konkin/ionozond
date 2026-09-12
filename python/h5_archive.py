@@ -82,6 +82,9 @@ DEFAULT_SNR_THRESHOLD = None
 # is far wider than the +-1500 km the console displays.
 DEFAULT_RANGE_KM = (0.0, 8000.0)
 
+# The largest value float16 can hold; see write().
+FLOAT16_MAX = 65504.0
+
 
 def _h5py():
     """Imported late, and with a usable error, as rx_dechirp does for numpy."""
@@ -172,6 +175,51 @@ def archive_name(meta, channel="ch0", chirp_id=0):
         float(meta["start_epoch"]))
 
 
+# What a reader needs before an archive may stand in for the capture that made
+# it. io_chirp's own REQUIRED, and the reason this list is here rather than in
+# the pruner: the same check now guards two irreversible deletions -- the
+# sounder's immediate one and the timer's later one -- and they must not be
+# able to disagree about what "sound" means.
+REQUIRED = ("SNR", "freqs", "ranges", "rate", "t0", "sr")
+
+
+def archive_for(lfs_path, meta):
+    """Where the archive for this capture goes. It may not exist yet.
+
+    Not derivable from the capture's name: the capture is named for its UTC
+    wall clock and the archive for the epoch in its header, so the caller has
+    to have read the header either way.
+    """
+    return os.path.join(os.path.dirname(lfs_path), archive_name(meta))
+
+
+def is_sound(path):
+    """Does this archive open, and does it carry what a reader needs?
+
+    Returns (ok, why). Existence is not enough: a file truncated by a power
+    cut still has a name and a plausible size, and deleting an 80 MB capture
+    against it loses the sounding for good.
+    """
+    try:
+        h5py = _h5py()
+    except RuntimeError as exc:
+        return False, str(exc)
+    try:
+        with h5py.File(path, "r") as fh:
+            missing = [k for k in REQUIRED if k not in fh]
+            if missing:
+                return False, "missing %s" % ", ".join(missing)
+            snr = fh["SNR"]
+            if snr.ndim != 2 or 0 in snr.shape:
+                return False, "SNR is %s" % (snr.shape,)
+            if snr.shape != (fh["freqs"].size, fh["ranges"].size):
+                return False, "SNR %s against axes (%d, %d)" % (
+                    snr.shape, fh["freqs"].size, fh["ranges"].size)
+    except Exception as exc:
+        return False, "unreadable: %s" % exc
+    return True, ""
+
+
 def write(path, meta, snr, freqs_hz, ranges_km,
           channel="ch0", chirp_id=0, threshold=DEFAULT_SNR_THRESHOLD):
     """Write one ionogram. `snr` is (n_freq, n_range), normalised power - 1."""
@@ -185,10 +233,13 @@ def write(path, meta, snr, freqs_hz, ranges_km,
     # Sub-threshold cells become NaN, which is what lets deflate collapse the
     # background -- but io_chirp reads NaN back as the row median, so anything
     # dropped here is gone. None keeps the lot; see DEFAULT_SNR_THRESHOLD.
+    # Clipped, not just cast: float16 tops out at 65504 and the direct signal
+    # goes past it. lfp_products already clips what it hands us, so this is
+    # for any other caller -- an inf here would read back as inf everywhere.
     if threshold is None:
-        stored = snr.astype(np.float16)
+        stored = np.minimum(snr, FLOAT16_MAX).astype(np.float16)
     else:
-        stored = snr.copy()
+        stored = np.minimum(snr, FLOAT16_MAX)
         stored[stored < threshold] = np.nan
         stored = stored.astype(np.float16)
 

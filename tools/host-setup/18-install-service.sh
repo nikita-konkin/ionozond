@@ -155,6 +155,16 @@ fi
 if ! command -v ethtool >/dev/null 2>&1; then
     say "  *** ethtool missing: sudo apt-get install -y ethtool"
 fi
+# The .h5 archive is on by default, and it is what lets the sounder delete the
+# 80 MB captures. Without h5py the sounder keeps every one of them instead --
+# safe, but 23 GB a day, and the only sign is one line at startup.
+if python3 -c "import h5py" >/dev/null 2>&1; then
+    say "  h5py present: the .h5 archive can be written"
+else
+    say "  *** h5py missing: sudo apt-get install -y python3-h5py"
+    say "  *** Without it there is no .h5 archive, so the sounder will keep"
+    say "  *** every .lfs capture -- about 23 GB a day at rep=300."
+fi
 echo
 
 # ---- 4. enable ------------------------------------------------------------

@@ -46,7 +46,6 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "python"))
 
-REQUIRED_H5 = ("SNR", "freqs", "ranges", "rate", "t0", "sr")
 
 
 def sidecar_of(lfs):
@@ -54,52 +53,30 @@ def sidecar_of(lfs):
 
 
 def archive_of(lfs):
-    """The .h5 beside a capture.
+    """The .h5 beside a capture, or None if it is not there.
 
-    Found by scanning rather than by name: the archive is named for the epoch
-    in its header (`lfm_ionogram-tx-rx-ch0-000-<t0>.h5`) while the capture is
-    named for its UTC wall clock, so the two names cannot be derived from each
-    other without re-reading the header.
+    Found by reading the header rather than by rewriting the name: the archive
+    is named for the epoch in that header (`lfm_ionogram-tx-rx-ch0-000-<t0>.h5`)
+    while the capture is named for its UTC wall clock.
     """
     import h5_archive
     import lfp_products
 
-    day = os.path.dirname(lfs)
     try:
         header = lfp_products.read_lfs_header(lfs)
     except Exception:
         return None
     meta = {"tx_name": header["tx_name"], "rx_name": header["rx_name"],
             "start_epoch": header["start_epoch"]}
-    candidate = os.path.join(day, h5_archive.archive_name(meta))
+    candidate = h5_archive.archive_for(lfs, meta)
     return candidate if os.path.exists(candidate) else None
 
 
 def archive_is_sound(path):
-    """Does this .h5 open, and does it carry what a reader needs?
-
-    Existence is not enough. A file truncated by a power cut still has a name
-    and a size, and deleting an 80 MB capture against it loses the sounding for
-    good.
-    """
-    try:
-        import h5py
-    except ImportError:
-        return False, "h5py missing, cannot verify"
-    try:
-        with h5py.File(path, "r") as fh:
-            missing = [k for k in REQUIRED_H5 if k not in fh]
-            if missing:
-                return False, "missing %s" % ", ".join(missing)
-            snr = fh["SNR"]
-            if snr.ndim != 2 or 0 in snr.shape:
-                return False, "SNR is %s" % (snr.shape,)
-            if snr.shape != (fh["freqs"].size, fh["ranges"].size):
-                return False, "SNR %s against axes (%d, %d)" % (
-                    snr.shape, fh["freqs"].size, fh["ranges"].size)
-    except Exception as exc:
-        return False, "unreadable: %s" % exc
-    return True, ""
+    """Delegated, so this and the sounder's own immediate delete cannot come
+    to different conclusions about the same file."""
+    import h5_archive
+    return h5_archive.is_sound(path)
 
 
 def scan(root):

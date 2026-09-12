@@ -52,6 +52,11 @@ OBJ_LEVEL = 11.0                     # neighbours needed to survive
 NOISE_FACTOR = 1.3862943611198906    # 2*ln(2), the original's
 
 # What the IONO section holds. See compute().
+# The largest value float16 can hold. The .h5 archive stores SNR at that
+# precision, so anything above this has to be clipped before the cast
+# rather than allowed to become inf.
+FLOAT16_MAX = 65504.0
+
 IONO_MODE_GATED = "gated"            # the original: threshold, despeckle, zero
 IONO_MODE_SNR = "snr"                # ionograms-handler: continuous, nothing cut
 
@@ -396,7 +401,15 @@ def compute(path, fft_count=16384, noise_gate=True, progress=None,
                 # SNR as chirpsounder2 defines it. build_spectra has already
                 # divided by the row median, so subtracting one is the whole
                 # conversion -- see h5_archive's module docstring.
-                archive[at] = row[arc_lo:arc_hi] - 1.0
+                #
+                # Clipped because the archive is float16 and the direct signal
+                # is not. Measured on a real capture: one cell in 666730
+                # exceeds 65504 and becomes inf, which then survives every
+                # read and drags any autoscaled colour map with it. Storing
+                # the largest representable value instead loses 0.0002% of
+                # the cells to a 48 dB ceiling -- and the cells in question
+                # are the transmitter's own carrier, not an echo.
+                archive[at] = np.minimum(row[arc_lo:arc_hi] - 1.0, FLOAT16_MAX)
             if snr_db is not None:
                 # muf/spectro.py: floor = NOISE_COEF * median(spectrum) taken
                 # over the WHOLE spectrum before range gating, then row/floor.
@@ -562,7 +575,7 @@ def h5_path_for(lfs_path, meta):
     """Where the HDF5 archive goes: beside the capture, but under
     chirpsounder2's name, because muf/loader.py globs for that prefix."""
     import h5_archive
-    return os.path.join(os.path.dirname(lfs_path), h5_archive.archive_name(meta))
+    return h5_archive.archive_for(lfs_path, meta)
 
 
 def build_one(lfs_path, fft_count=16384, force=False, quiet=False,
@@ -572,6 +585,10 @@ def build_one(lfs_path, fft_count=16384, force=False, quiet=False,
     `h5_archive_km` is the (lo, hi) km window the archive keeps, or None for
     no archive. Both come out of one pass over the capture, because the 80 MB
     is the expensive part and reading it twice would double the cost.
+
+    Returns (sidecar_path, sidecar_bytes, archive_path). The third is None
+    when no archive was asked for, and is what lets the caller verify the
+    archive before deleting the capture it came from.
     """
     out = sidecar_path(lfs_path)
     fresh = (not force and os.path.exists(out) and
@@ -579,7 +596,7 @@ def build_one(lfs_path, fft_count=16384, force=False, quiet=False,
     if fresh and h5_archive_km is None:
         if not quiet:
             print("  %s is up to date" % os.path.basename(out))
-        return out, 0
+        return out, 0, None
 
     result = compute(lfs_path, fft_count=fft_count,
                      archive_range_km=h5_archive_km, **clean)
@@ -587,10 +604,12 @@ def build_one(lfs_path, fft_count=16384, force=False, quiet=False,
     size = write(out, meta, sections)
 
     h5_size = 0
+    h5_out = None
     if h5_archive_km is not None:
         import h5_archive as _h5
         arc = result[2]
-        h5_size = _h5.write(h5_path_for(lfs_path, meta), meta, arc["snr"],
+        h5_out = h5_path_for(lfs_path, meta)
+        h5_size = _h5.write(h5_out, meta, arc["snr"],
                             arc["freqs_hz"], arc["ranges_km"])
 
     if not quiet:
@@ -600,9 +619,9 @@ def build_one(lfs_path, fft_count=16384, force=False, quiet=False,
                  meta["luf_mhz"], meta["muf_mhz"]))
         if h5_size:
             print("  %s  %.2f MB  (%.0fx smaller than the capture)"
-                  % (os.path.basename(h5_path_for(lfs_path, meta)),
-                     h5_size / 1e6, raw / float(h5_size)))
-    return out, size
+                  % (os.path.basename(h5_out), h5_size / 1e6,
+                     raw / float(h5_size)))
+    return out, size, h5_out
 
 
 def main():
@@ -623,9 +642,13 @@ def main():
                     help="what the IONO section holds: 'gated' (the original: "
                          "thresholded and despeckled) or 'snr' (chirpsounder2: "
                          "the continuous field, nothing deleted)")
-    ap.add_argument("--h5", action="store_true",
-                    help="also write a chirpsounder2 lfm_ionogram-*.h5 archive, "
-                         "which is what makes deleting the .lfs survivable")
+    ap.add_argument("--h5", dest="h5", action="store_true", default=True,
+                    help="write a chirpsounder2 lfm_ionogram-*.h5 archive "
+                         "beside the sidecar (the default; it is what makes "
+                         "deleting the .lfs survivable)")
+    ap.add_argument("--no-h5", dest="h5", action="store_false",
+                    help="sidecar only. Use it when h5py is unavailable, or "
+                         "when the captures are being kept anyway.")
     ap.add_argument("--h5-range-km", default="0,8000",
                     help="delay window the archive keeps, km (default 0,8000 -- "
                          "covers 1F through 3F on a 2634 km path)")
@@ -657,11 +680,11 @@ def main():
     failed = 0
     for path in targets:
         try:
-            out, size = build_one(path, fft_count=opts.fft, force=opts.force,
-                                  obj_w=opts.obj_w, obj_h=opts.obj_h,
-                                  obj_level=opts.obj_level,
-                                  iono_mode=opts.iono_mode,
-                                  h5_archive_km=h5_window)
+            out, size, _h5out = build_one(
+                path, fft_count=opts.fft, force=opts.force,
+                obj_w=opts.obj_w, obj_h=opts.obj_h,
+                obj_level=opts.obj_level, iono_mode=opts.iono_mode,
+                h5_archive_km=h5_window)
             if size:
                 total_raw += os.path.getsize(path)
                 total_side += size

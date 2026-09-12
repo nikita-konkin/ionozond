@@ -45,6 +45,7 @@ private slots:
     /* Restates the speckle threshold as a fraction of the window, and warns
      * when it is high enough to take the trace with the noise. */
     void UpdateObjLevelHint();
+    void UpdateFormatsHint();
 
 private:
     static void SetParamsToComboBox(QComboBox *box, const QStringList &items, const int &index);

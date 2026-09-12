@@ -27,6 +27,9 @@ ParametersDialog::ParametersDialog(QSettings *settings, QWidget *parent)
     connect(ui->spbObjSizeV, SIGNAL(valueChanged(int)), this, SLOT(UpdateObjLevelHint()));
     connect(ui->spbObjLevel, SIGNAL(valueChanged(double)), this, SLOT(UpdateObjLevelHint()));
 
+    connect(ui->chbH5Archive, SIGNAL(toggled(bool)), this, SLOT(UpdateFormatsHint()));
+    connect(ui->chbKeepLfs, SIGNAL(toggled(bool)), this, SLOT(UpdateFormatsHint()));
+
     connect(ui->chbDirectSignalCutting, SIGNAL(toggled(bool)),
             ui->edtLfsrPolynomeDegree, SLOT(setEnabled(bool)));
     connect(ui->chbDirectSignalCutting, SIGNAL(toggled(bool)),
@@ -90,6 +93,22 @@ void ParametersDialog::ReadSettings()
     ui->spbObjLevel->setValue(
         m_settings->value(QLatin1String("obj_level"), 11.0).toDouble());
     UpdateObjLevelHint();
+
+    /*
+     * What each sounding leaves on disk. The .lfp sidecar is not offered as a
+     * choice: it is the only thing the console itself opens, so a station that
+     * stopped writing it would display nothing.
+     *
+     * The defaults are the chirpsounder2 archive on and the raw capture off,
+     * which is what makes an unattended station sustainable -- 1.3 MB against
+     * 80 MB, and the archive is the one of the two that another program can
+     * read without our code.
+     */
+    ui->chbH5Archive->setChecked(
+        m_settings->value(QLatin1String("h5_archive"), true).toBool());
+    ui->chbKeepLfs->setChecked(
+        m_settings->value(QLatin1String("keep_lfs"), false).toBool());
+    UpdateFormatsHint();
 
     /* Colour map combo: one entry per recovered map, index carried in UserRole. */
     ui->cmbIgColormap->clear();
@@ -164,6 +183,9 @@ void ParametersDialog::WriteSettings()
     m_settings->setValue(QLatin1String("obj_size_vertical"), ui->spbObjSizeV->value());
     m_settings->setValue(QLatin1String("obj_level"), ui->spbObjLevel->value());
 
+    m_settings->setValue(QLatin1String("h5_archive"), ui->chbH5Archive->isChecked());
+    m_settings->setValue(QLatin1String("keep_lfs"), ui->chbKeepLfs->isChecked());
+
     m_settings->setValue(QLatin1String("ig_colormap_index"), ui->cmbIgColormap->currentIndex());
     m_settings->setValue(QLatin1String("colormap_gradient"), ui->chbColorGradient->isChecked());
 
@@ -186,6 +208,46 @@ void ParametersDialog::WriteSettings()
     m_settings->endGroup();
 
     m_settings->sync();
+}
+
+/*
+ * What the chosen formats cost per day, and what they give up.
+ *
+ * Rates are per sounding at the standard 300 s repetition -- 288 a day --
+ * measured on this station: 80 MB of capture, 1.3 MB of archive, 60 kB of
+ * sidecar. Stated as GB/day rather than per file because the number that
+ * decides the setting is the one the disk sees.
+ */
+void ParametersDialog::UpdateFormatsHint()
+{
+    const bool h5 = ui->chbH5Archive->isChecked();
+    const bool lfs = ui->chbKeepLfs->isChecked();
+
+    const double perDay = 288.0;
+    double gb = perDay * 0.06e-3;                 /* the sidecars alone */
+    if (h5)  gb += perDay * 1.3e-3;
+    if (lfs) gb += perDay * 80.0e-3;
+
+    QString text = tr("около %1 ГБ в сутки при периоде 300 с").arg(gb, 0, 'f', 1);
+    QString colour = QLatin1String("#808080");
+
+    if (!h5 && !lfs) {
+        /* Neither survives the day, so nothing can ever be recomputed: the
+         * sidecar holds the gated dB array and nothing else. This is a
+         * legitimate choice for a display-only station and a trap for any
+         * other, so it is said plainly rather than left to be discovered. */
+        text += tr("  --  повторная обработка станет невозможна: "
+                   "останется только .lfp");
+        colour = QLatin1String("#c04040");
+    } else if (!h5) {
+        text += tr("  --  без архива записи не удаляются автоматически");
+    } else if (!lfs) {
+        text += tr("  --  запись удаляется после проверки архива");
+    }
+
+    ui->lblFormatsHint->setStyleSheet(
+        QLatin1String("color: ") + colour + QLatin1Char(';'));
+    ui->lblFormatsHint->setText(text);
 }
 
 void ParametersDialog::UpdateObjLevelHint()

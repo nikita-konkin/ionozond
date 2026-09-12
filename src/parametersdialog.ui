@@ -134,7 +134,28 @@ m-последовательности:</string></property></widget></item>
         <property name="styleSheet"><string notr="true">color: #808080;</string></property>
         <property name="text"><string/></property></widget></item>
 
-       <item row="18" column="0" colspan="5">
+       <item row="18" column="0"><widget class="QLabel" name="lblFormats">
+        <property name="text"><string>&lt;b&gt;Сохранение данных&lt;/b&gt;</string></property></widget></item>
+
+       <item row="19" column="0" colspan="5"><widget class="QCheckBox" name="chbH5Archive">
+        <property name="text"><string>Архив .h5 (формат chirpsounder2)</string></property>
+        <property name="toolTip"><string>Около 1,3 МБ на зондирование: спектрограмма 0-8000 км,
+пригодная для повторной обработки и читаемая ionograms-handler
+без преобразований.</string></property></widget></item>
+
+       <item row="20" column="0" colspan="5"><widget class="QCheckBox" name="chbKeepLfs">
+        <property name="text"><string>Хранить исходные записи .lfs</string></property>
+        <property name="toolTip"><string>80 МБ на зондирование, 23 ГБ в сутки при периоде 300 с.
+Без галочки запись удаляется сразу после того, как архив .h5
+записан и проверен на чтение. Только по .lfs можно пересчитать
+ионограмму с другим числом точек БПФ.</string></property></widget></item>
+
+       <item row="21" column="0" colspan="5"><widget class="QLabel" name="lblFormatsHint">
+        <property name="styleSheet"><string notr="true">color: #808080;</string></property>
+        <property name="text"><string/></property>
+        <property name="wordWrap"><bool>true</bool></property></widget></item>
+
+       <item row="22" column="0" colspan="5">
         <spacer name="vspBase">
          <property name="orientation"><enum>Qt::Vertical</enum></property>
          <property name="sizeHint" stdset="0"><size><width>20</width><height>10</height></size></property>

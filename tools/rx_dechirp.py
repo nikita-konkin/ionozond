@@ -1396,6 +1396,53 @@ def load_sidecar_builder(log):
         return None
 
 
+def load_archive_writer(log):
+    """Import python/h5_archive.py, or say once why there will be no archive.
+
+    Checked at start rather than per capture. The archive is what makes the
+    capture disposable, so an operator who has turned .lfs off needs to find
+    out that h5py is missing before 288 soundings have gone through, not
+    after.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    lib = os.path.normpath(os.path.join(here, os.pardir, "python"))
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    try:
+        import h5_archive
+        h5_archive._h5py()          # raises with the apt-get line if absent
+        return h5_archive
+    except Exception as exc:
+        log("  no .h5 archive: %s" % exc)
+        return None
+
+
+def drop_capture(lfs_path, h5_path, archive, log):
+    """Delete the capture, but only against an archive that opens and reads.
+
+    The archive was written seconds ago by this process, so re-opening it
+    looks redundant -- and is not. What is being checked is not that write()
+    returned, but that the bytes reached the disk in a state another program
+    can read: a full filesystem, an interrupted flush or a half-written
+    chunk all leave a file of plausible size that h5py then refuses. The
+    capture is the one artifact here that cannot be rebuilt, so the cost of
+    being wrong is asymmetric and the check is cheap.
+    """
+    sound, why = archive.is_sound(h5_path)
+    if not sound:
+        log("  *** keeping the capture: %s is not readable (%s)"
+            % (os.path.basename(h5_path), why))
+        return False
+    try:
+        freed = os.path.getsize(lfs_path)
+        os.remove(lfs_path)
+    except OSError as exc:
+        log("  *** could not delete %s: %s" % (os.path.basename(lfs_path), exc))
+        return False
+    log("  capture   deleted, %.1f MB freed (archive verified)" % (freed / 1e6))
+    return True
+
+
 def run_live(opts, cfg, sounders):
     import signal as signal_module
 
@@ -1422,6 +1469,35 @@ def run_live(opts, cfg, sounders):
     products = load_sidecar_builder(log) if opts.sidecar else None
     if products:
         log("  writing .lfp sidecars beside each capture")
+
+    # What this station writes, and what it throws away.
+    #
+    #   .h5   chirpsounder2's lfm_ionogram-*.h5. The default. 1.25 MB, and
+    #         the format ionograms-handler reads with no new code.
+    #   .lfp  always, when sidecars are on at all: it is the only thing the
+    #         console opens, so turning it off would empty the display.
+    #   .lfs  the 80 MB capture. Kept only when asked for, because at 288 a
+    #         day it is 23 GB and nothing else here comes close.
+    #
+    # The two safety rules are both here rather than at the delete site, so
+    # that a station can never be configured into throwing captures away with
+    # nothing behind them: no archive writer means no deletion, and no sidecar
+    # builder means no deletion either.
+    want_h5 = (bool(cfg.get("h5_archive", True)) and products is not None
+               and not getattr(opts, "no_h5", False))
+    keep_lfs = bool(cfg.get("keep_lfs", False)) or getattr(opts, "keep_lfs", False)
+    archive = load_archive_writer(log) if want_h5 else None
+    if want_h5 and archive is None:
+        want_h5 = False
+    if not want_h5 and not keep_lfs:
+        keep_lfs = True
+        log("  *** keeping the .lfs captures after all: without a .h5 archive")
+        log("  *** deleting them would leave only the gated sidecar, which")
+        log("  *** cannot be reprocessed.")
+    log("  formats  %s"
+        % ", ".join(["h5" if want_h5 else "no h5",
+                     "lfp" if products else "no lfp",
+                     "keeping lfs" if keep_lfs else "lfs deleted once archived"]))
 
     radio = Radio(opts, cfg, float(first["cf"]))
     if not opts.no_gpsdo:
@@ -1549,9 +1625,9 @@ def run_live(opts, cfg, sounders):
         # means the console never has to touch the 80 MB capture.
         # A chirpsounder2-format archive beside the sidecar, which is what
         # makes deleting the 80 MB capture survivable: 1.25 MB, and
-        # ionograms-handler reads it with no new code. Off unless asked for.
+        # ionograms-handler reads it with no new code.
         h5_window = None
-        if cfg.get("h5_archive"):
+        if want_h5:
             h5_window = (float(cfg.get("h5_range_lo_km", 0.0)),
                          float(cfg.get("h5_range_hi_km", 8000.0)))
 
@@ -1562,7 +1638,7 @@ def run_live(opts, cfg, sounders):
                 # Whatever the console set in config.ini reaches us through
                 # chirp_config.py, so a sidecar built here matches what the
                 # console would have produced itself.
-                out, size = products.build_one(
+                out, size, h5_out = products.build_one(
                     result["path"], quiet=True,
                     obj_w=int(cfg.get("obj_size_horizontal", 9)),
                     obj_h=int(cfg.get("obj_size_vertical", 3)),
@@ -1573,6 +1649,13 @@ def run_live(opts, cfg, sounders):
                 log("  sidecar   %s  %.1f kB  (%.0fx smaller, %.1f s)"
                     % (os.path.basename(out), size / 1024.0,
                        raw / float(size or 1), time.time() - began_side))
+                if h5_out:
+                    log("  archive   %s  %.2f MB  (%.0fx smaller)"
+                        % (os.path.basename(h5_out),
+                           os.path.getsize(h5_out) / 1e6,
+                           raw / float(os.path.getsize(h5_out) or 1)))
+                if h5_out and not keep_lfs:
+                    drop_capture(result["path"], h5_out, archive, log)
             except Exception as exc:
                 log("  *** sidecar failed: %s" % exc)
 
@@ -1899,6 +1982,16 @@ def main():
     ap.add_argument("--no-sidecar", dest="sidecar", action="store_false",
                     default=True,
                     help="do not write .lfp sidecars after each capture")
+    # Overrides for the two format settings that normally arrive from the
+    # console through chirp_config.py. Both are one-way: they can only make
+    # the run keep more than the config asked for, never less, so a test run
+    # started by hand cannot delete captures the config meant to keep.
+    ap.add_argument("--keep-lfs", action="store_true",
+                    help="keep the 80 MB .lfs captures regardless of the "
+                         "config's keep_lfs setting")
+    ap.add_argument("--no-h5", action="store_true",
+                    help="do not write the chirpsounder2 .h5 archive. Implies "
+                         "--keep-lfs, since nothing else could be reprocessed.")
     ap.add_argument("--rate", type=float, default=25e6, help="--from-raw only")
     ap.add_argument("--chirp-rate", type=float, default=100e3, help="--from-raw only")
     ap.add_argument("--dec", type=int, default=625, help="--from-raw only")

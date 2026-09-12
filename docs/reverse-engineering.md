@@ -399,6 +399,67 @@ re-derived, because `power_dynamic_limit` needs the *whole* spectrum and the
 archive keeps only a window; and there is no complex time series, so no Doppler,
 coherent integration or O/X separation.
 
+### Which formats a sounding leaves behind
+
+Three artifacts, and only one of them is a choice the operator should think
+about for long:
+
+| | size / sounding | 288 a day | who reads it |
+|---|---|---|---|
+| `.lfs` | 80 MB | 23.0 GB | our own reprocessing, nothing else |
+| `.h5` | 1.25 MB | 0.36 GB | `ionograms-handler`, chirpsounder2 tooling, us |
+| `.lfp` | 70 kB | 0.02 GB | the console, and only the console |
+
+The defaults are **`.h5` on, `.lfs` off, `.lfp` always** — set in the parameters
+dialog as `h5_archive` and `keep_lfs`, which reach the sounder through
+`chirp_config.py` like every other `[General]` key.
+
+`.lfp` is not offered as a checkbox on purpose. It is the only thing
+`QRxIonogram::load()` opens, so a station that stopped writing it would run
+perfectly and display nothing.
+
+The capture is deleted by the sounder itself, immediately after the products
+are written, rather than left for the hourly pruner. That is a deliberate
+difference from `prune_lfs.py` and the two coexist:
+
+- **Immediate**, `keep_lfs = False`: the disk never accumulates captures at
+  all, and there is no reprocessing window. Right for a station whose disk
+  cannot hold even two days — which is this one.
+- **Deferred**, `keep_lfs = True` plus the prune timer: captures survive
+  `--keep-days`, and can be re-run at a different `fft_count` within it.
+
+#### Two guards, both at the decision and not at the delete
+
+Deleting the capture is the one irreversible act available here, so the
+conditions are checked where the formats are decided, before a single sounding
+has run:
+
+1. **No archive writer, no deletion.** If `h5py` is missing the sounder turns
+   `keep_lfs` back on and says so at startup. Losing a day to a full disk is
+   recoverable; losing a day of captures to a missing package is not.
+2. **No sidecar builder, no deletion** — same reasoning.
+
+And at the delete itself, the archive is *re-opened and read back* before the
+capture goes. Re-reading a file written seconds ago by this same process looks
+redundant and is not: what is being checked is not that `write()` returned but
+that the bytes reached the disk in a state another program can read. A full
+filesystem, an interrupted flush or a half-written chunk all leave a file of
+plausible size that `h5py` then refuses. Verified both ways against a
+deliberately truncated archive — the capture is kept and the reason named.
+
+The same `h5_archive.is_sound()` backs the pruner, so the immediate delete and
+the hourly one cannot come to different conclusions about the same file.
+
+#### float16 overflows on the direct signal
+
+Found while testing this: the archive stores SNR as float16, which tops out at
+65504, and one cell in 666730 of a real capture exceeds it and became `inf`.
+The read path already mapped `+inf` to 65504, so nothing downstream was ever
+wrong — but the write emitted a `RuntimeWarning` on **every** capture, which in
+a sounder log is exactly the kind of noise that hides a real warning. Both
+writers now clip before the cast. The affected cells are the transmitter's own
+carrier at 48 dB above the noise median, not an echo.
+
 ## The physics, and reading a trace
 
 `docs/ionogram-physics.html` is the standing reference for how an ionogram is
