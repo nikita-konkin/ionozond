@@ -45,6 +45,11 @@ QString buildChirpConfig(QSettings &schedule, QSettings &config)
     lines << QLatin1String("sounders = [\n");
 
     QString rxStation;
+    /* One entry per active station, joined with commas below. Collected
+     * rather than appended straight to `lines` because the separator goes
+     * BETWEEN them, and there is no way to know you are at the last one
+     * until you have passed it. */
+    QStringList sounderLines;
     const QStringList stations = schedule.childGroups();
 
     for (int i = 0; i < stations.size(); ++i) {
@@ -81,11 +86,29 @@ QString buildChirpConfig(QSettings &schedule, QSettings &config)
                 line += QLatin1String("':");
                 line += value;
             }
-            line += QLatin1String("}]\n");
-            lines << line;
+            line += QLatin1String("}]");
+            sounderLines << line;
         }
 
         schedule.endGroup();
+    }
+
+    /*
+     * Commas BETWEEN the stations. The original's own output never showed
+     * one, because that station only ever had a single sounder.
+     *
+     * `sounders` is a list of lists -- get_all_sounders() in the trailer
+     * iterates threads, then sounders within a thread -- so two stations
+     * must read [[a],[b]]. Emitted as "[a]\n[b]" inside the brackets,
+     * Python's implicit line joining makes that [a][b]: a SUBSCRIPT, which
+     * parses cleanly and is not a literal. load_config drops the key without
+     * a word, and the sounder then reports "has no 'sounders'" while listing
+     * every other key in the file. Nothing in that message points at the
+     * second station.
+     */
+    if (!sounderLines.isEmpty()) {
+        lines << sounderLines.join(QLatin1String(",\n"));
+        lines << QLatin1String("\n");
     }
 
     lines << QLatin1String("]\n");

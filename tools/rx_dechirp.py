@@ -386,6 +386,7 @@ def load_config(path):
             "\nA bare \"tb =\" does this; see DSCHIRP_FIX_EMPTY_TB."
             % (path, exc.msg, exc.lineno, (exc.text or "").rstrip()))
     cfg = {}
+    not_literal = []
     for node in tree.body:
         if not isinstance(node, ast.Assign) or len(node.targets) != 1:
             continue
@@ -395,10 +396,26 @@ def load_config(path):
         try:
             cfg[target.id] = ast.literal_eval(node.value)
         except (ValueError, SyntaxError):
-            pass          # if_rate is an expression; we derive it ourselves
+            # if_rate is an expression and is derived below. Anything else
+            # that is not a literal is remembered, because "the key is
+            # missing" and "the key is there and unreadable" are different
+            # faults with the same symptom.
+            not_literal.append(target.id)
     if "sample_rate" in cfg and "dec" in cfg:
         cfg["if_rate"] = cfg["sample_rate"] / cfg["dec"]
     if "sounders" not in cfg:
+        if "sounders" in not_literal:
+            # Seen for real the first time a second station was added. Two
+            # entries written one per line inside the brackets are joined by
+            # Python into [a][b] -- a subscript, which parses but is not a
+            # literal -- so the key vanished, and the message below named
+            # every other key in the file while pointing at nothing.
+            raise ConfigError(
+                "%s defines 'sounders', but it is not a literal list."
+                "\nAlmost always a missing comma between stations: two of them"
+                "\nmust read [[...]],[[...]] and not [[...]] [[...]]."
+                "\nThis console wrote it; rebuild it and press START again."
+                % path)
         raise ConfigError(
             "%s has no 'sounders'. It does define: %s"
             % (path, ", ".join(sorted(cfg)) or "(nothing at all)"))
