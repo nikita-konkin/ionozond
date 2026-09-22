@@ -113,6 +113,16 @@ def main():
           % (meta["freqs_hz"][0] / 1e6, meta["freqs_hz"][-1] / 1e6))
     print("  sweep rate   %.0f kHz/s" % (meta["rate"] / 1e3))
 
+    # What the dechirp can represent at all. Beats fold at +-sr/2, so the
+    # range axis is unambiguous only over +-c*(sr/2)/rate -- and the archive
+    # keeps a window of that, not the whole of it. A trace outside the stored
+    # window is not faint here, it is absent, and a profile read without
+    # knowing that invites exactly the wrong conclusion.
+    h_max = 300e3 / meta["rate"] * (meta["sr"] / 2.0)
+    covered = ranges_km[-1] - ranges_km[0]
+    print("  unambiguous  +-%.0f km; this archive keeps %.0f to %.0f km (%.0f%%)"
+          % (h_max, ranges_km[0], ranges_km[-1], 100.0 * covered / (2 * h_max)))
+
     expected = None
     if None not in (opts.tx_lat, opts.tx_lon, opts.rx_lat, opts.rx_lon):
         ground = earth_distance_km(opts.tx_lat, opts.tx_lon,
@@ -149,20 +159,58 @@ def main():
               % (ranges_km[i], ranges_km[i] / 300.0, excess_db[i], note))
 
     best = excess_db[picked[0]]
+    top = picked[0]
+
+    # Is the strongest thing a peak, or the edge of the window?
+    #
+    # A discrete echo falls away on both sides. A profile that is still
+    # climbing when it runs out of window is the skirt of something beyond
+    # it, and calling that "an echo at 7966 km" is worse than saying nothing:
+    # it is a real feature reported at the one range it certainly is not at.
+    edge_gate = max(3, n // 40)
+    at_edge = top < edge_gate or top >= n - edge_gate
+    rising = False
+    if at_edge:
+        tail = excess_db[-edge_gate * 4:] if top >= n // 2 else excess_db[:edge_gate * 4]
+        if top >= n // 2:
+            rising = tail[-1] >= np.median(tail)
+        else:
+            rising = tail[0] >= np.median(tail)
+
     print()
-    if best < 1.0:
-        print("  Nothing stands above the noise anywhere in 0-8000 km.")
+    if at_edge and rising and best >= 1.0:
+        far = ranges_km[-1] if top >= n // 2 else ranges_km[0]
+        print("  The profile is still climbing where the window ends (%.0f km)."
+              % far)
+        print("  That is the skirt of something OUTSIDE the stored range, not")
+        print("  an echo at the edge -- a real echo falls away on both sides.")
+        print()
+        print("  Rebuild one capture across the whole +-%.0f km and look again:"
+              % h_max)
+        print("      python3 python/lfp_products.py <capture>.lfs --force "
+              "--h5-range-km -%.0f,%.0f" % (h_max, h_max))
+        print("      python3 tools/find_trace.py <the new .h5>")
+    elif best < 1.0:
+        print("  Nothing stands above the noise anywhere in %.0f-%.0f km."
+              % (ranges_km[0], ranges_km[-1]))
         print("  This is not a settings fault: with the wrong chirptime or the")
         print("  wrong coordinates a trace still appears, just in the wrong")
         print("  place. A flat profile means nothing was received -- the")
         print("  transmitter is off, out of propagation, or too weak here.")
+        if covered < 2 * h_max - 1.0:
+            print()
+            print("  Note this window is %.0f%% of the unambiguous +-%.0f km."
+                  % (100.0 * covered / (2 * h_max), h_max))
+            print("  Widen it before concluding anything:")
+            print("      python3 python/lfp_products.py <capture>.lfs --force "
+                  "--h5-range-km -%.0f,%.0f" % (h_max, h_max))
     elif best < 3.0:
         print("  Marginal: %.1f dB is not convincing on its own. Re-run over a"
               % best)
         print("  day's archives before concluding anything.")
     else:
         print("  %.1f dB at %.0f km is a real echo."
-              % (best, ranges_km[picked[0]]))
+              % (best, ranges_km[top]))
     return 0
 
 
