@@ -187,8 +187,9 @@ def main():
         print()
         print("  Rebuild one capture across the whole +-%.0f km and look again:"
               % h_max)
+        # "=" and not a space; see the note on the other copy of this line.
         print("      python3 python/lfp_products.py <capture>.lfs --force "
-              "--h5-range-km -%.0f,%.0f" % (h_max, h_max))
+              "--h5-range-km=-%.0f,%.0f" % (h_max, h_max))
         print("      python3 tools/find_trace.py <the new .h5>")
     elif best < 1.0:
         print("  Nothing stands above the noise anywhere in %.0f-%.0f km."
@@ -202,8 +203,10 @@ def main():
             print("  Note this window is %.0f%% of the unambiguous +-%.0f km."
                   % (100.0 * covered / (2 * h_max), h_max))
             print("  Widen it before concluding anything:")
+            # "=" and not a space: argparse reads a bare -12000,12000 as an
+            # option name, not as this option's value.
             print("      python3 python/lfp_products.py <capture>.lfs --force "
-                  "--h5-range-km -%.0f,%.0f" % (h_max, h_max))
+                  "--h5-range-km=-%.0f,%.0f" % (h_max, h_max))
     elif best < 3.0:
         print("  Marginal: %.1f dB is not convincing on its own. Re-run over a"
               % best)
