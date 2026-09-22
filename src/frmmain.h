@@ -72,6 +72,9 @@ private:
     void seanseStart();
     void seanseStop();
     bool CreateConfigFile();
+    /* Write chirp_config.py and, if a sounder is running, say that it is
+     * still using what it started with. */
+    void ApplyConfigChange(const QString &what);
     void CreateActiveSchedule();
 
     /* The sounder's own progress channel. Returns true when the line was a

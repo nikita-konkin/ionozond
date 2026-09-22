@@ -806,6 +806,30 @@ void frmMain::on_btnSchedule_clicked()
     dlg->show();
 }
 
+/* Settings reach the sounder only through chirp_config.py, and the sounder
+ * reads that file once, at startup. So a change made while it is running is
+ * real on disk and invisible in the data, for as long as nobody restarts it.
+ *
+ * This cost an evening: a chirptime edited in the schedule dialog, OK pressed,
+ * and every capture afterwards still landing on the old second -- with nothing
+ * anywhere saying why, because every dialog and every file agreed with each
+ * other and only the running process disagreed.
+ */
+void frmMain::ApplyConfigChange(const QString &what)
+{
+    if (!CreateConfigFile()) {
+        console(QLatin1String("Error writing configuration file"), Qt::red);
+        return;
+    }
+    if (m_running) {
+        console(QString(QLatin1String(
+                    "%1 saved, but the running sounder is still using the "
+                    "settings it started with.")).arg(what), Qt::yellow);
+        console(QLatin1String(
+                    "  Press STOP and then START to apply them."), Qt::yellow);
+    }
+}
+
 void frmMain::ParamsDlgClose()
 {
     /*
@@ -830,10 +854,13 @@ void frmMain::ParamsDlgClose()
      * Safe against a running sounder: it reads the file once at startup and
      * never again, and writeChirpConfig now commits atomically.
      */
-    if (!CreateConfigFile())
-        console(QLatin1String("Error writing configuration file"), Qt::red);
+    ApplyConfigChange(QLatin1String("Parameters"));
 }
 void frmMain::ScheduleDlgClose()
 {
     RebuildStations();
+    /* The schedule did not write chirp_config.py at all before this: only
+     * START did, so a station added or retimed here reached the sounder only
+     * by luck of when it was next started. */
+    ApplyConfigChange(QLatin1String("Schedule"));
 }
