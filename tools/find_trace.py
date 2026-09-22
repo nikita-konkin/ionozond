@@ -48,6 +48,27 @@ def earth_distance_km(lat1, lon1, lat2, lon2):
     return 2 * 6371.0 * math.asin(math.sqrt(a))
 
 
+def fold_seconds(rate, sr, limit=12):
+    """Whole-second chirptime errors that land the echo exactly on the fold.
+
+    A chirptime wrong by dt leaves the replica offset from the transmitter by
+    a constant rate*dt -- constant, not a chirp, because both ramps have the
+    same slope. That beat is sampled at `sr` and aliases, and when rate*dt is
+    an odd multiple of sr/2 it aliases onto the Nyquist fold: the one place on
+    the range axis where the positive and negative ends meet, so the echo
+    appears at both of them and at neither true range.
+
+    Returns those whole numbers of seconds, smallest first. For a 500 kHz/s
+    station sampled at 40 kHz it is every odd second, since
+    500000 mod 40000 = 20000 = sr/2 exactly.
+    """
+    out = []
+    for k in range(1, limit + 1):
+        if abs(((rate * k) % sr) - sr / 2.0) < sr * 0.02:
+            out.append(k)
+    return out
+
+
 def profile(path):
     """Mean power against range for one archive, plus its axes."""
     import h5_archive
@@ -178,7 +199,39 @@ def main():
             rising = tail[0] >= np.median(tail)
 
     print()
-    if at_edge and rising and best >= 1.0:
+    # Is there any "outside" left? When the window is already the whole
+    # unambiguous range the energy is not beyond the edge, it is ON the fold,
+    # and telling the operator to widen a full window is advice that cannot
+    # be followed.
+    whole = covered >= 2 * h_max - 2 * abs(ranges_km[1] - ranges_km[0])
+    if at_edge and rising and best >= 1.0 and whole:
+        folds = fold_seconds(meta["rate"], meta["sr"])
+        print("  The energy is piled on the fold at +-%.0f km, and this window"
+              % h_max)
+        print("  is already the whole unambiguous range. So it is not")
+        print("  somewhere else: it is at the one range that means aliased.")
+        print()
+        print("  A chirptime wrong by dt leaves a constant beat of rate*dt,")
+        print("  which folds onto +-sr/2 for these whole-second errors:")
+        if folds:
+            print("      dt = %s s"
+                  % ", ".join("%+d" % k for k in folds[:4]))
+            print("  so try chirptime %+d and %+d from its present value."
+                  % (-folds[0], folds[0]))
+        else:
+            print("      none at a whole second -- suspect the sweep rate or")
+            print("      the sample rate rather than the start time.")
+        print()
+        # Said here because otherwise the weakness reads as a second,
+        # separate fault, and it is the same one.
+        ratio = meta["rate"] / meta["sr"]
+        if ratio > 1.0:
+            print("  Expect it weak as well as misplaced: %.0f kHz off, the"
+                  % (meta["rate"] / 1e3))
+            print("  decimating boxcar is down about %.0f dB -- close to the"
+                  % (20.0 * math.log10(math.pi * ratio)))
+            print("  %.1f dB here against the ~20 dB of a clean echo." % best)
+    elif at_edge and rising and best >= 1.0:
         far = ranges_km[-1] if top >= n // 2 else ranges_km[0]
         print("  The profile is still climbing where the window ends (%.0f km)."
               % far)
