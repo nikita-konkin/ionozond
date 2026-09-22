@@ -188,15 +188,22 @@ def main():
     # climbing when it runs out of window is the skirt of something beyond
     # it, and calling that "an echo at 7966 km" is worse than saying nothing:
     # it is a real feature reported at the one range it certainly is not at.
-    edge_gate = max(3, n // 40)
-    at_edge = top < edge_gate or top >= n - edge_gate
+    # Judged on the REGION, not on the single strongest gate.
+    #
+    # First version asked only whether the argmax sat in the last few gates,
+    # and so called a profile whose six strongest peaks were all between
+    # 10000 and 12000 km -- on both signs, which is the fold seen from both
+    # ends -- "a real echo at 10373 km". Aliased energy piles into a broad
+    # band near +-h_max and need not peak in the final gate.
+    near_fold = np.abs(ranges_km) > 0.85 * h_max
+    in_fold = sum(1 for i in picked if near_fold[i])
+    at_edge = in_fold >= max(2, (len(picked) + 1) // 2)
+    # "Rising" now means the fold band really is above the rest of the axis,
+    # which is what separates it from a flat profile that happens to have its
+    # largest wiggle out there.
     rising = False
-    if at_edge:
-        tail = excess_db[-edge_gate * 4:] if top >= n // 2 else excess_db[:edge_gate * 4]
-        if top >= n // 2:
-            rising = tail[-1] >= np.median(tail)
-        else:
-            rising = tail[0] >= np.median(tail)
+    if at_edge and near_fold.any() and (~near_fold).any():
+        rising = np.median(excess_db[near_fold]) > np.median(excess_db[~near_fold]) + 0.5
 
     print()
     # Is there any "outside" left? When the window is already the whole
@@ -231,6 +238,18 @@ def main():
             print("  decimating boxcar is down about %.0f dB -- close to the"
                   % (20.0 * math.log10(math.pi * ratio)))
             print("  %.1f dB here against the ~20 dB of a clean echo." % best)
+        print()
+        # The other cause of the same picture, and the one that cost a whole
+        # evening: a transmitter that sweeps for 60 s of every 300 leaves a
+        # window placed in its silence holding nothing but aliased
+        # interference, which also piles onto the fold. The two look
+        # identical in one profile and differ in one respect only.
+        print("  But measure this before believing it: if the fold reading")
+        print("  does NOT change when chirptime does, it is not the signal at")
+        print("  all -- broadband interference aliases onto the fold too, and")
+        print("  a transmitter silent during the window looks exactly like")
+        print("  this. Check the minute your captures start against the")
+        print("  minute the source publishes the sweep at.")
     elif at_edge and rising and best >= 1.0:
         far = ranges_km[-1] if top >= n // 2 else ranges_km[0]
         print("  The profile is still climbing where the window ends (%.0f km)."
