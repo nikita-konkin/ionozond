@@ -52,11 +52,24 @@ public:
     SnrVariationsWidget *snrWidget() const { return m_snr; }
     PdpVariationsWidget *pdpWidget() const { return m_pdp; }
 
+    /* Every capture loaded so far, oldest first. */
+    const QStringList &history() const { return m_history; }
+
+signals:
+    /* A capture was added, or the list was cleared. */
+    void historyChanged();
+
 public slots:
     void setIgAreaVisible(const QString &stationName, const bool &visible);
     void clear();
 
+protected:
+    /* Double-click on either ionogram opens it in a window of its own. */
+    bool eventFilter(QObject *obj, QEvent *ev);
+
 private slots:
+    void popoutControl();
+    void popoutCurrent();
     /* Step the control panel through the captures already loaded. Stepping
      * past the newest returns it to following, which is where it starts. */
     void controlBack();
@@ -66,6 +79,13 @@ private slots:
 private:
     QLabel *makeCaption(const QString &text) const;
     QWidget *makeControlHeader();
+    QWidget *makeCurrentHeader();
+    class QToolButton *makePopoutButton(QWidget *parent) const;
+
+    /* `follow`: the window moves on to each new capture as it arrives.
+     * True from the current panel, false from the control panel, which
+     * is showing an older capture on purpose. */
+    void openViewer(QRxIonogram *panel, bool follow);
 
     void showControlAt(int index);
     void updateControlNav();

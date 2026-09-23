@@ -1,7 +1,9 @@
 #include "qigframe.h"
 
 #include "iganalytics.h"
+#include "ionogramviewer.h"
 
+#include <QEvent>
 #include <QFileInfo>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -52,6 +54,15 @@ QIGFrame::QIGFrame(const QBaseSoundParams &base,
     m_control->setControlIonogram(true);
     m_current = new QRxIonogram(m_base, m_tx, m_rx, this);
 
+    /* With two stations each panel is about 90 px tall: enough to see that
+     * there is a trace, not to read it. Double-click opens it full size. */
+    const QString popoutTip = QString::fromUtf8(
+        "Двойной щелчок — открыть ионограмму в отдельном окне");
+    m_control->canvas()->installEventFilter(this);
+    m_current->canvas()->installEventFilter(this);
+    m_control->canvas()->setToolTip(popoutTip);
+    m_current->canvas()->setToolTip(popoutTip);
+
     /*
      * The variation panels span the whole sweep and the whole delay window,
      * taken from the ionogram panel's own axes so all four agree.
@@ -78,7 +89,7 @@ QIGFrame::QIGFrame(const QBaseSoundParams &base,
     grid->addWidget(m_control, 1, 0);
     grid->addWidget(m_snr,     1, 1);
 
-    grid->addWidget(makeCaption(QString::fromUtf8("Текущая ионограмма")), 2, 0);
+    grid->addWidget(makeCurrentHeader(), 2, 0);
     grid->addWidget(makeCaption(QString::fromUtf8("ПЗМ")),                2, 1);
     grid->addWidget(m_current, 3, 0);
     grid->addWidget(m_pdp,     3, 1);
@@ -141,8 +152,67 @@ QWidget *QIGFrame::makeControlHeader()
     lay->addWidget(m_btnForward);
     lay->addWidget(m_btnLatest);
 
+    QToolButton *popout = makePopoutButton(row);
+    connect(popout, SIGNAL(clicked()), this, SLOT(popoutControl()));
+    lay->addWidget(popout);
+
     updateControlNav();
     return row;
+}
+
+QWidget *QIGFrame::makeCurrentHeader()
+{
+    QWidget *row = new QWidget(this);
+    QHBoxLayout *lay = new QHBoxLayout(row);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->setSpacing(3);
+
+    lay->addWidget(makeCaption(QString::fromUtf8("Текущая ионограмма")), 1);
+
+    QToolButton *popout = makePopoutButton(row);
+    connect(popout, SIGNAL(clicked()), this, SLOT(popoutCurrent()));
+    lay->addWidget(popout);
+    return row;
+}
+
+QToolButton *QIGFrame::makePopoutButton(QWidget *parent) const
+{
+    QToolButton *b = new QToolButton(parent);
+    b->setText(QChar(0x2922));   /* north-east and south-west arrow */
+    b->setToolTip(QString::fromUtf8("Открыть в отдельном окне"));
+    b->setFixedSize(22, 18);
+    return b;
+}
+
+void QIGFrame::openViewer(QRxIonogram *panel, bool follow)
+{
+    const QString capture = panel->igFileName();
+    if (capture.isEmpty())
+        return;   /* nothing loaded in that panel yet */
+
+    IonogramViewer *viewer = new IonogramViewer(m_base, m_tx, m_rx, this,
+                                                capture, follow);
+    viewer->show();
+    viewer->raise();
+    viewer->activateWindow();
+}
+
+void QIGFrame::popoutControl() { openViewer(m_control, false); }
+void QIGFrame::popoutCurrent() { openViewer(m_current, true); }
+
+bool QIGFrame::eventFilter(QObject *obj, QEvent *ev)
+{
+    if (ev->type() == QEvent::MouseButtonDblClick) {
+        if (m_control && obj == m_control->canvas()) {
+            popoutControl();
+            return true;
+        }
+        if (m_current && obj == m_current->canvas()) {
+            popoutCurrent();
+            return true;
+        }
+    }
+    return QFrame::eventFilter(obj, ev);
 }
 
 int QIGFrame::effectiveControlIndex() const
@@ -241,6 +311,7 @@ bool QIGFrame::addIg(const QString &igFileName, bool keepControl)
     if (m_history.isEmpty() || m_history.last() != igFileName)
         m_history.append(igFileName);
     updateControlNav();
+    emit historyChanged();
 
     /*
      * Feed the derived products into the two variation panels, averaging the
@@ -271,6 +342,7 @@ void QIGFrame::clear()
     m_history.clear();
     m_controlIndex = -1;
     updateControlNav();
+    emit historyChanged();
     if (m_control) m_control->clear();
     if (m_current) m_current->clear();
     if (m_snr)     m_snr->clear();
