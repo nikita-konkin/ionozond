@@ -99,6 +99,28 @@ void ParametersDialog::ReadSettings()
     UpdateObjLevelHint();
 
     /*
+     * How finely the picture is drawn. Picture only: python/lfp_products.py
+     * keeps LUF, MUF, SNR, PDP and the archive on the analysis grid. The
+     * defaults match its IONO_PAD_DEFAULT / IONO_OVERLAP_DEFAULT, which is
+     * what the sounder uses until this dialog has been saved once.
+     */
+    const int pads[] = { 1, 2, 4, 8 };
+    for (int i = 0; i < 4; ++i)
+        ui->cmbIonoPad->addItem(pads[i] == 1
+            ? QString::fromUtf8("×1 (как в оригинале)")
+            : QString::fromUtf8("×%1").arg(pads[i]), pads[i]);
+    const int overlaps[] = { 1, 2, 4 };
+    for (int i = 0; i < 3; ++i)
+        ui->cmbIonoOverlap->addItem(QString::fromUtf8("×%1").arg(overlaps[i]),
+                                    overlaps[i]);
+    const int pad = ui->cmbIonoPad->findData(
+        m_settings->value(QLatin1String("iono_pad"), 4).toInt());
+    ui->cmbIonoPad->setCurrentIndex(pad >= 0 ? pad : 2);
+    const int overlap = ui->cmbIonoOverlap->findData(
+        m_settings->value(QLatin1String("iono_overlap"), 2).toInt());
+    ui->cmbIonoOverlap->setCurrentIndex(overlap >= 0 ? overlap : 1);
+
+    /*
      * What each sounding leaves on disk. The .lfp sidecar is not offered as a
      * choice: it is the only thing the console itself opens, so a station that
      * stopped writing it would display nothing.
@@ -204,6 +226,9 @@ void ParametersDialog::WriteSettings()
     m_settings->setValue(QLatin1String("obj_size_horizontal"), ui->spbObjSizeH->value());
     m_settings->setValue(QLatin1String("obj_size_vertical"), ui->spbObjSizeV->value());
     m_settings->setValue(QLatin1String("obj_level"), ui->spbObjLevel->value());
+    m_settings->setValue(QLatin1String("iono_pad"), ui->cmbIonoPad->currentData().toInt());
+    m_settings->setValue(QLatin1String("iono_overlap"),
+                         ui->cmbIonoOverlap->currentData().toInt());
 
     m_settings->setValue(QLatin1String("h5_archive"), ui->chbH5Archive->isChecked());
     m_settings->setValue(QLatin1String("keep_lfs"), ui->chbKeepLfs->isChecked());

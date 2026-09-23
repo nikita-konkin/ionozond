@@ -83,7 +83,11 @@ offset  size   field
 0x118      4   uint32   tb                  from config.ini, 0 if unused
 0x11C      4   uint32   lfsr_polynome_degree
 
-0x120    224   char     reserved[224]       zero-filled
+0x120      4   float    min_value_db        bottom of the colour scale (snr mode)
+0x124      4   uint32   iono_mode           0 = gated, 1 = snr (continuous)
+0x128      2   uint16   iono_pad            IONO rows per FFT bin; 0 means 1
+0x12A      2   uint16   iono_overlap        IONO columns per analysis spectrum; 0 means 1
+0x12C    212   char     reserved[212]       zero-filled
 0x200          section table starts here
 ```
 
@@ -113,13 +117,32 @@ offset  size   field
 | type | shape | contents |
 |---|---|---|
 | `IONO` | `spec_count` × `spec_point_count`, float32 | the gated ionogram in dB, row-major by spectrum, delay ascending |
-| `SNR ` | 1 × `spec_count`, float32 | per-spectrum signal/noise in dB |
-| `PDP ` | 1 × `spec_point_count`, float32 | integrated power per delay bin |
+| `SNR ` | 1 × analysis spectra, float32 | per-spectrum signal/noise in dB |
+| `PDP ` | 1 × analysis delay bins, float32 | integrated power per delay bin |
 | `MASK` | `spec_count` × `spec_point_count`, uint8 | optional: 1 where a point survived the gate |
 | `TRAC` | n × 2, float32 | optional: extracted trace, (MHz, ms) pairs |
 
 Readers must skip unknown types. `IONO` compresses extremely well because
 gating zeroes most of it — typically 20–40× on real captures.
+
+### Oversampled pictures
+
+`spec_count` and `spec_point_count` describe `IONO`, and only `IONO`. When
+`iono_pad` or `iono_overlap` is above 1 the picture is drawn on a finer grid
+than the analysis: each FFT zero-padded `iono_pad` times over, and
+`iono_overlap` windows per analysis spectrum. That adds no resolution — a
+0.41 s window is still 41 kHz of sweep and one 7.3 km delay bin — but it
+draws what those bins contain instead of a staircase of them.
+
+Everything else stays on the analysis grid, bit for bit: `SNR ` has one
+value per analysis spectrum, `PDP ` one per analysis delay bin, `luf_index`
+and `muf_index` index `SNR `, and the `.h5` archive is unchanged. So readers
+take each section's length from its own table entry, never from the header.
+Both readers in this tree already do.
+
+The oversampled delay axis is the FFT's own (`h5_archive.range_axis` with
+`fft_count * iono_pad` bins), not the `(fft_count - 1)` spacing the original
+grid inherited, which is half a bin off.
 
 ## Reading it in Python
 

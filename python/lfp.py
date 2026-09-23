@@ -5,7 +5,7 @@ Reader for the LFP derived-products sidecar. See docs/lfp-format.md.
     from lfp import read_lfp
     meta, data = read_lfp('cyprus1_20191023_071510.lfp')
     iono = data['IONO']          # (spec_count, spec_point_count) float32, dB
-    snr  = data['SNR'][0]        # (spec_count,)  float32, dB
+    snr  = data['SNR'][0]        # one per analysis spectrum, float32, dB
     pdp  = data['PDP'][0]        # (spec_point_count,) float32
 
 Standalone:
@@ -73,6 +73,9 @@ def read_lfp(path):
             'muf_mhz': struct.unpack_from('<f', head, 0x10C)[0],
             'luf_index': struct.unpack_from('<i', head, 0x110)[0],
             'muf_index': struct.unpack_from('<i', head, 0x114)[0],
+            # 0 in sidecars older than these: read as 1, the original grid.
+            'iono_pad': struct.unpack_from('<H', head, 0x128)[0] or 1,
+            'iono_overlap': struct.unpack_from('<H', head, 0x12A)[0] or 1,
         }
 
         f.seek(tab_off)

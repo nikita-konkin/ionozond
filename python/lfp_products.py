@@ -57,6 +57,15 @@ NOISE_FACTOR = 1.3862943611198906    # 2*ln(2), the original's
 # rather than allowed to become inf.
 FLOAT16_MAX = 65504.0
 
+# How finely the IONO picture is sampled, relative to one analysis spectrum.
+# Zero-padding each FFT by IONO_PAD puts that many rows where there was one;
+# overlapping the windows by IONO_OVERLAP puts that many columns where there
+# was one. Neither adds resolution -- a 0.41 s window is still 41 kHz of sweep
+# and still one 7.3 km delay bin wide -- but together they draw what those
+# bins contain instead of a staircase of them. See display_ionogram().
+IONO_PAD_DEFAULT = 4
+IONO_OVERLAP_DEFAULT = 2
+
 IONO_MODE_GATED = "gated"            # the original: threshold, despeckle, zero
 IONO_MODE_SNR = "snr"                # ionograms-handler: continuous, nothing cut
 
@@ -215,6 +224,133 @@ def build_spectra(path, fft_count, spec_count, chunk=64):
             done += got
 
 
+def _fft_padded():
+    """scipy's FFT when there is one: it keeps complex64 as complex64 and
+    runs on every core, where numpy's widens to complex128 on one. The
+    display pass is 4-8x the analysis pass's FFT work, and it runs between
+    captures that can be six seconds apart."""
+    try:
+        import scipy.fft as sfft
+        return lambda z, n: sfft.fft(z, n=n, axis=1, workers=-1)
+    except Exception:
+        return lambda z, n: np.fft.fft(z.astype(np.complex128), n=n, axis=1)
+
+
+def display_spectra(path, fft_count, pad, overlap, spec_count, row_lo, row_hi,
+                    chunk=32):
+    """Spectra for the IONO picture: each window zero-padded to fft_count*pad
+    points, and `overlap` windows per analysis spectrum instead of one.
+
+    Normalised by the median of the UNPADDED bins -- every pad-th bin of a
+    zero-padded FFT is exactly a bin of the unpadded one -- so a value here
+    means the same as in the analysis spectra that LUF, MUF, SNR, PDP and the
+    archive come from, and the gate thresholds carry over unchanged.
+
+    Column j is centred where the console puts it: the band is drawn as
+    spec_count*overlap equal cells, so its centre is (j + 0.5) cells in. With
+    overlap 1 that is exactly the analysis spectra. At the two ends a window
+    reaches past the recording and is zero-filled there.
+
+    Yields only rows row_lo..row_hi of the fftshifted, reversed spectrum --
+    the delay window -- gathered straight out of the unshifted FFT. Forming
+    and shifting all fft_count*pad powers to keep a thousand of them was most
+    of the cost.
+    """
+    samples = (os.path.getsize(path) - LFS_HEADER_SIZE) // 8
+    raw = np.memmap(path, dtype=np.complex64, mode="r",
+                    offset=LFS_HEADER_SIZE, shape=(samples,))
+    window = hanning_periodic(fft_count)
+    nfft = fft_count * pad
+    cols = spec_count * overlap
+    hop = fft_count / float(overlap)
+    starts = np.round((np.arange(cols) + 0.5) * hop
+                      - fft_count / 2.0).astype(np.int64)
+    # reversed row r = shifted index nfft-1-r = unshifted (nfft-1-r + nfft/2)
+    rows = np.arange(row_lo, row_hi + 1)
+    gather = (nfft - 1 - rows + nfft // 2) % nfft
+    fft = _fft_padded()
+    for c0 in range(0, cols, chunk):
+        part = starts[c0:c0 + chunk]
+        block = np.zeros((len(part), fft_count), dtype=np.complex64)
+        for i, st in enumerate(part):
+            a, b = max(int(st), 0), min(int(st) + fft_count, samples)
+            if b > a:
+                block[i, a - st:b - st] = raw[a:b]
+        spec = fft(block * window, nfft)
+        native = spec[:, ::pad]
+        med = np.median(native.real.astype(np.float64) ** 2
+                        + native.imag.astype(np.float64) ** 2,
+                        axis=1, keepdims=True)
+        win = spec[:, gather]
+        power = win.real.astype(np.float64) ** 2 + win.imag.astype(np.float64) ** 2
+        np.divide(power, med, out=power, where=med > 0.0)
+        yield power
+    del raw
+
+
+def display_ionogram(path, header, geo, fft_count, pad, overlap, spec_count,
+                     limits, noise_gate, iono_mode, obj_w, obj_h, obj_level):
+    """The IONO picture, oversampled. Returns (array, delay_min_ms,
+    delay_max_ms, peak_linear).
+
+    Only the picture: LUF, MUF, SNR, PDP and the archive stay on the analysis
+    spectra, so turning this up changes nothing any of them report.
+
+    The delay axis is the FFT's own, as h5_archive.range_axis has it -- not
+    the (fft_count - 1) spacing geometry() inherited from the original, which
+    is half a bin off. Only this grid is new, so only it gets the right one.
+
+    Gating is the analysis gating, rescaled: the per-spectrum threshold is the
+    analysis spectrum's own (the scales agree, see display_spectra), and the
+    speckle window and neighbour count grow with the grid, so an object has to
+    be as large in km and kHz as before to survive, not as many cells.
+    """
+    if_rate = geo["if_rate"]
+    scale = LIGHT_SPEED_KM_S / header["rate"]
+    nfft = fft_count * pad
+    step = scale * (if_rate / nfft)
+    h_max = scale * (if_rate / 2.0)
+    rmin_km = geo["ray_km"] - VIRT_HEIGHT_MARGIN_KM
+    rmax_km = rmin_km + VIRT_HEIGHT_WINDOW_KM + VIRT_HEIGHT_MARGIN_KM
+    # row r sits at -h_max + (r + 1) * step
+    lo = max(0, int(math.floor((rmin_km + h_max) / step - 1.0)))
+    hi = min(nfft - 1, int(math.ceil((rmax_km + h_max) / step - 1.0)))
+    rows = hi - lo + 1
+
+    cols = spec_count * overlap
+    out = np.zeros((cols, rows), dtype=np.float32)
+    peak = 0.0
+    j = 0
+    for block in display_spectra(path, fft_count, pad, overlap, spec_count,
+                                 lo, hi):
+        for row in block:
+            if j >= cols:
+                break
+            lin = row
+            if iono_mode == IONO_MODE_SNR:
+                rel = lin / IONO_SNR_NOISE_COEF
+                out[j] = 10.0 * np.log10(
+                    np.maximum(rel, IONO_SNR_DB_REF) / IONO_SNR_DB_REF)
+            else:
+                db = 10.0 * np.log10(np.where(lin > 0.0, lin, 1e-300))
+                limit = limits[min(j // overlap, len(limits) - 1)] if noise_gate else 0.0
+                keep = ~(limit > db)
+                out[j] = np.where(keep, db, 0.0)
+                if keep.any():
+                    peak = max(peak, float(lin[keep].max()))
+            j += 1
+
+    if iono_mode != IONO_MODE_SNR and noise_gate:
+        noise_db = np.float32(10.0 * math.log10(NOISE_FACTOR))
+        alive = out.max(axis=1) > 0.0
+        out[alive] = np.where(out[alive] < noise_db, 0.0, out[alive])
+        out = delete_small_objects(out, obj_w * overlap, obj_h * pad,
+                                   obj_level * overlap * pad)
+
+    delay = lambda r: time_ms_from_height_km(-h_max + (r + 1.0) * step)
+    return out, delay(lo), delay(hi), peak
+
+
 def power_dynamic_limit(spec_db):
     """Rosin/triangle threshold, matching igmath.cpp getPowerDynamicLimit.
 
@@ -336,7 +472,8 @@ def usage_frequencies(data):
 def compute(path, fft_count=16384, noise_gate=True, progress=None,
             obj_w=OBJ_SIZE_HORIZONTAL, obj_h=OBJ_SIZE_VERTICAL,
             obj_level=OBJ_LEVEL, iono_mode=IONO_MODE_GATED,
-            archive_range_km=None):
+            archive_range_km=None, iono_pad=IONO_PAD_DEFAULT,
+            iono_overlap=IONO_OVERLAP_DEFAULT):
     """Run the whole pipeline. Returns (meta, {section: array}).
 
     `iono_mode` decides only what the IONO section holds; LUF, MUF, SNR and
@@ -350,6 +487,9 @@ def compute(path, fft_count=16384, noise_gate=True, progress=None,
     the ordinary/extraordinary split live in exactly the faint structure the
     gate removes, which is why their ionograms read as sharper than ours
     despite coming off a comparable receiver.
+
+    `iono_pad` and `iono_overlap` oversample the IONO picture and nothing
+    else; 1 and 1 give the original's grid. See display_ionogram().
 
     `archive_range_km` asks for a wide-window spectrogram alongside, returned
     as a fourth item for python/h5_archive.py to write. It rides along here
@@ -464,6 +604,22 @@ def compute(path, fft_count=16384, noise_gate=True, progress=None,
     band = gated_db[first:last + 1]
     pdp = np.where(band > 0.0, band, 0.0).sum(axis=0).astype(np.float32)
 
+    # The picture, oversampled if asked. A second read of the capture, but
+    # from the page cache: the pass above has just pulled all of it in.
+    iono = gated_db if snr_db is None else snr_db
+    iono_cols, iono_rows = spec_count, rows
+    delay_min_ms, delay_max_ms = geo["delay_min_ms"], geo["delay_max_ms"]
+    iono_pad, iono_overlap = max(1, int(iono_pad)), max(1, int(iono_overlap))
+    if iono_pad > 1 or iono_overlap > 1:
+        iono, delay_min_ms, delay_max_ms, fine_peak = display_ionogram(
+            path, header, geo, fft_count, iono_pad, iono_overlap, spec_count,
+            limits, noise_gate, iono_mode, obj_w, obj_h, obj_level)
+        iono_cols, iono_rows = iono.shape
+        if fine_peak > 0.0:
+            win_max = fine_peak
+    else:
+        iono_pad = iono_overlap = 1
+
     span = geo["freq_max_mhz"] - geo["freq_min_mhz"]
     def to_mhz(index):
         if index < 0 or spec_count <= 1:
@@ -474,8 +630,15 @@ def compute(path, fft_count=16384, noise_gate=True, progress=None,
     meta.update(geo)
     meta.update({
         "fft_count": fft_count,
-        "spec_count": spec_count,
-        "spec_point_count": rows,
+        # These describe the IONO section, which is what the console sizes
+        # the picture by. SNR stays one value per analysis spectrum and PDP
+        # one per analysis row; readers take their lengths from the sections.
+        "spec_count": iono_cols,
+        "spec_point_count": iono_rows,
+        "delay_min_ms": delay_min_ms,
+        "delay_max_ms": delay_max_ms,
+        "iono_pad": iono_pad,
+        "iono_overlap": iono_overlap,
         "noise_gate": noise_gate,
         "iono_mode": iono_mode,
         "noise_gate_db": float(np.median(limits)) if noise_gate else 0.0,
@@ -491,7 +654,7 @@ def compute(path, fft_count=16384, noise_gate=True, progress=None,
         "luf_index": luf_index, "muf_index": muf_index,
         "luf_mhz": to_mhz(luf_index), "muf_mhz": to_mhz(muf_index),
     })
-    sections = {"IONO": gated_db if snr_db is None else snr_db,
+    sections = {"IONO": iono,
                 "SNR ": snr.reshape(1, -1),
                 "PDP ": pdp.reshape(1, -1)}
     if archive is None:
@@ -544,6 +707,10 @@ def write(path, meta, sections, producer="ionozond", producer_version="lfp 1.0")
     # min_value_db 0.0 and mode 0, which is exactly the old behaviour.
     struct.pack_into("<fI", head, 0x120, float(meta.get("min_value_db", 0.0)),
                      1 if meta.get("iono_mode") == IONO_MODE_SNR else 0)
+    # 0 in sidecars written before these existed, meaning 1: one row per bin
+    # and one column per analysis spectrum.
+    struct.pack_into("<HH", head, 0x128, int(meta.get("iono_pad", 1)),
+                     int(meta.get("iono_overlap", 1)))
 
     table = bytearray()
     payloads = []
@@ -664,6 +831,14 @@ def main():
                     help="what the IONO section holds: 'gated' (the original: "
                          "thresholded and despeckled) or 'snr' (chirpsounder2: "
                          "the continuous field, nothing deleted)")
+    ap.add_argument("--iono-pad", type=int, default=IONO_PAD_DEFAULT,
+                    help="zero-pad each FFT this many times over, for a finer "
+                         "delay axis in the picture only (default %d; 1 is "
+                         "the original's grid)" % IONO_PAD_DEFAULT)
+    ap.add_argument("--iono-overlap", type=int, default=IONO_OVERLAP_DEFAULT,
+                    help="spectra per analysis window, for a finer frequency "
+                         "axis in the picture only (default %d; 1 is the "
+                         "original's grid)" % IONO_OVERLAP_DEFAULT)
     ap.add_argument("--h5", dest="h5", action="store_true", default=True,
                     help="write a chirpsounder2 lfm_ionogram-*.h5 archive "
                          "beside the sidecar (the default; it is what makes "
@@ -706,6 +881,7 @@ def main():
                 path, fft_count=opts.fft, force=opts.force,
                 obj_w=opts.obj_w, obj_h=opts.obj_h,
                 obj_level=opts.obj_level, iono_mode=opts.iono_mode,
+                iono_pad=opts.iono_pad, iono_overlap=opts.iono_overlap,
                 h5_archive_km=h5_window)
             if size:
                 total_raw += os.path.getsize(path)
