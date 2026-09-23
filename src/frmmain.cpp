@@ -20,6 +20,23 @@
 #include <QTextCursor>
 #include <QTextEdit>
 
+/* A schedule number the console only needs whole, which the sounder may be
+ * given to a fraction.
+ *
+ * Sodankyla sweeps at 500.0084 kHz/s from :54.0016 of each minute, and both
+ * fractions matter to the sounder: rounding them costs about 1.5 ms, which it
+ * reports as 440 km of extra range. The table and chirp_config.py carry the
+ * text through untouched, so the sounder gets them. But toUInt() of
+ * "121.0015" is 0 -- not 121 -- and a rate of 0 collapses the ionogram's
+ * frequency axis. The session panel and the axes are fine with the whole
+ * part.
+ */
+static quint32 wholeSetting(const QVariant &value)
+{
+    const double v = value.toDouble();
+    return v > 0.0 ? (quint32)(v + 0.5) : 0u;
+}
+
 frmMain::frmMain(QWidget *parent)
     : QMainWindow(parent),
       ui(new Ui::frmMain),
@@ -209,11 +226,11 @@ void frmMain::CreateIgAreas()
         tx.name   = station;
         tx.lat    = m_scheduleSettings->value(QLatin1String("lat")).toDouble();
         tx.lon    = m_scheduleSettings->value(QLatin1String("lon")).toDouble();
-        tx.chirpt = m_scheduleSettings->value(QLatin1String("chirpt")).toUInt();
-        tx.cf     = m_scheduleSettings->value(QLatin1String("cf")).toUInt();
-        tx.dur    = m_scheduleSettings->value(QLatin1String("dur")).toUInt();
-        tx.rate   = m_scheduleSettings->value(QLatin1String("rate")).toUInt();
-        tx.rep    = m_scheduleSettings->value(QLatin1String("rep")).toUInt();
+        tx.chirpt = wholeSetting(m_scheduleSettings->value(QLatin1String("chirpt")));
+        tx.cf     = wholeSetting(m_scheduleSettings->value(QLatin1String("cf")));
+        tx.dur    = wholeSetting(m_scheduleSettings->value(QLatin1String("dur")));
+        tx.rate   = wholeSetting(m_scheduleSettings->value(QLatin1String("rate")));
+        tx.rep    = wholeSetting(m_scheduleSettings->value(QLatin1String("rep")));
         tx.active = active;
         tx.rx     = m_scheduleSettings->value(QLatin1String("rx")).toBool();
         m_scheduleSettings->endGroup();
