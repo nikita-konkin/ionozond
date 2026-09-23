@@ -329,11 +329,11 @@ footer {
 <header class="masthead">
   <p class="eyebrow">Ionozond · working reference</p>
   <h1>Oblique Chirp Ionograms</h1>
-  <p class="standfirst">How a swept transmission from Cyprus becomes a picture in Yoshkar-Ola — the physics that shapes the trace, the arithmetic that places it on the axes, and the ways both can lie to you.</p>
+  <p class="standfirst">How a swept transmission from Cyprus becomes a picture in Yoshkar-Ola — the physics that shapes the trace, the arithmetic that places it on the axes, how one receiver shares its time between several transmitters, and the ways all of it can lie to you.</p>
   <div class="station">
-    <span><b>Path</b> cyprus1 → yoshkar-ola, 2634 km</span>
-    <span><b>Sweep</b> 7.5–32.5 MHz at 100 kHz/s</span>
-    <span><b>Cadence</b> 250 s every 300 s</span>
+    <span><b>Paths</b> Cyprus → Yoshkar-Ola 2634 km · Sodankylä → Yoshkar-Ola 1625 km</span>
+    <span><b>Sweeps</b> 100 kHz/s and 500 kHz/s</span>
+    <span><b>Cadence</b> 105 s + 50 s of every 300 s</span>
     <span><b>Receiver</b> USRP N210, 25 MS/s</span>
   </div>
 </header>
@@ -348,6 +348,9 @@ footer {
     <li><a href="#edges">MUF, LUF, the nose</a></li>
     <li><a href="#dechirp">The dechirp</a></li>
     <li><a href="#axes">Sweep to pixel</a></li>
+    <li><a href="#window">The recording window</a></li>
+    <li><a href="#parallel">In turn or in parallel</a></li>
+    <li><a href="#timing">Finding a sounder's timing</a></li>
     <li><a href="#anatomy">Reading a trace</a></li>
     <li><a href="#causes">Appearance → cause</a></li>
     <li><a href="#stripes">Daily-course stripes</a></li>
@@ -509,7 +512,7 @@ footer {
 
   <div class="note">
     <span class="lbl">Diagnostic worth memorising</span>
-    <p>A genuine MUF cut-off always has a nose. A trace that runs flat and stops at a hard vertical edge is an instrument fault, not the ionosphere. That single distinction separated a propagation question from a dropped-packet bug on this station.</p>
+    <p>A genuine MUF cut-off always has a nose. A trace that runs flat and stops at a hard vertical edge is the instrument, not the ionosphere. At a different frequency each capture, it is lost samples; that distinction separated a propagation question from a dropped-packet bug on this station. At the same frequency every time, it is just the end of the recording window (Part 7).</p>
   </div>
 
   <h3>The low-frequency end: LUF</h3>
@@ -606,11 +609,256 @@ footer {
   </div>
 
   <p>FFT length is a pure trade: doubling it halves the frequency step and halves the delay bin in the other direction. 16 384 is where the two agree — the transmitter moves 41 kHz during the 0.41 s each spectrum integrates, so neither axis is being resolved finer than the other can support.</p>
+
+  <h3>A finer picture is not a finer measurement</h3>
+  <p>The picture is drawn by a separate pass: each FFT is zero-padded four times over, and two overlapping windows are taken per spectrum (Parameters → <span class="mono">детализация по задержке / по частоте</span>, ×4 / ×2 by default). Nothing in the table changes. A trace is still one 7.32 km bin tall and 41 kHz of sweep wide. What changes is that the picture interpolates <em>between</em> bins instead of drawing a staircase of them, so two features a bin or two apart — a nose and the layer below it, an O/X pair — stop merging into one block.</p>
+  <p>Only the picture changes. LUF, MUF, the SNR and ПЗМ panels and the <span class="mono">.h5</span> archive are computed on the analysis grid above, and stay bit-for-bit identical at any setting.</p>
+</section>
+
+<!-- =============================================================== WINDOW -->
+<section id="window">
+  <span class="part-no">Part 7 · Operating</span>
+  <h2 class="part">The recording window: rep, chirptime, duration</h2>
+  <p class="part-lede">The transmitter always sweeps its whole band. The schedule only decides which slice of that sweep the receiver listens to, and a slice is still a complete ionogram, just a narrower one.</p>
+
+  <div class="note">
+    <span class="lbl">Why NIC4 still shows a trace at 105 s</span>
+    <p>Each column of an ionogram is 0.41 s of sweep and stands on its own. Nothing in the column at 12 MHz depends on the one at 25 MHz. Recording 105 s instead of 250 s keeps the first 105 s of the sweep, 7.5 to 18.0 MHz, and drops 18–32.5 MHz. The echo delay, the dechirp and the timing are exactly as before.</p>
+    <p>What is lost is the top of the band. At night the 1F MUF on this path is roughly 11–18 MHz, so nothing is lost. By day the trace runs on towards 25–32 MHz, and its upper part, nose included, is cut off at 18 MHz.</p>
+    <p>And the 280 in <span class="mono">NIC4_280</span> is not a duration. It is a transmitter timing label, <span class="mono">300:280</span> in the notation of Part 9. As that part shows, the station of that name actually receives a different Cyprus sweep.</p>
+  </div>
+
+  <p>The receiver sees a fixed 25 MHz slice of the spectrum, centred on the local oscillator. The transmitter crosses that slice once per sweep, in a straight line. A capture is the stretch of that line between <span class="mono">chirptime</span> and <span class="mono">chirptime + dur</span>:</p>
+
+  <div class="eq">
+    <div class="eq-line"><var>f</var><sub>low</sub> = LO − <var>f</var><sub>s</sub> ⁄ 2 &nbsp;&nbsp;&nbsp; <var>f</var><sub>high</sub> = <var>f</var><sub>low</sub> + <var>k</var> · dur</div>
+    <div class="eq-line">dur ≤ <var>f</var><sub>s</sub> ⁄ <var>k</var></div>
+    <p class="eq-where"><var>f</var><sub>s</sub> = 25 MHz, <var>k</var> the sweep rate. At 100 kHz/s the whole window takes 250 s; at 500 kHz/s it takes 50 s, which is why Sodankylä's duration is 50. That is its entire window, not a compromise. A duration longer than <var>f</var><sub>s</sub>/<var>k</var> records the transmitter after it has left the window, which is nothing.</p>
+  </div>
+
+  <figure>
+    <div class="figframe">
+      <svg viewBox="0 0 700 290" role="img" aria-label="Frequency against time. The Cyprus 300:235 sweep is a sloping line from 0 MHz. The receiver window is the band 7.5 to 32.5 MHz. A 105-second capture starting at chirptime 10 records the part of the line from 7.5 to 18 MHz; a 250-second capture would record it all. A second Cyprus sweep five seconds later runs parallel and just below.">
+        <!-- the whole window a 250 s capture would cover -->
+        <rect x="205.5" y="55" width="454.5" height="150" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="5 4" opacity=".45"/>
+        <text x="655" y="198" font-size="11.5" text-anchor="end" fill="currentColor" opacity=".62" font-family="IBM Plex Mono, monospace">dur 250: the whole 25 MHz window</text>
+
+        <!-- what dur 105 records -->
+        <rect x="205.5" y="55" width="190.9" height="150" style="fill:var(--accent-soft)" stroke="#0b6b7c" stroke-width="1.4"/>
+        <text x="212" y="72" font-size="11.5" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">dur 105</text>
+
+        <!-- band edges -->
+        <line x1="60" y1="205" x2="670" y2="205" stroke="currentColor" stroke-width="1" stroke-dasharray="2 4" opacity=".35"/>
+        <line x1="60" y1="55" x2="670" y2="55" stroke="currentColor" stroke-width="1" stroke-dasharray="2 4" opacity=".35"/>
+
+        <!-- axes -->
+        <line x1="60" y1="250" x2="670" y2="250" stroke="currentColor" stroke-width="1.4"/>
+        <line x1="60" y1="250" x2="60" y2="35" stroke="currentColor" stroke-width="1.4"/>
+        <text x="670" y="282" font-size="12" text-anchor="end" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace">seconds after hh:m0:00 (m = 0 or 5)</text>
+        <text x="52" y="42" font-size="12" text-anchor="end" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace">MHz</text>
+        <text x="52" y="209" font-size="11" text-anchor="end" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace">7.5</text>
+        <text x="52" y="146" font-size="11" text-anchor="end" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace">18</text>
+        <text x="52" y="59" font-size="11" text-anchor="end" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace">32.5</text>
+        <text x="78" y="266" font-size="11" text-anchor="middle" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace">−60</text>
+        <text x="187" y="266" font-size="11" text-anchor="middle" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace">0</text>
+        <text x="210" y="266" font-size="11" text-anchor="start" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">10</text>
+        <text x="396" y="266" font-size="11" text-anchor="middle" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">115</text>
+        <text x="660" y="266" font-size="11" text-anchor="middle" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace">260</text>
+
+        <!-- 300:240, five seconds behind -->
+        <line x1="78.2" y1="250" x2="660" y2="58" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3" opacity=".45"/>
+        <!-- 300:235 -->
+        <line x1="69.1" y1="250" x2="660" y2="55" stroke="currentColor" stroke-width="1.6"/>
+        <!-- the part a 105 s capture keeps -->
+        <line x1="205.5" y1="205" x2="396.4" y2="142" stroke="#0b6b7c" stroke-width="4.5" stroke-linecap="round"/>
+
+        <text x="142" y="244" font-size="11" fill="currentColor" font-family="IBM Plex Mono, monospace">300:235, 0 MHz at −65 s</text>
+        <text x="420" y="176" font-size="11.5" fill="currentColor" opacity=".62" font-family="IBM Plex Mono, monospace">300:240, 5 s behind (Part 8)</text>
+        <text x="214" y="100" font-size="11.5" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">recorded: 7.5 → 18.0 MHz</text>
+      </svg>
+    </div>
+    <figcaption>One transmitter, one receiver window. <span class="mono">chirptime</span> is where the sweep enters the window, and <span class="mono">dur</span> is how far along it the capture follows. The dashed sweep 5 s behind is a second Cyprus transmitter, in the air at the same moment and 500 kHz lower. Part 8 explains why it does not appear.</figcaption>
+  </figure>
+
+  <div class="tablewrap">
+    <table>
+      <caption>The schedule dialog's rows (Расписание), and what the sounder does with each.</caption>
+      <thead>
+        <tr><th>Dialog row</th><th>Key</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Период повторения</td><td class="mono">rep</td><td>Seconds between soundings of this station. It must be the transmitter's own period or a multiple of it. Sodankylä sweeps every 60 s, and taking one sweep in five (rep 300) is equally valid.</td></tr>
+        <tr class="hi"><td>chirptime</td><td class="mono">chirpt</td><td>Seconds after UTC midnight, modulo <span class="mono">rep</span>, at which the sweep crosses the bottom of the window. The next capture starts at midnight + chirpt + <var>n</var>·rep. Fractions are allowed.</td></tr>
+        <tr><td>Скорость перестройки</td><td class="mono">rate</td><td>kHz/s, and it must match the transmitter. An error Δ<var>k</var> adds a beat that grows by Δ<var>k</var> per second, so the trace tilts: 8.4 Hz/s over 50 s is 420 Hz, or 250 km at 500 kHz/s.</td></tr>
+        <tr class="hi"><td>Продолжительность сеанса</td><td class="mono">dur</td><td>Seconds recorded. Sets the top of the band, <span class="mono">f<sub>low</sub> + k·dur</span>, and nothing else.</td></tr>
+        <tr><td>Частота гетеродина</td><td class="mono">cf</td><td>The LO, in kHz. The window is LO ± 12.5 MHz, retuned before every capture, so each station can have its own.</td></tr>
+        <tr><td>Широта, Долгота</td><td class="mono">lat, lon</td><td>Transmitter position. Sets the expected delay and which 1680 km of range the panels display.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <caption>The two stations as currently scheduled. The sweep rate changes almost everything: five times the rate buys five times finer delay and costs five times coarser frequency and a five-times shorter window.</caption>
+      <thead>
+        <tr><th>Quantity</th><th class="num">NIC4_280</th><th class="num">Sodankylä</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Sweep rate</td><td class="num">100 kHz/s</td><td class="num">500.0084 kHz/s</td></tr>
+        <tr><td>LO → window</td><td class="num">20 MHz → 7.5–32.5</td><td class="num">16 MHz → 3.5–28.5</td></tr>
+        <tr class="hi"><td>Duration → band recorded</td><td class="num">105 s → 7.5–18.0 MHz</td><td class="num">50 s → 3.5–28.5 MHz</td></tr>
+        <tr><td>Longest useful duration</td><td class="num">250 s</td><td class="num">50 s</td></tr>
+        <tr><td>Delay bin (FFT 16 384)</td><td class="num">24.4 µs · 7.3 km</td><td class="num">4.9 µs · 1.5 km</td></tr>
+        <tr><td>Frequency per column</td><td class="num">41 kHz</td><td class="num">205 kHz</td></tr>
+        <tr><td>Columns per capture</td><td class="num">256</td><td class="num">122</td></tr>
+        <tr><td>Unambiguous range</td><td class="num">±60 000 km</td><td class="num">±12 000 km</td></tr>
+        <tr><td>Expected 1F delay</td><td class="num">9.0 ms</td><td class="num">5.8 ms</td></tr>
+        <tr><td><span class="mono">.lfs</span> written</td><td class="num">33.6 MB</td><td class="num">16.0 MB</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============================================================= PARALLEL -->
+<section id="parallel">
+  <span class="part-no">Part 8 · Operating</span>
+  <h2 class="part">In turn or in parallel</h2>
+  <p class="part-lede">In the air, parallel is normal: several transmitters sweep at once, and the dechirp separates them by timing alone. In this receiver, soundings run one at a time, and that is a choice about where the dechirp happens, not a law of physics.</p>
+
+  <h3>Many transmitters, one band, no confusion</h3>
+  <p>Cyprus runs sweeps at 300:235, 300:240 and 300:245, each 5 s behind the last and therefore 500 kHz lower at every instant. All three are inside the receiver's window at once. Dechirping against the 235 replica puts the 240 sweep at a beat of 500 kHz and the 245 sweep at 1 MHz. The decimator is a 625-sample boxcar, with nulls every 40 kHz. It passes only what lies within ±20 kHz of the replica and rejects the rest: 500 kHz comes out 32 dB down, and 1 MHz lands exactly on a null.</p>
+  <p>So a transmitter is selected by <em>when</em> the replica starts, not by where the receiver is tuned. It is the same arithmetic that makes a wrong chirptime lose the signal (Part 9), seen from the other side.</p>
+
+  <h3>One receiver, one sounding at a time</h3>
+  <p>The sounder dechirps live, at 25 MS/s, and keeps only the 40 kHz product of one replica. Nothing else from the 25 MHz is stored. It can therefore follow one transmitter per capture, and the scheduler is correspondingly simple:</p>
+  <ul class="plain">
+    <li>For every active station it computes the next start at least <b>3 s</b> ahead, and records whichever comes <b>first</b>.</li>
+    <li>That capture runs its full duration. Then up to about a second of product building (<span class="mono">.lfp</span>, <span class="mono">.h5</span>), then it looks again.</li>
+    <li>A station whose start fell inside that capture is simply no longer due; its next start is one <span class="mono">rep</span> later. If the same overlap happens every cycle, that station is never recorded, and nothing in the log says so.</li>
+    <li>Settings reach the sounder only when it starts. After editing the schedule or parameters, press STOP and then START.</li>
+  </ul>
+
+  <figure>
+    <div class="figframe">
+      <svg viewBox="0 0 700 235" role="img" aria-label="Two timelines of a 300-second cycle. Top: NIC4 records from 10 to 115 seconds, Sodankylä from 121 to 171, and the rest of the cycle is free. Bottom: with NIC4's chirptime mistakenly 105, it records from 105 to 210, Sodankylä's start at 121 falls inside it, and Sodankylä is skipped every cycle.">
+        <text x="60" y="30" font-size="12" fill="currentColor" font-family="IBM Plex Mono, monospace">Now: NIC4 chirptime 10 / dur 105 · Sodankylä chirptime 121 / dur 50</text>
+        <rect x="80" y="42" width="210" height="30" rx="2" style="fill:var(--accent-soft)" stroke="#0b6b7c" stroke-width="1.4"/>
+        <text x="185" y="61" font-size="11.5" text-anchor="middle" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">NIC4_280 · 10–115 s</text>
+        <rect x="302" y="42" width="100" height="30" rx="2" style="fill:var(--accent-soft)" stroke="#0b6b7c" stroke-width="1.4"/>
+        <text x="352" y="61" font-size="11.5" text-anchor="middle" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">Sodankylä</text>
+        <rect x="291" y="42" width="11" height="30" fill="currentColor" opacity=".12"/>
+        <text x="296" y="88" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".7" font-family="IBM Plex Mono, monospace">6 s: products + ≥3 s lead</text>
+        <text x="531" y="61" font-size="11.5" text-anchor="middle" fill="currentColor" opacity=".55" font-family="IBM Plex Mono, monospace">free · 171–310 s</text>
+
+        <text x="60" y="122" font-size="12" fill="#9d5407" font-family="IBM Plex Mono, monospace">The mistake: NIC4 chirptime 105</text>
+        <rect x="270" y="130" width="210" height="24" rx="2" style="fill:var(--accent-soft)" stroke="#0b6b7c" stroke-width="1.4"/>
+        <text x="375" y="146" font-size="11.5" text-anchor="middle" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">NIC4_280 · 105–210 s</text>
+        <rect x="302" y="159" width="100" height="24" rx="2" fill="none" stroke="#9d5407" stroke-width="1.6" stroke-dasharray="5 3"/>
+        <text x="352" y="175" font-size="11.5" text-anchor="middle" fill="#9d5407" font-family="IBM Plex Mono, monospace">Sodankylä</text>
+        <text x="412" y="169" font-size="11.5" fill="#9d5407" font-family="IBM Plex Mono, monospace">due at 121, radio busy:</text>
+        <text x="412" y="183" font-size="11.5" fill="#9d5407" font-family="IBM Plex Mono, monospace">skipped, every cycle</text>
+
+        <line x1="60" y1="198" x2="660" y2="198" stroke="currentColor" stroke-width="1.2"/>
+        <g font-size="11" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace" text-anchor="middle">
+          <text x="60" y="212">0</text><text x="180" y="212">60</text><text x="300" y="212">120</text>
+          <text x="420" y="212">180</text><text x="540" y="212">240</text><text x="660" y="212">300</text>
+        </g>
+        <text x="660" y="229" font-size="11" text-anchor="end" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace">seconds after hh:m0:00</text>
+      </svg>
+    </div>
+    <figcaption>Both stations run once per 300 s, one after the other. A third station fits only if its window, plus 3 s of lead, lands in the free 171–310 s. The bottom row is the failure behind "the second station never starts": both stations were configured and active, and one was silently never due.</figcaption>
+  </figure>
+
+  <h3>What real parallel sounding would take</h3>
+  <ul class="plain">
+    <li><b>One stream, several replicas.</b> The 25 MS/s stream already contains every transmitter in the window. Dechirping it against two replicas at once gives two soundings from one capture, with no scheduling conflict. The cost is a second multiply-and-decimate at 25 MS/s. That doubles the load of the part of the sounder that has to keep up with the radio. It also only works for stations inside the same 25 MHz window. A common LO of 16 MHz would hold both of ours, since Cyprus's trace starts near 8 MHz and Sodankylä's near 4, but each station has its own LO today. Not implemented.</li>
+    <li><b>Keep the raw stream.</b> chirpsounder2 records the full 25 MS/s into a RAM ring buffer, 100 MB every second, and dechirps any number of sounders from it after the fact. That is how it detects transmitters it was never told about. The price is gigabytes of RAM and CPU to match.</li>
+    <li><b>More receivers.</b> The original dsChirp's configuration is a list of <em>lists</em> of sounders, one list per receiver thread. That format survives in <span class="mono">chirp_config.py</span>. Parallel, as its author meant it, was one radio per list.</li>
+  </ul>
+  <p>Within a 300 s cycle, in-turn scheduling is rarely the limit. The two stations use about half of it. The real constraint is that two transmitters whose best windows overlap cannot both be followed. Then one must move to another of its own sweeps, which is why Sodankylä, sweeping every minute, can simply take minute 2.</p>
+</section>
+
+<!-- =============================================================== TIMING -->
+<section id="timing">
+  <span class="part-no">Part 9 · Operating</span>
+  <h2 class="part">Finding a sounder's timing</h2>
+  <p class="part-lede">A sounder is identified by its sweep rate and its timing. Get either wrong by more than a few milliseconds and the capture is empty. Sometimes it is worse than empty: it looks like a trace in the wrong place.</p>
+
+  <p>Chirp lists, Twente's among them, give timing as <b>rep:offset</b>, the G3PLX notation. <span class="mono">rep</span> is the period. <span class="mono">offset</span> is the second, after each full hour, at which the sweep passes 0 MHz. The schedule wants the moment the sweep reaches the <em>bottom of this receiver's window</em>, so the conversion adds the time the sweep takes to get there:</p>
+
+  <div class="eq">
+    <div class="eq-line">chirptime = ( offset + (LO − <var>f</var><sub>s</sub>⁄2) ⁄ <var>k</var> ) mod rep</div>
+    <p class="eq-where">When the station's <span class="mono">rep</span> is a multiple of the transmitter's, add whole transmitter periods to choose which of its sweeps to take. Sodankylä sweeps every 60 s and the schedule takes one in five; every minute is equally valid, so pick the one that does not collide.</p>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <caption>Worked conversions for this station. The first row is the one in use under the name NIC4_280. Sodankylä reaches its window 1.0015 s into every minute; minute 2 of the 300 s cycle gives 121.0015.</caption>
+      <thead>
+        <tr><th>Transmitter</th><th class="num">Rate</th><th class="num">LO</th><th class="num">To window</th><th class="num">chirptime</th></tr>
+      </thead>
+      <tbody>
+        <tr class="hi"><td>Cyprus 300:235</td><td class="num">100 kHz/s</td><td class="num">20 MHz</td><td class="num">75 s</td><td class="num">10</td></tr>
+        <tr><td>Cyprus 300:240 / 300:245</td><td class="num">100 kHz/s</td><td class="num">20 MHz</td><td class="num">75 s</td><td class="num">15 / 20</td></tr>
+        <tr><td>300:280</td><td class="num">100 kHz/s</td><td class="num">20 MHz</td><td class="num">75 s</td><td class="num">55</td></tr>
+        <tr><td>Sodankylä 60:54.0016</td><td class="num">500.0084 kHz/s</td><td class="num">16 MHz</td><td class="num">6.9999 s</td><td class="num">121.0015</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>What a wrong chirptime does</h3>
+  <p>A timing error Δ<var>t</var> shifts the replica by <var>k</var>·Δ<var>t</var> of frequency, so it looks exactly like extra delay. Small errors move the trace: 1 ms is 300 km. Larger errors wrap around the unambiguous range, and the boxcar decimator attenuates them. Whole seconds either sit on the wrap or vanish into a null:</p>
+
+  <div class="tablewrap">
+    <table>
+      <caption>Computed from the decimator: 625 samples at 25 MS/s, nulls every 40 kHz. The panels show only 1680 km of range, so anything past about 5 ms of error already looks like "no signal".</caption>
+      <thead>
+        <tr><th>Error</th><th>At 100 kHz/s</th><th>At 500 kHz/s</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>1 ms</td><td>trace 300 km off</td><td>trace 300 km off</td></tr>
+        <tr><td>10 ms</td><td>3000 km off, out of the panel</td><td>3000 km off, out of the panel</td></tr>
+        <tr><td>0.2 s</td><td>on the wrap at ±60 000 km, −4 dB</td><td>on the wrap at ±12 000 km, −18 dB</td></tr>
+        <tr class="hi"><td>odd whole seconds</td><td>on the wrap, −18 dB (1 s) to −32 dB (5 s)</td><td>on the wrap, −32 dB (1 s) and weaker</td></tr>
+        <tr class="hi"><td>even whole seconds</td><td>on a null: gone</td><td>on a null: gone</td></tr>
+        <tr><td>a minute</td><td>gone</td><td>gone</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note caution">
+    <span class="lbl">Energy on the wrap is a timing diagnosis</span>
+    <p>Broad energy piled against the top and bottom of the full unambiguous range is the signature of an odd-second error. <span class="mono">tools/find_trace.py</span> reports it as such. It flagged Sodankylä's captures at chirptime 242, one second off the right value modulo 60. Nothing at all, on a path known to be open, is the even-second or wrong-minute case.</p>
+  </div>
+
+  <h3>What this station has actually heard</h3>
+  <p>Before the rep:offset lists, check the station's own record. chirpsounder2 detects chirps without being told their timing. Four days of its detections here, grouped into repeating sweeps:</p>
+
+  <div class="tablewrap">
+    <table>
+      <caption>151 321 detections by chirpsounder2 at Yoshkar-Ola, 13–16 August 2026. Delay is the fractional second of the detected 0 MHz time. For a GPS-aligned transmitter that is the propagation time, which identifies the path. Chirptimes are for LO 20 MHz, except the 500 kHz/s rows (LO 16 MHz).</caption>
+      <thead>
+        <tr><th>Rate</th><th>rep:offset</th><th class="num">Delay</th><th>Heard</th><th>Probably</th><th class="num">chirptime</th></tr>
+      </thead>
+      <tbody>
+        <tr class="hi"><td>100</td><td class="mono">300:235 / 240 / 245</td><td class="num">9.1–9.2 ms</td><td>8–25 MHz, all day, strong</td><td>Cyprus, 2634 km</td><td class="num">10 / 15 / 20</td></tr>
+        <tr><td>100</td><td class="mono">300:0</td><td class="num">9.3 ms</td><td>4.8–15.8 MHz, all day</td><td>Cyprus, another sweep</td><td class="num">75</td></tr>
+        <tr><td>100</td><td class="mono">300:291</td><td class="num">11.7 ms</td><td>13.9–24.4 MHz, all day</td><td>fits Irkutsk, 3530 km</td><td class="num">66</td></tr>
+        <tr><td>100</td><td class="mono">300:280</td><td class="num">16.6 ms</td><td>6–18 MHz, weak</td><td>not Cyprus, by its delay</td><td class="num">55</td></tr>
+        <tr><td>100</td><td class="mono">300:270</td><td class="num">2.9 ms</td><td>14–25 MHz, 05–16 UTC</td><td>unidentified</td><td class="num">45</td></tr>
+        <tr><td>125</td><td class="mono">450:17 / 407 / 437</td><td class="num">43.7 ms</td><td>5–22.5 MHz, 11–19 UTC</td><td>Australian JORN radars</td><td class="num">77 / 17 / 47</td></tr>
+        <tr><td>500</td><td class="mono">60:54</td><td class="num">5.8 ms</td><td>4.2–15 MHz, 05–20 UTC, ~2% of sweeps</td><td>Sodankylä, 1625 km</td><td class="num">1 + 60<var>m</var></td></tr>
+        <tr><td>500</td><td class="mono">60:58</td><td class="num">8.3 ms</td><td>9.4–18.4 MHz, 07–17 UTC</td><td>unidentified</td><td class="num">5 + 60<var>m</var></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Two readings of that table matter for the present schedule. <b>The station named NIC4_280 is receiving 300:235.</b> Chirptime 10 is 235's, and its 9–10 ms traces match 235's 9.1 ms delay. The real 300:280 arrives 16.6 ms late, which fits no path from Cyprus. <b>Sodankylä is reachable but weak here:</b> heard in about 2% of its sweeps, at exactly the 5.8 ms the geometry predicts. Its timing is right. Expect it occasionally, mostly by day, and look for it at the bottom of its panel.</p>
 </section>
 
 <!-- ============================================================== ANATOMY -->
 <section id="anatomy">
-  <span class="part-no">Part 7 · Reading</span>
+  <span class="part-no">Part 10 · Reading</span>
   <h2 class="part">Anatomy of a trace</h2>
 
   <figure>
@@ -669,7 +917,7 @@ footer {
 
 <!-- =============================================================== CAUSES -->
 <section id="causes">
-  <span class="part-no">Part 8 · Reading</span>
+  <span class="part-no">Part 11 · Reading</span>
   <h2 class="part">Appearance → cause</h2>
   <p class="part-lede">The lookup table this document exists for. The right-hand column says which stage of the chain introduced the feature, which is what decides whether to reach for a solar index or a packet counter.</p>
 
@@ -727,8 +975,28 @@ footer {
         </tr>
         <tr>
           <td>Everything displaced by a constant delay</td>
-          <td>Clock offset. 1 ms is 300 km, and the sign tells you which way the clock is wrong.</td>
+          <td>Clock offset, or a chirptime off by a fraction of a second. 1 ms is 300 km, and the sign tells you which way the timing is wrong.</td>
           <td><span class="tag inst">timing</span></td>
+        </tr>
+        <tr>
+          <td>Trace stops at the same frequency on every capture, flat, no nose</td>
+          <td>The end of the recording window, <span class="mono">f<sub>low</sub> + k·dur</span>: 18 MHz for NIC4 at 105 s. Not the MUF.</td>
+          <td><span class="tag inst">schedule</span></td>
+        </tr>
+        <tr>
+          <td>No trace at all, though other receivers show the transmitter on</td>
+          <td>Chirptime wrong by more than a few ms, or by whole seconds (Part 9), or rate wrong. Or a genuinely weak path: Sodankylä is heard here in about 2% of its sweeps.</td>
+          <td><span class="tag inst">timing</span></td>
+        </tr>
+        <tr>
+          <td>Broad energy against both ends of the full range, none in between</td>
+          <td>Chirptime off by an odd number of seconds. The echo sits on the wrap, 18–32 dB down.</td>
+          <td><span class="tag inst">timing</span></td>
+        </tr>
+        <tr>
+          <td>A scheduled station never produces a capture</td>
+          <td>Its start falls inside another station's capture every cycle, so it is never due (Part 8).</td>
+          <td><span class="tag inst">schedule</span></td>
         </tr>
         <tr>
           <td>Uniform speckle across the whole frame</td>
@@ -747,7 +1015,7 @@ footer {
 
 <!-- ============================================================== STRIPES -->
 <section id="stripes">
-  <span class="part-no">Part 9 · Reading</span>
+  <span class="part-no">Part 12 · Reading</span>
   <h2 class="part">White stripes in the daily-course panels</h2>
   <p class="part-lede">The signal-to-noise and power-delay panels are built one column per capture, so anything that costs a capture leaves a white column. The <em>shape</em> of the white says which thing went wrong — these panels are a fault log as much as a propagation record.</p>
 
@@ -796,7 +1064,7 @@ footer {
 
 <!-- =============================================================== BUDGET -->
 <section id="budget">
-  <span class="part-no">Part 10 · Instrument</span>
+  <span class="part-no">Part 13 · Instrument</span>
   <h2 class="part">Error budget</h2>
   <p class="part-lede">Measured on this station, not estimated. Each row converts an instrumental error into the range error it produces, because range is what the ionogram claims to show.</p>
 
@@ -834,7 +1102,7 @@ footer {
 
 <!-- =============================================================== LIMITS -->
 <section id="limits">
-  <span class="part-no">Part 11</span>
+  <span class="part-no">Part 14</span>
   <h2 class="part">What this instrument cannot currently measure</h2>
   <p class="part-lede">Stated plainly so nobody builds on it by accident.</p>
 
@@ -850,7 +1118,7 @@ footer {
 </main>
 
 <footer>
-  <p>Compiled from the ionozond reverse-engineering work, August 2026. Numeric claims were computed against the station's own archive and its measured configuration rather than quoted; the multi-hop table, resolution chain and error budget can all be re-derived from the formulae given. Where a figure came from a single capture rather than a population, the text says so.</p>
+  <p>Compiled from the ionozond reverse-engineering work, August 2026; Parts 7–9 added September 2026. Numeric claims were computed against the station's own archive and its measured configuration rather than quoted. The multi-hop table, resolution chain, error budget and chirptime-error table can all be re-derived from the formulae given. The census of heard transmitters comes from chirpsounder2's detection log for 13–16 August 2026. Where a figure came from a single capture rather than a population, the text says so.</p>
 </footer>
 
 </div>
