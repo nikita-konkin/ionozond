@@ -104,7 +104,35 @@ const double LAY_E_SQR       = 40000.0;   /* also present in .rodata @0x494448 *
 inline double radians(double deg) { return deg * M_PI / 180.0; }
 }
 
+/*
+ * The great circle, by the atan2 form of Vincenty's formula for a sphere.
+ *
+ * Not the original's. Its second term lacked the cos(dlon) factor -- see
+ * earthDistanceKmOriginal -- which is right only when both stations share a
+ * meridian: 2538 km for Cyprus where the path is 2591, and 4414 for Magadan
+ * where it is 5476. The sounder's sidecars (lfp_products.earth_distance_km)
+ * always used the correct distance, so a panel drawn from a sidecar and one
+ * drawn here put the delay window 0.2 ms apart for Cyprus and 3.5 ms apart
+ * for Magadan; the daily-course panel, which took its axis from here, was
+ * labelled with the wrong delays.
+ */
 double earthDistanceKm(double lat1, double lon1, double lat2, double lon2)
+{
+    const double la1 = radians(lat1);
+    const double la2 = radians(lat2);
+    const double dlon = radians(lon2) - radians(lon1);
+
+    const double x = std::sin(la1) * std::sin(la2)
+                   + std::cos(la1) * std::cos(la2) * std::cos(dlon);
+    const double y = std::hypot(std::cos(la2) * std::sin(dlon),
+                                std::cos(la1) * std::sin(la2)
+                                - std::sin(la1) * std::cos(la2) * std::cos(dlon));
+    return EARTH_RADIUS_KM * std::atan2(y, x);
+}
+
+/* The original's, from ionogr_clean/distance.py, kept so test_axes can still
+ * show it reproduces the original's displayed window. */
+double earthDistanceKmOriginal(double lat1, double lon1, double lat2, double lon2)
 {
     const double txLat = radians(lat1);
     const double txLon = radians(lon1);

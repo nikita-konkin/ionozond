@@ -198,8 +198,12 @@ QString homePath();
 QString configIniPath();     // $HOME/.config/dsChirp/config.ini
 QString scheduleIniPath();   // $HOME/.config/dsChirp/schedule.ini
 
-/* Great-circle distance between two stations, in km. */
+/* Great-circle distance between two stations, in km -- the same as the
+ * sounder's sidecars use. */
 double earthDistanceKm(double lat1, double lon1, double lat2, double lon2);
+/* The original's formula, which is short except along a meridian. For the
+ * record and test_axes only; see common.cpp. */
+double earthDistanceKmOriginal(double lat1, double lon1, double lat2, double lon2);
 /* Ray path length for a given ground distance, ported from
  * ionogr_clean/distance.py::ray_distance. */
 double rayDistanceKm(double earthDistance);

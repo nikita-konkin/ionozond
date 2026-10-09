@@ -40,6 +40,7 @@ QRxIonogram::QRxIonogram(const QBaseSoundParams &base,
       m_haveHeader(false),
       m_luf(-1.0f),
       m_muf(-1.0f),
+      m_fftCount(0),
       m_live(false),
       m_liveMarker(0)
 {
@@ -138,6 +139,7 @@ void QRxIonogram::showLive(const LiveIonogram &live)
         m_snrVector.clear();
         m_pdpVector.clear();
         m_luf = m_muf = -1.0f;
+        m_fftCount = live.settings().fftCount;
         m_live = true;
     }
 
@@ -445,6 +447,7 @@ bool QRxIonogram::loadLfsData(const QString &fileName)
 
     m_header = h;
     m_haveHeader = true;
+    m_fftCount = fftCount;
 
     m_igFileName = fileName;
     m_startDateTime = QDateTime(QDate(h.start_year, h.start_month, h.start_day),
@@ -565,6 +568,7 @@ bool QRxIonogram::applyProducts(const LfpProducts &p)
     m_luf = p.lufMHz;
     m_muf = p.mufMHz;
     m_snrVector = p.snr;
+    m_fftCount = (int)p.fftCount;
 
     /* Rebuild the interval samples from the stored values and the axis. */
     m_pdpVector.clear();

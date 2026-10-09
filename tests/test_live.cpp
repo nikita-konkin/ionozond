@@ -111,43 +111,22 @@ int main(int argc, char **argv)
         delete grown;
     }
 
-    /*
-     * The one-pass picture on the original's grid against loadLfsData, the
-     * console's own path for a finished capture with no sidecar.
-     *
-     * The two place the delay window differently: loadLfsData through
-     * common.cpp's earthDistanceKm, the original's formula, and the live
-     * picture through the sidecar builder's correct great circle. They agree
-     * when both stations share a meridian, so the comparison runs on a copy
-     * whose receiver has been moved onto the transmitter's.
-     */
+    /* The one-pass picture on the original's grid against loadLfsData, the
+     * console's own path for a finished capture with no sidecar. */
     std::printf("--- against QRxIonogram::loadLfsData\n");
     {
-        const QString same = QString::fromLocal8Bit(argv[2]) + QLatin1String("/meridian.lfs");
-        QFile::remove(same);
-        QFile::copy(cap, same);
-        QFile f(same);
-        f.open(QIODevice::ReadWrite);
-        float txLon = 0.0f;
-        f.seek(0x052);
-        f.read(reinterpret_cast<char *>(&txLon), 4);
-        f.seek(0x09A);
-        f.write(reinterpret_cast<const char *>(&txLon), 4);
-        f.close();
-
         QBaseSoundParams base;
         base.sampleRateIndex = SAMPLE_RATE_LIST().indexOf(QLatin1String("25000"));
         base.fftCountIndex = FFT_COUNT_LIST().indexOf(QLatin1String("16384"));
         QTxParams tx;
         QRxParams rx;
         QRxIonogram panel(base, tx, rx);
-        check(panel.loadLfsData(same), "loadLfsData");
+        check(panel.loadLfsData(cap), "loadLfsData");
         const LfpProducts p = panel.products();
 
         LiveSettings s;
-        LiveIonogram live(same, s);
+        LiveIonogram live(cap, s);
         drain(live);
-        QFile::remove(same);
 
         check((int)p.specCount == live.columns() && (int)p.specPointCount == live.rows(),
               "same grid");

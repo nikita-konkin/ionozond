@@ -1097,20 +1097,44 @@ the new one replaced it whole. It now draws live again
   `<station>_<yyyyMMdd>_<hhmmss>`, so one station's soundings stop appearing
   in another's panels.
 
-**A discrepancy this turned up.** `common.cpp`'s `earthDistanceKm` reproduces
-the original's great-circle formula, whose second term lacks `cos Δλ`.
-`lfp_products.earth_distance_km` has the correct one, despite its docstring
-claiming to match. They agree on a shared meridian and nowhere else:
+### The console's path length was the original's, and wrong
+
+`common.cpp`'s `earthDistanceKm` reproduced the original's great-circle
+formula (from `ionogr_clean/distance.py`), whose second term lacks `cos Δλ`.
+`lfp_products.earth_distance_km` had the correct one, while its docstring
+claimed to match. The two agree on a shared meridian and nowhere else:
 
 | Path | Original's formula | Correct |
 |---|---|---|
 | Cyprus | 2538 km | 2591 km |
 | Magadan | 4414 km | 5476 km |
+| Norilsk | 2741 km | 2447 km |
 
-Sidecars, and therefore everything normally on screen, use the correct
-distance, so the live picture does too. The console's own fallback (a capture
-with no sidecar) and an empty panel's default axes still use the original's,
-which for Magadan puts the window 3.5 ms early.
+Sidecars, and so almost everything on screen, used the correct distance. The
+console used the original's in two places:
+
+- **The fallback.** A capture with no sidecar was drawn with its window
+  0.2 ms off for Cyprus and 3.5 ms off for Magadan.
+- **An empty panel's default axes.** The ПЗМ panel took its delay axis from
+  these, and spread each sidecar's rows over that window. So the data were
+  right but the labels were wrong: Magadan's read 14.1–19.7 ms for rows at
+  17.7–23.3, and Norilsk's 8.6–14.2 for 7.6–13.2.
+
+`earthDistanceKm` is now the correct great circle. The original's formula is
+kept as `earthDistanceKmOriginal`, which `test_axes` uses to keep showing the
+original's displayed window, alongside checks of the corrected one. The ПЗМ
+panel now reads each column's delays from its own intervals and takes its
+axis from the data, so it no longer depends on the console's geometry at all.
+
+### ПЗМ is scaled to 16384-point spectra
+
+ПЗМ sums the gated picture over the spectra between LUF and MUF, so its size
+grows with how many spectra there are. Moving Magadan to 4096 points made its
+columns four times larger, which rescaled the panel and washed out the rest
+of the day. The console now weights each spectrum by its length relative to
+16384 points (`analysisFftCount() / 16384`) as it hands ПЗМ to the panel.
+Stations on 16384 read exactly as before. The sidecar keeps the raw sum, so
+old and new sidecars are scaled alike.
 
 ### What the console is for, once the service runs
 

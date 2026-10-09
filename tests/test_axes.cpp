@@ -50,9 +50,10 @@ int main(int argc, char **argv)
     near("if_rate, Hz", ifRate, 40000.0, 0.5);
     near("virtual height max, km", vrangeKm, (double)VIRT_HEIGHT_MAX, 1.0);
 
-    /* Display window around the great-circle path. */
-    const double dKm    = earthDistanceKm(h.tx_latitude, h.tx_longitude,
-                                          h.rx_latitude, h.rx_longitude);
+    /* Display window around the great-circle path -- the original's
+     * distance, since the ranges below are the original's. */
+    const double dKm    = earthDistanceKmOriginal(h.tx_latitude, h.tx_longitude,
+                                                  h.rx_latitude, h.rx_longitude);
     const double rayKm  = rayDistanceKm(dKm);
     const double rminKm = rayKm - VIRT_HEIGHT_WINDOW_MARGIN_KM_DEFAULT;
     const double rmaxKm = rminKm + VIRT_HEIGHT_WINDOW_KM_DEFAULT
@@ -76,6 +77,31 @@ int main(int argc, char **argv)
     near("window span, ms", tmaxMs - tminMs,
          timeMsFromHeightKm(VIRT_HEIGHT_WINDOW_KM_DEFAULT
                             + VIRT_HEIGHT_WINDOW_MARGIN_KM_DEFAULT), 1e-9);
+
+    /*
+     * The console's distance is the correct great circle, not the original's:
+     * check it against the haversine form, and that the original's is short
+     * off a meridian and exact on one.
+     */
+    {
+        const double d2r = M_PI / 180.0;
+        const double la1 = h.tx_latitude * d2r, lo1 = h.tx_longitude * d2r;
+        const double la2 = h.rx_latitude * d2r, lo2 = h.rx_longitude * d2r;
+        const double hv = std::pow(std::sin((la2 - la1) / 2.0), 2.0)
+                        + std::cos(la1) * std::cos(la2)
+                          * std::pow(std::sin((lo2 - lo1) / 2.0), 2.0);
+        const double haversine = 2.0 * 6378.137 * std::asin(std::sqrt(hv));
+        const double correct = earthDistanceKm(h.tx_latitude, h.tx_longitude,
+                                               h.rx_latitude, h.rx_longitude);
+        std::printf("  %-30s %10.2f km (original's %.2f)\n", "great circle, corrected",
+                    correct, dKm);
+        near("corrected vs haversine, km", correct, haversine, 0.01);
+        near("Magadan - Yoshkar-Ola, km",
+             earthDistanceKm(59.56, 150.80, 56.38, 47.53), 5475.8, 0.5);
+        near("original's on a meridian, km",
+             earthDistanceKmOriginal(35.0, 33.0, 56.0, 33.0),
+             earthDistanceKm(35.0, 33.0, 56.0, 33.0), 1e-6);
+    }
 
     std::printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "PASSED",
                 failures, failures == 1 ? "" : "s");

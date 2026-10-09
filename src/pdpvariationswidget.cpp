@@ -14,10 +14,8 @@
 class PdpVariationsWidget::PdpRaster : public QwtRasterData
 {
 public:
-    PdpRaster(const QVector<QDateTime> *times, const QVector<PdpVector> *columns,
-              float delayMin, float delayMax)
-        : m_times(times), m_columns(columns),
-          m_delayMin(delayMin), m_delayMax(delayMax) {}
+    PdpRaster(const QVector<QDateTime> *times, const QVector<PdpVector> *columns)
+        : m_times(times), m_columns(columns) {}
 
     virtual double value(double x, double y) const
     {
@@ -35,7 +33,20 @@ public:
         if (v.isEmpty())
             return 0.0;
 
-        int row = (int)((y - m_delayMin) / (m_delayMax - m_delayMin) * (v.size() - 1) + 0.5);
+        /*
+         * Each column on its own delay axis, read from its own intervals. The
+         * rows were spread over the panel's window instead, which was right
+         * only while every capture's window was that one: the window came
+         * from the console's path length and the rows from the sidecar's,
+         * which disagreed by 3.5 ms for Magadan, and with per-station FFT
+         * lengths one day can hold columns with different numbers of rows.
+         * When the two windows agree this is the same nearest-row lookup.
+         */
+        const double lo = v.first().interval.minValue();
+        const double hi = v.last().interval.maxValue();
+        if (!(hi > lo) || y < lo || y > hi)
+            return 0.0;
+        int row = (int)((y - lo) / (hi - lo) * v.size());
         row = std::min(std::max(row, 0), v.size() - 1);
         return v.at(row).value;
     }
@@ -43,8 +54,6 @@ public:
 private:
     const QVector<QDateTime> *m_times;
     const QVector<PdpVector> *m_columns;
-    float m_delayMin;
-    float m_delayMax;
 };
 
 PdpVariationsWidget::PdpVariationsWidget(unsigned int periodHour,
@@ -77,7 +86,7 @@ PdpVariationsWidget::PdpVariationsWidget(unsigned int periodHour,
     setAxisScaleDraw(QwtPlot::xBottom, new DateTimeScaleDraw());
     setAxisScale(QwtPlot::yLeft, m_delayMin, m_delayMax);
 
-    m_raster = new PdpRaster(&m_times, &m_columns, m_delayMin, m_delayMax);
+    m_raster = new PdpRaster(&m_times, &m_columns);
     m_spectrogram = new QwtPlotSpectrogram();
     m_spectrogram->setRenderThreadCount(0);
     m_spectrogram->setColorMap(new QIgColorMap(m_colorLevels));
@@ -154,6 +163,25 @@ void PdpVariationsWidget::rebuild()
                 top = std::max(top, m_columns.at(c).at(i).value);
         if (top <= 0.0)
             top = 1.0;
+    }
+
+    /* The delay axis is the data's: the span of every column held. */
+    bool any = false;
+    double dLo = 0.0, dHi = 0.0;
+    for (int c = 0; c < m_columns.size(); ++c) {
+        const PdpVector &v = m_columns.at(c);
+        if (v.isEmpty())
+            continue;
+        const double lo = v.first().interval.minValue();
+        const double hi = v.last().interval.maxValue();
+        dLo = any ? std::min(dLo, lo) : lo;
+        dHi = any ? std::max(dHi, hi) : hi;
+        any = true;
+    }
+    if (any && dHi > dLo) {
+        m_delayMin = (float)dLo;
+        m_delayMax = (float)dHi;
+        setAxisScale(QwtPlot::yLeft, m_delayMin, m_delayMax);
     }
 
     m_raster->setInterval(Qt::XAxis, QwtInterval(t0, t1));

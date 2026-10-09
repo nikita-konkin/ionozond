@@ -91,6 +91,9 @@ public:
     const PdpVector      &pdpVector() const { return m_pdpVector; }
     float luf_MHz() const { return m_luf; }
     float muf_MHz() const { return m_muf; }
+    /* Points per analysis spectrum of the capture loaded: the sidecar's own,
+     * which is the station's FFT length when it was built. */
+    int   analysisFftCount() const { return m_fftCount; }
 
     bool isControlIonogram() const  { return m_isControl; }
     void setControlIonogram(bool v) { m_isControl = v; }
@@ -140,6 +143,7 @@ private:
     PdpVector      m_pdpVector;
     float          m_luf;
     float          m_muf;
+    int            m_fftCount;
 
     bool           m_live;
     QwtPlotMarker *m_liveMarker;

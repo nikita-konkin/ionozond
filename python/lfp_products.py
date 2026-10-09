@@ -100,7 +100,11 @@ _LFS_STRUCT = "<4sf4sH64sff64sff7HIIIHIIiiIIHII292s"
 # ---------------------------------------------------------------- geometry
 
 def earth_distance_km(lat1, lon1, lat2, lon2):
-    """Great-circle distance, matching src/common.cpp exactly.
+    """Great-circle distance, matching src/common.cpp's earthDistanceKm.
+
+    Not the original's formula, whose second term lacks cos(dlon) and is short
+    off a meridian (4414 km for Magadan where the path is 5476); common.cpp
+    keeps that one as earthDistanceKmOriginal.
 
     Note the coordinates are fed in as stored. The archive stores degrees and
     minutes as DD.MM while every reader treats them as decimal degrees -- see

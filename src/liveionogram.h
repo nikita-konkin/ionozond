@@ -93,8 +93,7 @@ public:
     QDateTime start() const;
     const lfs_header &header() const { return m_h; }
 
-    /* Great-circle distance as the sidecar builder computes it; see the .cpp
-     * for why that is not common.cpp's earthDistanceKm. */
+    /* Great-circle distance, as the sidecar builder computes it. */
     static double groundDistanceKm(double lat1, double lon1, double lat2, double lon2);
 
 private:

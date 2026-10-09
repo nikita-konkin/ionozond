@@ -6,6 +6,9 @@
 #include <QEvent>
 #include <QFileInfo>
 #include <QScopedPointer>
+
+/* The original's FFT length, which ПЗМ values are scaled to. */
+static const int PDP_REFERENCE_FFT = 16384;
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QToolButton>
@@ -364,7 +367,22 @@ void QIGFrame::feedVariations(const QRxIonogram *panel)
                         panel->luf_MHz(),
                         panel->muf_MHz());
 
-    m_pdp->onValueAdded(panel->startDateTime(), panel->pdpVector());
+    /*
+     * ПЗМ sums the in-band spectra, so its size went with how many there are:
+     * a station on 4096 points has four times as many as on 16384, and its
+     * column came out four times as large, rescaling the whole panel. Each
+     * spectrum now counts for its length relative to 16384 points -- the
+     * original's -- so stations on 16384 read exactly as before, and one
+     * moved to another length does not jump.
+     */
+    PdpVector pdp = panel->pdpVector();
+    const int points = panel->analysisFftCount();
+    if (points > 0 && points != PDP_REFERENCE_FFT) {
+        const double weight = (double)points / (double)PDP_REFERENCE_FFT;
+        for (int i = 0; i < pdp.size(); ++i)
+            pdp[i].value *= weight;
+    }
+    m_pdp->onValueAdded(panel->startDateTime(), pdp);
 }
 
 LiveSettings QIGFrame::liveSettings() const

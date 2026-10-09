@@ -21,23 +21,7 @@ static const double SNR_VMAX_DB    = 75.0;
 
 double LiveIonogram::groundDistanceKm(double lat1, double lon1, double lat2, double lon2)
 {
-    /*
-     * python/lfp_products.py's earth_distance_km, not common.cpp's
-     * earthDistanceKm. They differ: the console's reproduces the original,
-     * whose second term lacks the cos(dlon) factor, and is short wherever the
-     * stations are not on one meridian -- 4414 km for Magadan to Yoshkar-Ola
-     * against 5476. The sounder's sidecars use the correct one, and it is
-     * those that replace this picture, so this draws the same delay window.
-     */
-    const double d2r = 3.14159265358979323846 / 180.0;
-    const double la1 = lat1 * d2r, lo1 = lon1 * d2r, la2 = lat2 * d2r, lo2 = lon2 * d2r;
-    const double dlon = lo2 - lo1;
-    const double x = std::sin(la1) * std::sin(la2)
-                   + std::cos(la1) * std::cos(la2) * std::cos(dlon);
-    const double y = std::hypot(std::cos(la2) * std::sin(dlon),
-                                std::cos(la1) * std::sin(la2)
-                                - std::sin(la1) * std::cos(la2) * std::cos(dlon));
-    return 6378.137 * std::atan2(y, x);
+    return earthDistanceKm(lat1, lon1, lat2, lon2);
 }
 
 LiveIonogram::LiveIonogram(const QString &lfsPath, const LiveSettings &settings)
