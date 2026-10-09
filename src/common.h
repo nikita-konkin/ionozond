@@ -64,9 +64,21 @@ struct QTxParams {
     bool    active;
     bool    rx;
 
+    /*
+     * Per-station overrides of the parameters dialog, 0 meaning "use the
+     * dialog's". Not in the original, whose stations all swept at 100 kHz/s.
+     * The FFT length fixes the shape of a cell -- rate*N/if_rate of sweep by
+     * if_rate/(rate*N) of delay -- so one length cannot suit 100 and
+     * 500 kHz/s at once: 16384 points at 500 kHz/s is 205 kHz by 1.5 km.
+     */
+    quint32 fftCount;     // fft_count: points per spectrum
+    quint32 ionoPad;      // iono_pad: picture rows per FFT bin
+    quint32 ionoOverlap;  // iono_overlap: picture columns per spectrum
+
     QTxParams()
         : lat(0), lon(0), chirpt(0), cf(0), dur(0), rate(0), rep(0),
-          snrMax(0), pdpMax(0), active(false), rx(false) {}
+          snrMax(0), pdpMax(0), active(false), rx(false),
+          fftCount(0), ionoPad(0), ionoOverlap(0) {}
 };
 
 /* The receiving station. */
@@ -119,6 +131,10 @@ struct QBaseSoundParams {
     double sampleRate_Mhz() const;
     /* FFT length, from FFT_COUNT_LIST. */
     int    fftCount() const;
+
+    /* These parameters as one station uses them: its own FFT length when the
+     * schedule gives one, otherwise the dialog's. */
+    QBaseSoundParams forStation(const QTxParams &tx) const;
 };
 
 /* "Суточный ход" parameters: 3 ints and 2 ints respectively. */

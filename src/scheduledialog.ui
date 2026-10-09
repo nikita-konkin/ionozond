@@ -3,7 +3,7 @@
  <class>ScheduleDialog</class>
  <widget class="QDialog" name="ScheduleDialog">
   <property name="geometry">
-   <rect><x>0</x><y>0</y><width>1000</width><height>440</height></rect>
+   <rect><x>0</x><y>0</y><width>1200</width><height>560</height></rect>
   </property>
   <property name="windowTitle"><string>Расписание</string></property>
   <property name="windowIcon">

@@ -233,12 +233,18 @@ void frmMain::CreateIgAreas()
         tx.rep    = wholeSetting(m_scheduleSettings->value(QLatin1String("rep")));
         tx.active = active;
         tx.rx     = m_scheduleSettings->value(QLatin1String("rx")).toBool();
+        tx.fftCount    = m_scheduleSettings->value(QLatin1String("fft_count")).toUInt();
+        tx.ionoPad     = m_scheduleSettings->value(QLatin1String("iono_pad")).toUInt();
+        tx.ionoOverlap = m_scheduleSettings->value(QLatin1String("iono_overlap")).toUInt();
         m_scheduleSettings->endGroup();
 
         if (!active)
             continue;
 
-        QIGFrame *frame = new QIGFrame(base, tx, rx, snrParams, pdpParams, this);
+        /* The station's own FFT length, so a capture with no sidecar yet is
+         * drawn on the grid the sounder will build its sidecar on. */
+        QIGFrame *frame = new QIGFrame(base.forStation(tx), tx, rx,
+                                       snrParams, pdpParams, this);
         m_igFrames.append(frame);
         m_sessionParams.append(tx);
         ui->splWorkPart->addWidget(frame);

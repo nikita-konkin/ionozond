@@ -797,6 +797,33 @@ nothing else; there is no "better" setting, only a choice of which axis matters:
 Going coarser in one axis to gain the other is a real choice, but leaving it
 matched is the reason the default is where it is.
 
+### Per station — `fft_count`, `iono_pad`, `iono_overlap` in schedule.ini
+
+The match above only holds at 100 kHz/s. At 500 kHz/s (Sodankylä, Magadan,
+Norilsk) 16384 points make a 205 kHz × 1.5 km cell. That's too flat for a
+trace whose delay drifts or spreads, and too wide for the 9 × 3 speckle filter,
+which then spans 1.8 MHz of sweep. 4096 gives 51 kHz × 5.9 km, close to the
+original's shape; `docs/ionogram-physics.html` has the derivation.
+
+So a station group may carry its own `fft_count` (points), `iono_pad` and
+`iono_overlap`. The schedule dialog shows them as three rows, plus a read-only
+row with the cell size the FFT length gives at that station's rate.
+
+- **Inheriting means the key is absent.** "общ." removes the key rather than
+  writing 0. `buildChirpConfig` copies every key of a group into the station's
+  dict, so a station without overrides produces byte-identical
+  `chirp_config.py`, and the golden test still passes.
+- **The sounder** (`rx_dechirp.product_grid`) builds each sidecar and `.h5` at
+  the station's own values. Before this it never read `fft_count_index` at all:
+  every sidecar was 16384, whatever the dialog said. Only the console's own
+  fallback for a capture with no sidecar followed the dialog. Both now agree.
+- **The console** gives each station's panels `base.forStation(tx)`, the
+  dialog's parameters with that station's FFT length. A length not in
+  `FFT_COUNT_LIST` is ignored.
+- **Existing sidecars keep the grid they were built on.** To rebuild a
+  station's archive at its new length, run:
+  `lfp_products.py <dir> --fft 4096 --force`.
+
 ### The variation panels' period — `snr_period_hour`, `pdp_period_hour`
 
 Setting the period to 24 h drew only the last two hours. The panels trim

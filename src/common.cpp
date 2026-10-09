@@ -57,6 +57,19 @@ int QBaseSoundParams::fftCount() const
     return list.at(fftCountIndex).toInt();
 }
 
+QBaseSoundParams QBaseSoundParams::forStation(const QTxParams &tx) const
+{
+    QBaseSoundParams p = *this;
+    /* A length the list does not hold is ignored rather than trusted: the
+     * whole pipeline indexes FFT_COUNT_LIST, and a typo in schedule.ini
+     * should cost the override, not the station. */
+    const int index = tx.fftCount
+        ? FFT_COUNT_LIST().indexOf(QString::number(tx.fftCount)) : -1;
+    if (index >= 0)
+        p.fftCountIndex = index;
+    return p;
+}
+
 /* ------------------------------------------------------------------ *
  * Settings locations
  * ------------------------------------------------------------------ */

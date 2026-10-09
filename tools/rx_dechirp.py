@@ -430,6 +430,40 @@ def all_sounders(cfg):
     return out
 
 
+# The console's FFT_COUNT_LIST, ascending, so fft_count_index 5 is 16384.
+FFT_COUNT_LIST = [512 << i for i in range(8)]
+
+
+def product_grid(cfg, sounder, pad_default, overlap_default):
+    """FFT length and picture detail for one station's sidecar.
+
+    The station's own when the schedule gives them, otherwise the parameters
+    dialog's. Separate per station because the FFT length fixes the shape of
+    a cell -- rate*N/if_rate of sweep by if_rate/(rate*N) of delay -- and no
+    one length suits 100 and 500 kHz/s: 16384 points is 41 kHz x 7.3 km at
+    100 but 205 kHz x 1.5 km at 500, which also stretches the speckle filter
+    to 1.8 MHz of sweep.
+
+    Before this, fft_count_index was not read here at all: every sidecar was
+    built at 16384 whatever the dialog said.
+    """
+    try:
+        index = int(cfg.get("fft_count_index", 5))
+        general = FFT_COUNT_LIST[index] if 0 <= index < len(FFT_COUNT_LIST)             else 16384
+    except (TypeError, ValueError):
+        general = 16384
+    try:
+        fft = int(sounder.get("fft_count") or general)
+    except (TypeError, ValueError):
+        fft = general
+    if fft not in FFT_COUNT_LIST:
+        fft = general
+    pad = int(sounder.get("iono_pad") or cfg.get("iono_pad", pad_default) or 1)
+    overlap = int(sounder.get("iono_overlap")
+                  or cfg.get("iono_overlap", overlap_default) or 1)
+    return fft, max(1, pad), max(1, overlap)
+
+
 def determine_next(rep, chirpt, now=None):
     """Next chirp start, as unix time. Port of chirp.py's determineNext."""
     if now is None:
@@ -1509,6 +1543,14 @@ def run_live(opts, cfg, sounders):
     products = load_sidecar_builder(log) if opts.sidecar else None
     if products:
         log("  writing .lfp sidecars beside each capture")
+        for s in sounders:
+            fft, pad, overlap = product_grid(
+                cfg, s, products.IONO_PAD_DEFAULT, products.IONO_OVERLAP_DEFAULT)
+            sweep = float(s.get("rate") or 0) * fft / (sr / dec)
+            cell = ("%.0f kHz x %.1f km a cell" % (sweep / 1e3, 3e5 / sweep)
+                    if sweep > 0 else "no rate")
+            log("    %-12s FFT %5d: %s; picture x%d delay, x%d frequency"
+                % (s["name"], fft, cell, pad, overlap))
 
     # What this station writes, and what it throws away.
     #
@@ -1706,16 +1748,16 @@ def run_live(opts, cfg, sounders):
                 # Whatever the console set in config.ini reaches us through
                 # chirp_config.py, so a sidecar built here matches what the
                 # console would have produced itself.
+                fft, pad, overlap = product_grid(
+                    cfg, sounder, products.IONO_PAD_DEFAULT,
+                    products.IONO_OVERLAP_DEFAULT)
                 out, size, h5_out = products.build_one(
-                    result["path"], quiet=True,
+                    result["path"], fft_count=fft, quiet=True,
                     obj_w=int(cfg.get("obj_size_horizontal", 9)),
                     obj_h=int(cfg.get("obj_size_vertical", 3)),
                     obj_level=float(cfg.get("obj_level", 11.0)),
                     iono_mode=str(cfg.get("iono_mode", "gated")),
-                    iono_pad=int(cfg.get("iono_pad",
-                                         products.IONO_PAD_DEFAULT)),
-                    iono_overlap=int(cfg.get("iono_overlap",
-                                             products.IONO_OVERLAP_DEFAULT)),
+                    iono_pad=pad, iono_overlap=overlap,
                     h5_archive_km=h5_window)
                 raw = os.path.getsize(result["path"])
                 log("  sidecar   %s  %.1f kB  (%.0fx smaller, %.1f s)"

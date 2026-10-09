@@ -610,6 +610,34 @@ footer {
 
   <p>FFT length is a pure trade: doubling it halves the frequency step and halves the delay bin in the other direction. 16 384 is where the two agree — the transmitter moves 41 kHz during the 0.41 s each spectrum integrates, so neither axis is being resolved finer than the other can support.</p>
 
+  <h3>One FFT length per sweep rate</h3>
+  <p>That agreement holds at 100 kHz/s only. A cell is <span class="mono">k·N/f<sub>IF</sub></span> of sweep by <span class="mono">f<sub>IF</sub>/(k·N)</span> of delay, so at five times the rate the same 16 384 points make a cell five times wider and five times flatter. Keeping the original's shape needs <span class="mono">N ∝ 1/√k</span>: about 7 300 at 500 kHz/s, and of the lengths on offer 4 096 is the nearer in both axes.</p>
+
+  <div class="tablewrap">
+    <table>
+      <caption>Cell shape against sweep rate, at 40 kHz IF. Columns are for a 52 s capture, as at Magadan and Norilsk.</caption>
+      <thead>
+        <tr><th>Rate</th><th class="num">FFT</th><th class="num">Sweep per column</th><th class="num">Delay bin</th><th class="num">Columns</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>100 kHz/s</td><td class="num">16 384</td><td class="num">41 kHz</td><td class="num">7.3 km</td><td class="num">—</td></tr>
+        <tr><td>500 kHz/s</td><td class="num">16 384</td><td class="num">205 kHz</td><td class="num">1.5 km</td><td class="num">126</td></tr>
+        <tr><td>500 kHz/s</td><td class="num">8 192</td><td class="num">102 kHz</td><td class="num">2.9 km</td><td class="num">253</td></tr>
+        <tr class="hi"><td>500 kHz/s</td><td class="num">4 096</td><td class="num">51 kHz</td><td class="num">5.9 km</td><td class="num">507</td></tr>
+        <tr><td>500 kHz/s</td><td class="num">2 048</td><td class="num">26 kHz</td><td class="num">11.7 km</td><td class="num">1 015</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>The flat cell costs more than looks. Three things go wrong at 500 kHz/s with 16 384 points:</p>
+  <ul class="plain">
+    <li><b>The echo leaves its bin.</b> One bin is 2.44 Hz, which is 4.9 µs of delay. A trace whose delay changes by more than that across the 205 kHz a window spans — a slope of 0.024 ms/MHz, gentle for a multi-hop mode — or a Doppler spread of a few hertz, spreads over several bins. The 6 dB the longer window should buy is then mostly gone.</li>
+    <li><b>Short traces get few columns.</b> Magadan's night trace spans 5.3–5.9 MHz, which is 1.2 s of sweep. At 16 384 that is three columns; at 4 096 it is twelve.</li>
+    <li><b>The speckle filter is counted in cells.</b> Its 9 × 3 window is 1.8 MHz × 4.4 km at 16 384 and 0.46 MHz × 17.6 km at 4 096. The original's, at 100 kHz/s, was 0.37 MHz × 22 km. A three-column trace can't collect the neighbours the filter asks for, so it's deleted as speckle.</li>
+  </ul>
+  <p>On a synthetic Magadan capture with four hops at 18.9–21.0 ms, 4 096 shows all four as clean lines. At 16 384 two are barely visible.</p>
+  <p>So the schedule carries an optional FFT length for each station (<span class="mono">Длина БПФ</span>), along with its own picture detail. The row beneath shows the cell the length gives at that station's rate. A station left on <span class="mono">общ.</span> uses the parameters dialog's value. 100 kHz/s stations should stay on 16 384, and 500 kHz/s stations should use 4 096.</p>
+
   <h3>A finer picture is not a finer measurement</h3>
   <p>The picture is drawn by a separate pass: each FFT is zero-padded four times over, and two overlapping windows are taken per spectrum (Parameters → <span class="mono">детализация по задержке / по частоте</span>, ×4 / ×2 by default). Nothing in the table changes. A trace is still one 7.32 km bin tall and 41 kHz of sweep wide. What changes is that the picture interpolates <em>between</em> bins instead of drawing a staircase of them, so two features a bin or two apart — a nose and the layer below it, an O/X pair — stop merging into one block.</p>
   <p>Only the picture changes. LUF, MUF, the SNR and ПЗМ panels and the <span class="mono">.h5</span> archive are computed on the analysis grid above, and stay bit-for-bit identical at any setting.</p>
