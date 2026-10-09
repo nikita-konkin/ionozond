@@ -3,7 +3,7 @@
  <class>ScheduleDialog</class>
  <widget class="QDialog" name="ScheduleDialog">
   <property name="geometry">
-   <rect><x>0</x><y>0</y><width>1200</width><height>560</height></rect>
+   <rect><x>0</x><y>0</y><width>1200</width><height>700</height></rect>
   </property>
   <property name="windowTitle"><string>Расписание</string></property>
   <property name="windowIcon">
@@ -59,6 +59,14 @@
    </item>
 
    <item row="2" column="0" colspan="2">
+    <widget class="QTextBrowser" name="txtIssues">
+     <property name="maximumHeight"><number>150</number></property>
+     <property name="minimumHeight"><number>60</number></property>
+     <property name="toolTip"><string>Проверка расписания и параметров: пересечения сеансов, значения, которые зондировщик не примет или которые теряют данные. Обновляется по ходу правки.</string></property>
+    </widget>
+   </item>
+
+   <item row="3" column="0" colspan="2">
     <widget class="QDialogButtonBox" name="buttonBox">
      <property name="orientation"><enum>Qt::Horizontal</enum></property>
      <property name="standardButtons"><set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set></property>

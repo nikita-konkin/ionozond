@@ -1,10 +1,14 @@
 #ifndef SCHEDULEDIALOG_H
 #define SCHEDULEDIALOG_H
 
+#include "schedulecheck.h"
+
 #include <QDialog>
 #include <QSettings>
 #include <QString>
 #include <QStringList>
+
+class QTimer;
 
 namespace Ui { class ScheduleDialog; }
 
@@ -43,6 +47,9 @@ private slots:
     void createRxList();
     void onCellChanged(int row, int col);
     void updateCells();
+    /* Re-run the checks a moment after the last edit, not on every key. */
+    void scheduleCheck();
+    void runChecks();
 
 private:
     /* Row order of the parameter table. The rows from RowFft on are not in
@@ -64,9 +71,17 @@ private:
                                  const QString &format, int current);
     /* The frequency x delay cell this column's rate and FFT length give. */
     void updateCell(int col);
+    /* The table as it would be saved: columns ticked for deletion left out. */
+    QList<ScheduleEntry> tableEntries() const;
 
     Ui::ScheduleDialog *ui;
     QSettings *m_settings;
+
+    CheckConfig m_checkConfig;
+    QTimer     *m_checkTimer;
+    /* What was wrong when the dialog opened, so OK only stops for what the
+     * edit added. */
+    QStringList m_initialIssues;
 
     /* The parameters dialog's values, which a station without its own uses. */
     int    m_generalFft;

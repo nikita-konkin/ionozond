@@ -89,5 +89,14 @@ g++ $CXXFLAGS $QT_INC -I"$SRC/src" -o "$BUILD/test_live" \
 QT_QPA_PLATFORM=offscreen "$BUILD/test_live" "$CAP" "$BUILD" || rc=1
 
 echo
+echo "=== test_schedulecheck (collisions and values the sounder cannot take) ==="
+g++ $CXXFLAGS $QT_INC -o "$BUILD/test_schedulecheck" \
+    "$SRC/tests/test_schedulecheck.cpp" "$SRC/src/schedulecheck.cpp" \
+    "$SRC/src/common.cpp" "$BUILD/moc_common.cpp" "$SRC/src/lfs_header.cpp" \
+    "$SRC/src/qigcolormap.cpp" "$SRC/src/qigcolormap_tables.cpp" \
+    $QT_LIB -lm || exit 1
+"$BUILD/test_schedulecheck" || rc=1
+
+echo
 [ $rc -eq 0 ] && echo "ALL TESTS PASSED" || echo "SOME TESTS FAILED"
 exit $rc

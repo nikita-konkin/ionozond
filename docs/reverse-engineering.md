@@ -1140,6 +1140,66 @@ of the day. The console now weights each spectrum by its length relative to
 Stations on 16384 read exactly as before. The sidecar keeps the raw sum, so
 old and new sidecars are scaled alike.
 
+### Checking the schedule and parameters before they cost data
+
+`src/schedulecheck.*` covers mistakes that the console used to accept
+silently. The schedule dialog shows the result live, below the table. On OK
+it stops for any error, and for any warning this edit introduced; warnings
+that were already present when the dialog opened don't stop it. The console
+logs every issue at startup and after either dialog closes. The parameters
+dialog has no list of its own, so the console pops up any new issue when it
+closes. START asks before launching if there are errors.
+
+**Collisions.** One radio follows one sweep. `rx_dechirp.py` takes whichever
+station is due first: a tie goes to the first in `chirp_config.py`, which is
+alphabetical. A chirp less than 3 s away counts as missed. The grid restarts
+at each UTC midnight. A station that falls due while another station is
+recording or building its sidecar is never recorded, and nothing reports it.
+The checker replays that choice over a day:
+
+- once with no processing time, which shows the sessions that are certainly
+  lost;
+- once with `2 + 0.06·dur` s of processing after each capture, which shows
+  the sessions at risk. The 1.5 s measured for a 52 s capture is well inside
+  this allowance.
+
+Each lost session is blamed on the capture that held the radio. Where it
+helps, the checker gives the longest `dur` for that station that spares the
+victim. It re-simulates that `dur` before suggesting it. It never suggests
+moving `chirpt`, because the transmitter sets that. The same replay catches a
+station against itself: if `dur + 3 > rep`, every other session is lost.
+
+**Values `chirp_config.py` cannot carry.** `configwriter` copies values in
+verbatim, so each must be a Python literal exactly as typed. Each of these is
+an error:
+
+- `56,38` is a syntax error inside the dict;
+- `0300` is a syntax error in Python 3;
+- a quote in a station name breaks `'name':'…'`.
+
+A Cyrillic name is accepted, but `pack_lfs_header` encodes it as Latin-1, and
+the capture fails. `rep ≤ 0` hangs `determine_next` in an endless loop.
+
+**Settings that are legal but lose data:**
+
+| Setting | Result |
+|---|---|
+| `dur·rate` wider than the sample rate | The rest is noise outside the band. Magadan and Norilsk at 52 s × 500 kHz/s are 2 s over; 50 s is enough. Overshoot under 0.5 s is ignored, which covers Sodankylä's 500.0084. |
+| Delay window past ±if_rate/2 at the station's rate | The window folds over. This is an error. |
+| FFT longer than the capture, or too few spectra for the 9-wide speckle filter | No ionogram, or an empty one. |
+| `obj_level` above the filter window's cell count | `deleteSmallObjects` removes everything. |
+| `chirpt` outside 0…rep, or `rep` not dividing 86400 | The sounder and the console's session panel disagree about when sessions happen. |
+| `sample_rate` disagrees with `sample_rate_index` | The two copies in `config.ini` give different values. |
+| Coordinates 0, 0 or out of range | The delay window is drawn in the wrong place. |
+| `cf` below 1 MHz or a sweep under 1 MHz | The value was probably entered in the wrong units. |
+| `data_dir` missing or not writable, `sound_app` missing | Nothing is recorded, or nothing is started. |
+| Free disk under the sounder's 5 GB floor plus one capture, or kept `.lfs` outgrowing the disk | The sounder skips sessions. |
+
+Advice, not faults: when the cell is 4× or more from the original's
+41 kHz × 7.3 km, the checker names the FFT length that restores it. That
+length is 16384·(100 kHz/s ÷ rate)·(if_rate ÷ 40 kHz), rounded to a power of
+two. At 500 kHz/s this gives 4096.
+
 ### What the console is for, once the service runs
 
 The division is not obvious, because the console looks like the thing that

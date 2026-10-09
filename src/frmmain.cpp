@@ -7,6 +7,7 @@
 #include "qcpuusagewidget.h"
 #include "qdrivepiechart.h"
 #include "schedule.h"
+#include "schedulecheck.h"
 
 #include <QApplication>
 #include <QDir>
@@ -83,6 +84,7 @@ frmMain::frmMain(QWidget *parent)
     CreateIgAreas();
     CreateControlPanel();
     LoadLatestCaptures();
+    CheckSettings(false);
 
     /* Poll rather than watch the filesystem: a directory listing every few
      * seconds costs nothing next to a 250 s sounding, and QFileSystemWatcher
@@ -754,6 +756,19 @@ void frmMain::seanseStart()
 {
     console(QLatin1String("=== START ==="), Qt::green);
 
+    /* An error here is a sounder that will not start, crash on the first
+     * capture, or record nothing usable: worth one question. */
+    if (CheckSettings(false) > 0
+            && QMessageBox::question(
+                   this, QString::fromUtf8("Запуск зондирования"),
+                   QString::fromUtf8("Проверка расписания и параметров нашла ошибки "
+                                     "(они в журнале ниже). Запустить всё равно?"),
+                   QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
+               != QMessageBox::Yes) {
+        console(QLatin1String("START cancelled."), Qt::yellow);
+        return;
+    }
+
     if (!CreateConfigFile()) {
         console(QLatin1String("Error writing configuration file"), Qt::red);
         return;
@@ -1000,6 +1015,37 @@ void frmMain::ParamsDlgClose()
      * never again, and writeChirpConfig now commits atomically.
      */
     ApplyConfigChange(QLatin1String("Parameters"));
+    /* The parameters dialog has no list of its own, unlike the schedule's. */
+    CheckSettings(true);
+}
+
+int frmMain::CheckSettings(bool popupNew)
+{
+    const QList<CheckIssue> issues = checkSchedule(readScheduleEntries(*m_scheduleSettings),
+                                                   readCheckConfig(*m_settings));
+    QStringList lines;
+    QList<CheckIssue> fresh;
+    for (int i = 0; i < issues.size(); ++i) {
+        const CheckIssue &is = issues.at(i);
+        const QString line = issueLine(is);
+        lines << line;
+        if (is.level != CheckIssue::Info && !m_knownIssues.contains(line))
+            fresh << is;
+        console(line, is.level == CheckIssue::Error   ? QColor(Qt::red)
+                    : is.level == CheckIssue::Warning ? QColor(Qt::yellow)
+                                                      : QColor(Qt::gray));
+    }
+    m_knownIssues = lines;
+
+    if (popupNew && !fresh.isEmpty()) {
+        QMessageBox box(QMessageBox::Warning, QString::fromUtf8("Проверка настроек"),
+                        QString::fromUtf8("После изменения настроек:<br><br>")
+                            + issuesHtml(fresh),
+                        QMessageBox::Ok, this);
+        box.setTextFormat(Qt::RichText);
+        box.exec();
+    }
+    return countIssues(issues, CheckIssue::Error);
 }
 void frmMain::ScheduleDlgClose()
 {
@@ -1008,4 +1054,6 @@ void frmMain::ScheduleDlgClose()
      * START did, so a station added or retimed here reached the sounder only
      * by luck of when it was next started. */
     ApplyConfigChange(QLatin1String("Schedule"));
+    /* The dialog has already shown these and asked about new ones. */
+    CheckSettings(false);
 }

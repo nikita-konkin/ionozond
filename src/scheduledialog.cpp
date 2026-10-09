@@ -7,8 +7,11 @@
 #include <QComboBox>
 #include <QHeaderView>
 #include <QInputDialog>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QTimer>
 
 /* The choices the parameters dialog offers, so a station cannot pick a
  * detail the sidecar builder was never tested with. */
@@ -28,6 +31,7 @@ ScheduleDialog::ScheduleDialog(QSettings *scheduleSettings, QWidget *parent)
     : QDialog(parent),
       ui(new Ui::ScheduleDialog),
       m_settings(scheduleSettings),
+      m_checkTimer(0),
       m_generalFft(16384),
       m_generalPad(4),
       m_generalOverlap(2),
@@ -50,7 +54,13 @@ ScheduleDialog::ScheduleDialog(QSettings *scheduleSettings, QWidget *parent)
         const double sampleHz = config.value(QLatin1String("sample_rate"), 25000).toDouble() * 1e3;
         const double dec      = config.value(QLatin1String("dec"), 625).toDouble();
         m_ifRateHz = dec > 0.0 ? sampleHz / dec : 0.0;
+        m_checkConfig = readCheckConfig(config);
     }
+
+    m_checkTimer = new QTimer(this);
+    m_checkTimer->setSingleShot(true);
+    m_checkTimer->setInterval(300);
+    connect(m_checkTimer, SIGNAL(timeout()), this, SLOT(runChecks()));
 
     QStringList headers;
     headers << QString::fromUtf8("Использовать в активном расписании")
@@ -91,8 +101,15 @@ ScheduleDialog::ScheduleDialog(QSettings *scheduleSettings, QWidget *parent)
         ui->tblSchedule->verticalHeaderItem(RowIonoPad)->toolTip());
 
     connect(ui->tblSchedule, SIGNAL(cellChanged(int,int)), this, SLOT(onCellChanged(int,int)));
+    connect(ui->cmbRxStation, SIGNAL(currentIndexChanged(int)), this, SLOT(scheduleCheck()));
 
     ReadSchedule();
+
+    runChecks();
+    const QList<CheckIssue> issues = checkSchedule(tableEntries(), m_checkConfig);
+    for (int i = 0; i < issues.size(); ++i)
+        if (issues.at(i).level != CheckIssue::Info)
+            m_initialIssues << issueLine(issues.at(i));
 }
 
 ScheduleDialog::~ScheduleDialog()
@@ -116,6 +133,7 @@ QComboBox *ScheduleDialog::detailCombo(const QString &general, const QList<int> 
     }
     box->setCurrentIndex(at);
     connect(box, SIGNAL(currentIndexChanged(int)), this, SLOT(updateCells()));
+    connect(box, SIGNAL(currentIndexChanged(int)), this, SLOT(scheduleCheck()));
     return box;
 }
 
@@ -132,6 +150,7 @@ void ScheduleDialog::addStationColumn(const QString &name, bool active, const QS
     /* "Use in the active schedule" and "delete" are checkboxes, the rest text. */
     QCheckBox *activeBox = new QCheckBox(ui->tblSchedule);
     activeBox->setChecked(active);
+    connect(activeBox, SIGNAL(toggled(bool)), this, SLOT(scheduleCheck()));
     ui->tblSchedule->setCellWidget(RowActive, col, activeBox);
 
     ui->tblSchedule->setItem(RowRep,    col, new QTableWidgetItem(rep));
@@ -161,7 +180,9 @@ void ScheduleDialog::addStationColumn(const QString &name, bool active, const QS
         QString::fromUtf8("общ. ×%1").arg(m_generalOverlap),
         overlapChoices(), QString::fromUtf8("×%1"), overlap));
 
-    ui->tblSchedule->setCellWidget(RowDelete, col, new QCheckBox(ui->tblSchedule));
+    QCheckBox *deleteBox = new QCheckBox(ui->tblSchedule);
+    connect(deleteBox, SIGNAL(toggled(bool)), this, SLOT(scheduleCheck()));
+    ui->tblSchedule->setCellWidget(RowDelete, col, deleteBox);
 
     updateCell(col);
 }
@@ -208,6 +229,48 @@ void ScheduleDialog::onCellChanged(int row, int col)
     if (row == RowRate)
         updateCell(col);
     createRxList();
+    scheduleCheck();
+}
+
+void ScheduleDialog::scheduleCheck()
+{
+    if (m_checkTimer)
+        m_checkTimer->start();
+}
+
+QList<ScheduleEntry> ScheduleDialog::tableEntries() const
+{
+    QList<ScheduleEntry> out;
+    const QString rx = ui->cmbRxStation->currentText();
+    for (int col = 0; col < ui->tblSchedule->columnCount(); ++col) {
+        QTableWidgetItem *head = ui->tblSchedule->horizontalHeaderItem(col);
+        if (!head)
+            continue;
+        QCheckBox *del = qobject_cast<QCheckBox *>(ui->tblSchedule->cellWidget(RowDelete, col));
+        if (del && del->isChecked())
+            continue;
+        QCheckBox *act = qobject_cast<QCheckBox *>(ui->tblSchedule->cellWidget(RowActive, col));
+        QComboBox *fft = qobject_cast<QComboBox *>(ui->tblSchedule->cellWidget(RowFft, col));
+
+        ScheduleEntry e;
+        e.name   = head->text();
+        e.active = act && act->isChecked();
+        e.rx     = e.name == rx;
+        QString *texts[] = { &e.rep, &e.chirpt, &e.rate, &e.dur, &e.cf, &e.lat, &e.lon };
+        const int rows[] = { RowRep, RowChirpt, RowRate, RowDur, RowCf, RowLat, RowLon };
+        for (int k = 0; k < 7; ++k) {
+            QTableWidgetItem *it = ui->tblSchedule->item(rows[k], col);
+            *texts[k] = it ? it->text() : QString();
+        }
+        e.fft    = fft ? fft->currentData().toInt() : 0;
+        out << e;
+    }
+    return out;
+}
+
+void ScheduleDialog::runChecks()
+{
+    ui->txtIssues->setHtml(issuesHtml(checkSchedule(tableEntries(), m_checkConfig)));
 }
 
 void ScheduleDialog::ReadSchedule()
@@ -350,6 +413,36 @@ void ScheduleDialog::on_btnDelete_clicked()
 
 void ScheduleDialog::on_buttonBox_accepted()
 {
+    /* Stop for every error, and for a warning only when this edit brought
+     * it: one the operator has already been shown and kept is not news. */
+    const QList<CheckIssue> issues = checkSchedule(tableEntries(), m_checkConfig);
+    QList<CheckIssue> stop;
+    for (int i = 0; i < issues.size(); ++i) {
+        const CheckIssue &is = issues.at(i);
+        if (is.level == CheckIssue::Error
+                || (is.level == CheckIssue::Warning
+                    && !m_initialIssues.contains(issueLine(is))))
+            stop << is;
+    }
+    if (!stop.isEmpty()) {
+        QMessageBox box(QMessageBox::Warning, windowTitle(),
+                        (countIssues(stop, CheckIssue::Error) > 0
+                             ? QString::fromUtf8("В расписании есть ошибки.")
+                             : QString::fromUtf8("После правки появились замечания."))
+                            + QLatin1String("<br><br>") + issuesHtml(stop),
+                        QMessageBox::NoButton, this);
+        box.setTextFormat(Qt::RichText);
+        QPushButton *save = box.addButton(QString::fromUtf8("Сохранить как есть"),
+                                          QMessageBox::AcceptRole);
+        QPushButton *back = box.addButton(QString::fromUtf8("Вернуться к правке"),
+                                          QMessageBox::RejectRole);
+        box.setDefaultButton(back);
+        box.exec();
+        if (box.clickedButton() != save) {
+            runChecks();
+            return;
+        }
+    }
     WriteSchedule();
     accept();
 }

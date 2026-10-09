@@ -78,6 +78,11 @@ private:
      * still using what it started with. */
     void ApplyConfigChange(const QString &what);
     void CreateActiveSchedule();
+    /* Run the schedule and parameter checks (schedulecheck.h) and log what
+     * they find. With `popupNew`, errors and warnings not logged before are
+     * also shown in a message box. Returns the number of errors. */
+    int  CheckSettings(bool popupNew);
+    QStringList m_knownIssues;
 
     /* The sounder's own progress channel. Returns true when the line was a
      * STATUS line and has been consumed, so it never reaches the log pane. */
