@@ -1043,6 +1043,75 @@ Two details that decide whether it is usable:
 `m_history` holds paths only; rasters load on demand, so browsing a day costs
 nothing until a panel is actually asked for.
 
+### The ionogram drawn during reception
+
+The original drew a sounding while it was recorded. `QRxIonogram`'s
+`timerEvent` read whatever the sounder had appended (`readNewLfsSpecData`),
+and the trace grew from the left across the 250 s. The port only loaded
+finished captures, so the current panel showed the previous sounding until
+the new one replaced it whole. It now draws live again
+(`src/liveionogram.*`). The setting is "Строить ионограмму во время приёма"
+(`live_ionogram`), on by default.
+
+- **Found on disk, not through STATUS lines.** Every 2 s the console takes
+  each station's newest capture that has no sidecar yet and was modified in
+  the last 90 s. STATUS only reaches the console when it launched the sounder
+  itself; the systemd service writes the same files.
+- **Only new columns are computed.** Each tick reads the ~2 s just appended,
+  from the page cache. At ×4/×2 that's about ten 65 536-point FFTs.
+  `ScanForNewCaptures` still holds off while capturing; this doesn't, because
+  it is a few milliseconds of work, not 80 MB and three panels. A newly opened
+  console catches up 96 columns a tick.
+- **It uses the sidecar's arithmetic.** That means the station's FFT length,
+  zero-padding, overlap, gate or continuous mode, and speckle window. The
+  sidecar that replaces the live picture therefore doesn't jump. Checked on
+  the 2019 Cyprus capture at ×4/×2:
+  - gated mode keeps the same 55 156 cells as `lfp_products.py`, max
+    difference 6·10⁻⁶ dB;
+  - continuous mode differs by at most 1·10⁻⁴ dB;
+  - on the original grid it matches `loadLfsData` cell for cell.
+
+  `tests/test_live.cpp` feeds a capture in uneven pieces and requires the
+  grown picture to equal the one-pass picture bit for bit.
+- **The speckle filter runs on a moving band.** New columns change the filter
+  for half a window to their left. Re-running it from a full window back gives
+  exactly the whole-array result, because the filter's edge clamp then falls
+  where the whole array's does. The newest half-window stays empty until its
+  neighbours arrive.
+- **Hand-over.** When a sounding starts, the current panel's capture moves to
+  the control panel, as `addIg` does for a finished one. The sounder's
+  sidecar then replaces the live picture through the usual scan, with no
+  second promotion.
+  - An older sounding whose sidecar lands after the next one has started goes
+    to the control panel, or only to the variation plots if the control panel
+    is pinned.
+  - A sounding stopped early is renamed `.partial`; the panels go back to how
+    they were.
+  - A following pop-out viewer draws it live too, keeping its zoom.
+- **Captures the sounder hasn't finished are no longer loaded as finished.**
+  Before, the scan could load a capture in the seconds between its last
+  sample and its sidecar, computing it a second time beside the sounder.
+  Opened mid-sounding, the console loaded half a capture and wrote a sidecar
+  of it. Both waits now last up to 90 s for the sounder's sidecar.
+- **`NIC4_*` no longer matches `NIC4_280_*`.** Captures are matched as
+  `<station>_<yyyyMMdd>_<hhmmss>`, so one station's soundings stop appearing
+  in another's panels.
+
+**A discrepancy this turned up.** `common.cpp`'s `earthDistanceKm` reproduces
+the original's great-circle formula, whose second term lacks `cos Δλ`.
+`lfp_products.earth_distance_km` has the correct one, despite its docstring
+claiming to match. They agree on a shared meridian and nowhere else:
+
+| Path | Original's formula | Correct |
+|---|---|---|
+| Cyprus | 2538 km | 2591 km |
+| Magadan | 4414 km | 5476 km |
+
+Sidecars, and therefore everything normally on screen, use the correct
+distance, so the live picture does too. The console's own fallback (a capture
+with no sidecar) and an empty panel's default axes still use the original's,
+which for Magadan puts the window 3.5 ms early.
+
 ### What the console is for, once the service runs
 
 The division is not obvious, because the console looks like the thing that

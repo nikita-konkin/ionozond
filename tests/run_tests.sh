@@ -76,5 +76,18 @@ g++ $CXXFLAGS $QT_INC -o "$BUILD/test_lfp" \
 "$BUILD/test_lfp" || rc=1
 
 echo
+echo "=== test_live (a capture drawn while it is written) ==="
+/usr/lib/qt5/bin/moc $QT_INC "$SRC/src/qrxionogram.h" -o "$BUILD/moc_qrxionogram.cpp"
+g++ $CXXFLAGS $QT_INC -I"$SRC/src" -o "$BUILD/test_live" \
+    "$SRC/tests/test_live.cpp" "$SRC/src/liveionogram.cpp" \
+    "$SRC/src/qrxionogram.cpp" "$BUILD/moc_qrxionogram.cpp" \
+    "$SRC/src/rasterdata.cpp" "$SRC/src/lfpfile.cpp" \
+    "$SRC/src/iganalytics.cpp" "$SRC/src/igmath.cpp" \
+    "$SRC/src/common.cpp" "$BUILD/moc_common.cpp" "$SRC/src/lfs_header.cpp" \
+    "$SRC/src/qigcolormap.cpp" "$SRC/src/qigcolormap_tables.cpp" \
+    $QT_LIB -lfftw3 -lm || exit 1
+QT_QPA_PLATFORM=offscreen "$BUILD/test_live" "$CAP" "$BUILD" || rc=1
+
+echo
 [ $rc -eq 0 ] && echo "ALL TESTS PASSED" || echo "SOME TESTS FAILED"
 exit $rc

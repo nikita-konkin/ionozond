@@ -2,6 +2,7 @@
 #define QIGFRAME_H
 
 #include "common.h"
+#include "liveionogram.h"
 #include "qrxionogram.h"
 #include "snrvariationswidget.h"
 #include "pdpvariationswidget.h"
@@ -37,6 +38,7 @@ public:
              const SnrVarParams &snrParams = SnrVarParams(),
              const PdpVarParams &pdpParams = PdpVarParams(),
              QWidget *parent = 0);
+    ~QIGFrame();
 
     QString stationName() const { return m_tx.name; }
 
@@ -55,9 +57,26 @@ public:
     /* Every capture loaded so far, oldest first. */
     const QStringList &history() const { return m_history; }
 
+    /*
+     * The sounding being recorded, drawn into the current panel as it
+     * arrives; see liveionogram.h. Called on every live tick with the path of
+     * the station's newest unfinished capture. When it starts, the current
+     * panel's capture moves to the control panel, as addIg does for a
+     * finished one -- 250 s sooner. addIg with the same path ends it.
+     */
+    void followLive(const QString &lfsPath);
+    /* The capture being followed has gone without finishing (the sounder
+     * stopped early): put the panels back as they were. */
+    void dropLive();
+    const LiveIonogram *live() const { return m_live; }
+
 signals:
     /* A capture was added, or the list was cleared. */
     void historyChanged();
+    /* More of the sounding being recorded has been drawn. */
+    void liveUpdated(const LiveIonogram *live);
+    /* The live sounding was dropped without a finished capture. */
+    void liveEnded();
 
 public slots:
     void setIgAreaVisible(const QString &stationName, const bool &visible);
@@ -87,6 +106,10 @@ private:
      * is showing an older capture on purpose. */
     void openViewer(QRxIonogram *panel, bool follow);
 
+    LiveSettings liveSettings() const;
+    /* Hand a loaded capture's SNR and PDP to the variation panels. */
+    void feedVariations(const QRxIonogram *panel);
+
     void showControlAt(int index);
     void updateControlNav();
     /* Which capture the control panel is showing: the pinned one, or the
@@ -115,6 +138,8 @@ private:
     class QToolButton *m_btnBack;
     class QToolButton *m_btnForward;
     class QToolButton *m_btnLatest;
+
+    LiveIonogram *m_live;            /* the sounding being recorded, if any */
 };
 
 #endif /* QIGFRAME_H */

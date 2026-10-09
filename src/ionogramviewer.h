@@ -12,6 +12,7 @@ class QToolButton;
 class QIGFrame;
 class QRxIonogram;
 class IgZoomer;
+class LiveIonogram;
 
 /*
  * One ionogram in a window of its own.
@@ -42,6 +43,10 @@ public slots:
     /* The frame's capture list changed: follow the newest if asked to,
      * otherwise just keep the position readout honest. */
     void onHistoryChanged();
+    /* More of the sounding being recorded: shown when following. */
+    void onLiveUpdated(const LiveIonogram *live);
+    /* It stopped without finishing: back to the newest finished capture. */
+    void onLiveEnded();
 
 private slots:
     void back();
@@ -52,6 +57,7 @@ private slots:
 
 private:
     void showCapture(const QString &capture);
+    void showLive(const LiveIonogram *live);
     void updateNav();
 
     QIGFrame    *m_frame;

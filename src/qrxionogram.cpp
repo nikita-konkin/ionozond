@@ -2,18 +2,22 @@
 
 #include "igmath.h"
 #include "iganalytics.h"
+#include "liveionogram.h"
 #include "qigcolormap.h"
 
 #include <QFile>
 #include <QFileInfo>
+#include <QPen>
 
 #include <qwt_color_map.h>
+#include <qwt_plot_marker.h>
 #include <qwt_scale_widget.h>
 #include <qwt_text.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <vector>
 
 QRxIonogram::QRxIonogram(const QBaseSoundParams &base,
@@ -35,7 +39,9 @@ QRxIonogram::QRxIonogram(const QBaseSoundParams &base,
       m_noiseGate(true),
       m_haveHeader(false),
       m_luf(-1.0f),
-      m_muf(-1.0f)
+      m_muf(-1.0f),
+      m_live(false),
+      m_liveMarker(0)
 {
     setupPlot();
 }
@@ -67,7 +73,95 @@ void QRxIonogram::setupPlot()
     rightAxis->setColorBarEnabled(true);
     enableAxis(QwtPlot::yRight, true);
 
+    /* Where a sweep being received has got to. */
+    m_liveMarker = new QwtPlotMarker();
+    m_liveMarker->setLineStyle(QwtPlotMarker::VLine);
+    m_liveMarker->setLinePen(QPen(QColor(0, 0, 0, 170), 1, Qt::DashLine));
+    m_liveMarker->setZ(m_spectrogram->z() + 1);
+    m_liveMarker->attach(this);
+    m_liveMarker->hide();
+
     setupDefaultAxes();
+}
+
+void QRxIonogram::endLive()
+{
+    if (m_live)
+        setCanvasBackground(Qt::white);
+    m_live = false;
+    if (m_liveMarker)
+        m_liveMarker->hide();
+}
+
+void QRxIonogram::showLive(const LiveIonogram &live)
+{
+    const int cols = live.columns();
+    const int rows = live.rows();
+    if (cols <= 0 || rows <= 0)
+        return;
+
+    const QRectF area = live.area();
+    const bool fresh = !m_live || m_igFileName != live.path()
+                       || m_specCount != cols || m_specPointCount != rows;
+    if (fresh) {
+        releaseData();
+        m_specCount = cols;
+        m_specPointCount = rows;
+        m_data = new float *[m_specCount];
+        /* NaN is transparent to the colour map: what has not arrived yet
+         * shows the canvas. */
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        for (int c = 0; c < m_specCount; ++c) {
+            m_data[c] = new float[rows];
+            std::fill(m_data[c], m_data[c] + rows, nan);
+        }
+
+        m_raster = new RasterData(m_data, m_specCount, m_specPointCount, area,
+                                  (float)live.topDb());
+        m_spectrogram->setData(m_raster);
+
+        setAxisScale(QwtPlot::xBottom, area.left(), area.right());
+        setAxisScale(QwtPlot::yLeft, area.top(), area.bottom());
+        m_horizontal = QIgWindow(QPointF(area.left(), 0.0), QPointF(area.right(), 0.0));
+        m_vertical   = QIgWindow(QPointF(0.0, area.top()), QPointF(0.0, area.bottom()));
+
+        m_igFileName = live.path();
+        m_startDateTime = live.start();
+        m_header = live.header();
+        m_haveHeader = true;
+
+        /* Grey where nothing has arrived. A gated picture draws an empty
+         * cell white, so on white the sweep's progress would not show. */
+        setCanvasBackground(QColor(225, 225, 225));
+
+        /* Nothing is derived until the capture is finished. */
+        m_snrVector.clear();
+        m_pdpVector.clear();
+        m_luf = m_muf = -1.0f;
+        m_live = true;
+    }
+
+    /* Every received column, not just the new ones: in gated mode the
+     * speckle filter revises the last few as their neighbours arrive. */
+    for (int c = 0; c < live.ready() && c < m_specCount; ++c)
+        std::copy(live.column(c), live.column(c) + rows, m_data[c]);
+
+    /* The finished picture's colour scale, the way applyProducts sets it. */
+    const double top = live.topDb();
+    m_raster->setPowerMax((float)top);
+    m_raster->setPowerMin((float)live.bottomDb());
+    setLevelInterval(0.125 * top, top);
+
+    if (live.complete()) {
+        m_liveMarker->hide();
+    } else {
+        m_liveMarker->setXValue(live.frontierMHz());
+        m_liveMarker->show();
+    }
+    setTitle(QwtText(m_startDateTime.toString(QLatin1String("dd MMM hh:mm:ss"))
+                     + (live.complete() ? QString::fromUtf8(" · обработка")
+                                        : QString::fromUtf8(" · приём"))));
+    replot();
 }
 
 /*
@@ -147,6 +241,7 @@ void QRxIonogram::setColorMapIndex(int index)
 
 void QRxIonogram::clear()
 {
+    endLive();
     releaseData();
     if (m_spectrogram)
         m_spectrogram->setData(0);
@@ -159,6 +254,7 @@ bool QRxIonogram::loadLfsData(const QString &fileName)
     FILE *fp = std::fopen(QFile::encodeName(fileName).constData(), "rb");
     if (!fp)
         return false;
+    endLive();
 
     lfs_header h;
     if (!lfsheader_read(fp, h)) {
@@ -434,6 +530,7 @@ bool QRxIonogram::applyProducts(const LfpProducts &p)
     if ((quint32)p.ionogram.size() != p.specCount * p.specPointCount)
         return false;
 
+    endLive();
     releaseData();
     m_specCount = (int)p.specCount;
     m_specPointCount = (int)p.specPointCount;

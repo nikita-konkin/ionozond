@@ -1,5 +1,6 @@
 #include "ionogramviewer.h"
 
+#include "liveionogram.h"
 #include "qigframe.h"
 #include "qrxionogram.h"
 
@@ -135,9 +136,66 @@ IonogramViewer::IonogramViewer(const QBaseSoundParams &base,
     connect(save,         SIGNAL(clicked()), this, SLOT(savePng()));
     connect(m_follow, SIGNAL(toggled(bool)), this, SLOT(followToggled(bool)));
     connect(m_frame,  SIGNAL(historyChanged()), this, SLOT(onHistoryChanged()));
+    connect(m_frame,  SIGNAL(liveUpdated(const LiveIonogram *)),
+            this,     SLOT(onLiveUpdated(const LiveIonogram *)));
+    connect(m_frame,  SIGNAL(liveEnded()), this, SLOT(onLiveEnded()));
 
     m_follow->setChecked(follow);
-    showCapture(capture);
+    /* Opened on a sounding still being recorded: keep drawing it, rather
+     * than computing a one-off picture of the half that exists. */
+    const LiveIonogram *live = m_frame->live();
+    if (live && live->path() == capture)
+        showLive(live);
+    else
+        showCapture(capture);
+}
+
+void IonogramViewer::showLive(const LiveIonogram *live)
+{
+    if (m_plot->isLive() && m_capture == live->path()) {
+        /* Only the new columns; the axes, and so any zoom, stay put. */
+        m_plot->showLive(*live);
+        return;
+    }
+
+    /* The first frame of it sets the axes; keep the zoom as showCapture does. */
+    const bool zoomed = m_zoomer->zoomRectIndex() > 0;
+    const QRectF region = m_zoomer->zoomRect();
+
+    m_plot->showLive(*live);
+    m_capture = live->path();
+
+    m_zoomer->setZoomBase(false);
+    if (zoomed)
+        m_zoomer->zoom(region);
+    else
+        m_plot->replot();
+
+    m_file->setText(QFileInfo(m_capture).fileName()
+                    + QString::fromUtf8("  — идёт приём"));
+    setWindowTitle(m_tx.name + QString::fromUtf8(" — ")
+                   + m_plot->startDateTime().toString(
+                         QLatin1String("dd.MM.yyyy hh:mm:ss 'UTC'"))
+                   + QString::fromUtf8(" — приём"));
+    updateNav();
+}
+
+void IonogramViewer::onLiveUpdated(const LiveIonogram *live)
+{
+    if (live && (m_follow->isChecked()
+                 || (m_plot->isLive() && m_capture == live->path())))
+        showLive(live);
+    else
+        updateNav();
+}
+
+void IonogramViewer::onLiveEnded()
+{
+    const QStringList &h = m_frame->history();
+    if (m_plot->isLive() && !h.isEmpty())
+        showCapture(h.last());
+    else
+        updateNav();
 }
 
 void IonogramViewer::showCapture(const QString &capture)
@@ -174,18 +232,36 @@ void IonogramViewer::updateNav()
 {
     const QStringList &h = m_frame->history();
     const int n = h.size();
+
+    if (m_plot->isLive()) {
+        /* Past the newest finished capture: only back from here. */
+        m_pos->setText(QString::fromUtf8("приём"));
+        m_btnBack->setEnabled(n > 0);
+        m_btnForward->setEnabled(false);
+        m_btnLatest->setEnabled(false);
+        return;
+    }
+
     const int at = h.lastIndexOf(m_capture);
+    const bool live = m_frame->live() != 0;
 
     m_pos->setText(at >= 0 ? QString(QLatin1String("%1/%2")).arg(at + 1).arg(n)
                            : QString());
     m_btnBack->setEnabled(at > 0);
-    m_btnForward->setEnabled(at >= 0 && at < n - 1);
-    m_btnLatest->setEnabled(n > 0 && at != n - 1);
+    m_btnForward->setEnabled((at >= 0 && at < n - 1) || (live && at == n - 1));
+    m_btnLatest->setEnabled((n > 0 && at != n - 1) || live);
 }
 
 void IonogramViewer::back()
 {
     const QStringList &h = m_frame->history();
+    if (m_plot->isLive()) {
+        if (h.isEmpty())
+            return;
+        m_follow->setChecked(false);
+        showCapture(h.last());
+        return;
+    }
     const int at = h.lastIndexOf(m_capture);
     if (at <= 0)
         return;
@@ -199,6 +275,10 @@ void IonogramViewer::forward()
 {
     const QStringList &h = m_frame->history();
     const int at = h.lastIndexOf(m_capture);
+    if (at >= 0 && at == h.size() - 1 && m_frame->live()) {
+        showLive(m_frame->live());
+        return;
+    }
     if (at < 0 || at >= h.size() - 1)
         return;
     showCapture(h.at(at + 1));
@@ -206,6 +286,11 @@ void IonogramViewer::forward()
 
 void IonogramViewer::latest()
 {
+    /* The newest is the sounding being recorded, when there is one. */
+    if (m_frame->live()) {
+        showLive(m_frame->live());
+        return;
+    }
     const QStringList &h = m_frame->history();
     if (!h.isEmpty())
         showCapture(h.last());
@@ -213,15 +298,34 @@ void IonogramViewer::latest()
 
 void IonogramViewer::followToggled(bool on)
 {
+    if (!on)
+        return;
+    if (m_frame->live()) {
+        showLive(m_frame->live());
+        return;
+    }
     const QStringList &h = m_frame->history();
-    if (on && !h.isEmpty() && h.last() != m_capture)
+    if (!h.isEmpty() && (h.last() != m_capture || m_plot->isLive()))
         showCapture(h.last());
 }
 
 void IonogramViewer::onHistoryChanged()
 {
     const QStringList &h = m_frame->history();
-    if (m_follow->isChecked() && !h.isEmpty() && h.last() != m_capture)
+
+    if (m_plot->isLive()) {
+        /* The live sounding's own result has arrived: swap it in. Anything
+         * else arriving now is older, finishing late, and the live one is
+         * still the newest. */
+        if (!h.isEmpty() && h.last() == m_capture)
+            showCapture(m_capture);
+        else
+            updateNav();
+        return;
+    }
+
+    if (m_follow->isChecked() && !h.isEmpty() && h.last() != m_capture
+            && !m_frame->live())
         showCapture(h.last());
     else
         updateNav();

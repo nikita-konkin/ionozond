@@ -60,6 +60,8 @@ public slots:
     void ReadConsoleError();
     /* Pick up captures that appear while the console is running. */
     void ScanForNewCaptures();
+    /* Draw the sounding being recorded, column by column, as it arrives. */
+    void UpdateLiveCaptures();
     void ParamsDlgClose();
     void ScheduleDlgClose();
 
@@ -88,6 +90,7 @@ private:
     QSet<QString>          m_loadedCaptures;
     QHash<QString, qint64> m_growing;      /* path -> size at the last scan */
     class QTimer          *m_scanTimer;
+    class QTimer          *m_liveTimer;
 
     /* One QIGFrame per active transmitter, added to splWorkPart. */
     void CreateIgAreas();
@@ -102,6 +105,9 @@ private:
      * capture or its sidecar, so a pruned archive stays visible. */
     static QStringList CapturesIn(const class QDir &day, const QString &station);
     static bool CaptureSettled(const QString &lfsPath, QHash<QString, qint64> &growing);
+    /* Still the sounder's: being recorded, or recorded and waiting for the
+     * sounder to write its sidecar. Neither is loaded as a finished capture. */
+    static bool AwaitingSounder(const QString &lfsPath);
     /* Session rows, CPU plot and disk pie in the right-hand panel. */
     void CreateControlPanel();
 

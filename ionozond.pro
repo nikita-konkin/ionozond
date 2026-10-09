@@ -42,6 +42,7 @@ SOURCES += \
     src/pdpvariationswidget.cpp \
     src/qigframe.cpp \
     src/ionogramviewer.cpp \
+    src/liveionogram.cpp \
     src/qcpuusagewidget.cpp \
     src/qdrivepiechart.cpp \
     src/parametersdialog.cpp \
@@ -64,6 +65,7 @@ HEADERS += \
     src/pdpvariationswidget.h \
     src/qigframe.h \
     src/ionogramviewer.h \
+    src/liveionogram.h \
     src/qcpuusagewidget.h \
     src/qdrivepiechart.h \
     src/parametersdialog.h \

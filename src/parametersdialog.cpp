@@ -120,6 +120,10 @@ void ParametersDialog::ReadSettings()
         m_settings->value(QLatin1String("iono_overlap"), 2).toInt());
     ui->cmbIonoOverlap->setCurrentIndex(overlap >= 0 ? overlap : 1);
 
+    /* The console's own; it reaches chirp_config.py but the sounder ignores it. */
+    ui->chbLiveIonogram->setChecked(
+        m_settings->value(QLatin1String("live_ionogram"), true).toBool());
+
     /*
      * What each sounding leaves on disk. The .lfp sidecar is not offered as a
      * choice: it is the only thing the console itself opens, so a station that
@@ -229,6 +233,7 @@ void ParametersDialog::WriteSettings()
     m_settings->setValue(QLatin1String("iono_pad"), ui->cmbIonoPad->currentData().toInt());
     m_settings->setValue(QLatin1String("iono_overlap"),
                          ui->cmbIonoOverlap->currentData().toInt());
+    m_settings->setValue(QLatin1String("live_ionogram"), ui->chbLiveIonogram->isChecked());
 
     m_settings->setValue(QLatin1String("h5_archive"), ui->chbH5Archive->isChecked());
     m_settings->setValue(QLatin1String("keep_lfs"), ui->chbKeepLfs->isChecked());

@@ -120,20 +120,31 @@ struct QBaseSoundParams {
     unsigned int objSizeV;      // obj_size_vertical: window in delay rows
     float        objLevel;      // obj_level: neighbours a point must have
 
+    /*
+     * How the sounder's sidecar builder draws the picture, so that a capture
+     * drawn while it is being recorded looks like the one that replaces it.
+     * Defaults here are neutral; getBaseSoundParams() supplies the sounder's.
+     */
+    bool ionoModeSnr;           // iono_mode = snr
+    int  ionoPad;               // iono_pad
+    int  ionoOverlap;           // iono_overlap
+    bool liveIonogram;          // live_ionogram: draw a sounding as it arrives
+
     QBaseSoundParams()
         : sampleRateIndex(0), fftCountIndex(0), colormapIndex(0),
           igColormapIndex(1), colormapGradient(false), igVerticalScaleIndex(0), igListCount(0),
           whiten(false), whitenLen(0), whitenN(0),
           snrAutoMax(false), pdpAutoMax(false),
-          objSizeH(9), objSizeV(3), objLevel(11.0f) {}
+          objSizeH(9), objSizeV(3), objLevel(11.0f),
+          ionoModeSnr(false), ionoPad(1), ionoOverlap(1), liveIonogram(true) {}
 
     /* Sampling rate in MHz, from SAMPLE_RATE_LIST (which is in kHz). */
     double sampleRate_Mhz() const;
     /* FFT length, from FFT_COUNT_LIST. */
     int    fftCount() const;
 
-    /* These parameters as one station uses them: its own FFT length when the
-     * schedule gives one, otherwise the dialog's. */
+    /* These parameters as one station uses them: its own FFT length and
+     * picture detail when the schedule gives them, otherwise the dialog's. */
     QBaseSoundParams forStation(const QTxParams &tx) const;
 };
 

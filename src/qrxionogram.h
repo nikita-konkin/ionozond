@@ -13,13 +13,16 @@
 #include <qwt_plot.h>
 #include <qwt_plot_spectrogram.h>
 
+class LiveIonogram;
+class QwtPlotMarker;
+
 /*
  * QRxIonogram @0x46dc50 -- one ionogram panel.
  *
  * The original polls the capture while the sounder is still writing it
- * (timerEvent -> readNewLfsSpecData over the newly arrived bytes). This
- * version loads a complete capture in one pass, which covers viewing the
- * archive; incremental loading is still to do.
+ * (timerEvent -> readNewLfsSpecData over the newly arrived bytes). Here a
+ * finished capture is loaded in one pass, and one still being recorded is
+ * computed by LiveIonogram and drawn with showLive().
  *
  * moc signal:
  *   rxIonogramBuilt(igFileName, specPointCount, igWindow, igVisibleWindow,
@@ -73,6 +76,16 @@ public:
     /* Rebuild the panel straight from products, with no signal processing. */
     bool applyProducts(const LfpProducts &p);
 
+    /*
+     * Draw a capture still being recorded. The first call for a capture sets
+     * the panel up, axes included; later ones copy the received columns in
+     * and replot, leaving the axes alone so a zoom survives the updates. A
+     * dashed line marks the frequency the sweep has reached. Any load()
+     * ends it.
+     */
+    void showLive(const LiveIonogram &live);
+    bool isLive() const { return m_live; }
+
     /* Derived products, valid after a successful loadLfsData(). */
     const QVector<float> &snrVector() const { return m_snrVector; }
     const PdpVector      &pdpVector() const { return m_pdpVector; }
@@ -94,6 +107,7 @@ private:
     void setupPlot();
     void setupDefaultAxes();
     void releaseData();
+    void endLive();
 
     QBaseSoundParams m_base;
     QTxParams        m_tx;
@@ -126,6 +140,9 @@ private:
     PdpVector      m_pdpVector;
     float          m_luf;
     float          m_muf;
+
+    bool           m_live;
+    QwtPlotMarker *m_liveMarker;
 };
 
 #endif /* QRXIONOGRAM_H */

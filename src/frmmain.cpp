@@ -10,7 +10,9 @@
 
 #include <QApplication>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QCloseEvent>
@@ -47,7 +49,8 @@ frmMain::frmMain(QWidget *parent)
       m_driveWidget(0),
       m_running(false),
       m_sounderCapturing(false),
-      m_scanTimer(0)
+      m_scanTimer(0),
+      m_liveTimer(0)
 {
     ui->setupUi(this);
 
@@ -88,6 +91,13 @@ frmMain::frmMain(QWidget *parent)
     m_scanTimer->setInterval(5000);
     connect(m_scanTimer, SIGNAL(timeout()), this, SLOT(ScanForNewCaptures()));
     m_scanTimer->start();
+
+    /* A sounding in progress grows by a column every 0.41 s; drawing every
+     * two seconds is smooth enough and costs a handful of FFTs a tick. */
+    m_liveTimer = new QTimer(this);
+    m_liveTimer->setInterval(2000);
+    connect(m_liveTimer, SIGNAL(timeout()), this, SLOT(UpdateLiveCaptures()));
+    m_liveTimer->start();
 }
 
 /* One session row per active transmitter, under "Сеансы". Separate from the
@@ -263,14 +273,23 @@ void frmMain::CreateIgAreas()
  */
 QStringList frmMain::CapturesIn(const QDir &day, const QString &station)
 {
+    /* The glob alone is not enough: "NIC4_*" also matches NIC4_280's
+     * captures, which put one station's soundings in another's panels. */
+    const QRegularExpression own(
+        QLatin1Char('^') + QRegularExpression::escape(station)
+        + QLatin1String("_\\d{8}_\\d{6}$"));
+
     QSet<QString> stems;
     const char *const patterns[] = { "_*.lfs", "_*.lfp" };
     for (int p = 0; p < 2; ++p) {
         const QStringList found = day.entryList(
             QStringList() << (station + QLatin1String(patterns[p])),
             QDir::Files, QDir::Name);
-        for (int i = 0; i < found.size(); ++i)
-            stems.insert(QFileInfo(found.at(i)).completeBaseName());
+        for (int i = 0; i < found.size(); ++i) {
+            const QString stem = QFileInfo(found.at(i)).completeBaseName();
+            if (own.match(stem).hasMatch())
+                stems.insert(stem);
+        }
     }
 
     QStringList out;
@@ -301,6 +320,27 @@ bool frmMain::CaptureSettled(const QString &lfsPath, QHash<QString, qint64> &gro
     }
     growing.remove(lfsPath);
     return true;
+}
+
+/*
+ * The sounder writes the .lfs as it records, then the .lfp sidecar a few
+ * seconds after the last sample. Until the sidecar is there the capture is
+ * still the sounder's: loading it then meant computing it here as well,
+ * beside the sounder doing the same, and writing a sidecar of our own that
+ * the sounder's then replaced -- or, opened in the middle of a sounding,
+ * a sidecar of half a capture that nothing replaced in the console's eyes.
+ *
+ * The age limit is for a sounder that writes no sidecars at all: after that
+ * long the console takes the capture over, as it always did.
+ */
+bool frmMain::AwaitingSounder(const QString &lfsPath)
+{
+    if (QFile::exists(lfpPathFor(lfsPath)))
+        return false;
+    const QFileInfo raw(lfsPath);
+    if (!raw.exists())
+        return false;
+    return raw.lastModified().secsTo(QDateTime::currentDateTime()) < 90;
 }
 
 void frmMain::LoadLatestCaptures()
@@ -345,6 +385,11 @@ void frmMain::LoadLatestCaptures()
             QDir day(root.filePath(dayDirs.at(d)));
             found << CapturesIn(day, frame->stationName());
         }
+        /* Not the one being recorded: the live view draws that, and the
+         * scan loads it once the sounder has finished with it. */
+        for (int i = found.size() - 1; i >= 0; --i)
+            if (AwaitingSounder(found.at(i)))
+                found.removeAt(i);
 
         /* Everything found is remembered as seen, including what the cap skips
          * -- otherwise the periodic scan below would treat the rest of the
@@ -415,6 +460,8 @@ void frmMain::ScanForNewCaptures()
                 const QString path = caps.at(c);
                 if (m_loadedCaptures.contains(path))
                     continue;
+                if (AwaitingSounder(path))
+                    continue;
                 if (!CaptureSettled(path, m_growing))
                     continue;
 
@@ -425,6 +472,69 @@ void frmMain::ScanForNewCaptures()
                 frame->addIg(path);
             }
         }
+    }
+}
+
+/*
+ * The sounding being recorded, drawn as it arrives -- what the original's
+ * current panel did, polling the capture on a timer.
+ *
+ * Found on disk rather than through the sounder's STATUS lines, which only
+ * reach the console when it launched the sounder itself; the systemd service
+ * writes the same files. The newest capture of a station that is still the
+ * sounder's is the one being recorded, or the one just recorded and waiting
+ * for its sidecar, which then replaces the live picture through addIg.
+ *
+ * Not held off while capturing, unlike the scan: a tick reads the couple of
+ * seconds just written, out of the page cache, and runs a few FFTs on them.
+ * Live drawing can be switched off in the parameters dialog.
+ */
+void frmMain::UpdateLiveCaptures()
+{
+    const bool enabled = m_settings->value(QLatin1String("live_ionogram"), true).toBool();
+    const QString dataDir = getIgDirName();
+
+    /* The day directory is named for the sounding's start, so near midnight
+     * the one being recorded can be in yesterday's. */
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    QStringList days;
+    days << now.addSecs(-600).toString(QLatin1String("yyyy.MM.dd"));
+    if (now.toString(QLatin1String("yyyy.MM.dd")) != days.first())
+        days << now.toString(QLatin1String("yyyy.MM.dd"));
+
+    QDir root(dataDir);
+    for (int f = 0; f < m_igFrames.size(); ++f) {
+        QIGFrame *frame = m_igFrames.at(f);
+
+        QString newest;
+        if (enabled && !dataDir.isEmpty()) {
+            for (int d = 0; d < days.size(); ++d) {
+                const QDir day(root.filePath(days.at(d)));
+                if (!day.exists())
+                    continue;
+                const QStringList caps = CapturesIn(day, frame->stationName());
+                if (!caps.isEmpty())
+                    newest = caps.last();
+            }
+        }
+
+        if (!newest.isEmpty() && !m_loadedCaptures.contains(newest)
+                && AwaitingSounder(newest)) {
+            frame->followLive(newest);
+            continue;
+        }
+
+        /* Nothing to follow. A live capture whose sidecar has arrived is
+         * replaced by the scan; one that has vanished without a sidecar was
+         * stopped early and renamed .partial, and is dropped here. */
+        const LiveIonogram *live = frame->live();
+        if (!live)
+            continue;
+        const QString path = live->path();
+        const bool finished = m_loadedCaptures.contains(path)
+                              || QFile::exists(lfpPathFor(path));
+        if (!enabled || (!finished && !QFile::exists(path)))
+            frame->dropLive();
     }
 }
 
@@ -528,6 +638,18 @@ QBaseSoundParams frmMain::getBaseSoundParams() const
     p.whitenN              = m_settings->value(QLatin1String("whiten_n")).toInt();
     p.snrAutoMax           = m_settings->value(QLatin1String("Variations/snr_automax")).toBool();
     p.pdpAutoMax           = m_settings->value(QLatin1String("Variations/pdp_automax")).toBool();
+
+    /* The sounder reads these through chirp_config.py, with these defaults
+     * (lfp_products.py's IONO_PAD_DEFAULT and IONO_OVERLAP_DEFAULT). */
+    /* Quoted as a Python string when set by hand, since chirp_config.py
+     * copies the value verbatim. */
+    QString ionoMode = m_settings->value(QLatin1String("iono_mode"),
+                                         QLatin1String("gated")).toString();
+    ionoMode.remove(QLatin1Char('\'')).remove(QLatin1Char('"'));
+    p.ionoModeSnr          = ionoMode.trimmed() == QLatin1String("snr");
+    p.ionoPad              = m_settings->value(QLatin1String("iono_pad"), 4).toInt();
+    p.ionoOverlap          = m_settings->value(QLatin1String("iono_overlap"), 2).toInt();
+    p.liveIonogram         = m_settings->value(QLatin1String("live_ionogram"), true).toBool();
     return p;
 }
 

@@ -5,6 +5,7 @@
 
 #include <QEvent>
 #include <QFileInfo>
+#include <QScopedPointer>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QToolButton>
@@ -30,7 +31,8 @@ QIGFrame::QIGFrame(const QBaseSoundParams &base,
       m_controlPos(0),
       m_btnBack(0),
       m_btnForward(0),
-      m_btnLatest(0)
+      m_btnLatest(0),
+      m_live(0)
 {
     setFrameShape(QFrame::StyledPanel);
 
@@ -100,6 +102,11 @@ QIGFrame::QIGFrame(const QBaseSoundParams &base,
     grid->setRowStretch(3, 1);
 
     outer->addLayout(grid);
+}
+
+QIGFrame::~QIGFrame()
+{
+    delete m_live;
 }
 
 /*
@@ -290,19 +297,43 @@ QLabel *QIGFrame::makeCaption(const QString &text) const
 
 bool QIGFrame::addIg(const QString &igFileName, bool keepControl)
 {
-    /*
-     * The panel that was "current" becomes the control ionogram, and the new
-     * capture takes the current slot.
-     */
-    /* A pinned control panel stays where the operator put it. Promoting the
-     * previous capture into it on every arrival is the following behaviour,
-     * and following is what pinning switches off. */
-    if (keepControl && m_controlIndex < 0 && !m_current->igFileName().isEmpty())
+    QRxIonogram *panel = m_current;
+    QScopedPointer<QRxIonogram> scratch;
+
+    if (m_live && igFileName == m_live->path()) {
+        /* The sounding that was drawn live has finished: its own picture
+         * replaces the live one. The control panel moved on when it began. */
+        delete m_live;
+        m_live = 0;
+    } else if (m_live) {
+        /*
+         * An older sounding whose sidecar arrived after the next one had begun
+         * -- back-to-back soundings leave the scan no gap to load it in. It
+         * belongs behind the live one: in the control panel when that is
+         * following, and nowhere visible when it is pinned, where it is
+         * loaded only for the variation panels.
+         */
+        if (m_controlIndex < 0) {
+            panel = m_control;
+        } else {
+            scratch.reset(new QRxIonogram(m_base, m_tx, m_rx));
+            panel = scratch.data();
+        }
+    } else if (keepControl && m_controlIndex < 0 && !m_current->igFileName().isEmpty()) {
+        /*
+         * The panel that was "current" becomes the control ionogram, and the
+         * new capture takes the current slot.
+         *
+         * A pinned control panel stays where the operator put it. Promoting
+         * the previous capture into it on every arrival is the following
+         * behaviour, and following is what pinning switches off.
+         */
         m_control->load(m_current->igFileName());
+    }
 
     /* Sidecar-first: skips 80 MB and 610 FFTs when one exists, and writes one
      * for next time when it does not. See docs/lfp-format.md. */
-    if (!m_current->load(igFileName))
+    if (!panel->load(igFileName))
         return false;
 
     /* Oldest first, and only once: LoadLatestCaptures replays the archive in
@@ -313,22 +344,94 @@ bool QIGFrame::addIg(const QString &igFileName, bool keepControl)
     updateControlNav();
     emit historyChanged();
 
+    feedVariations(panel);
+    return true;
+}
+
+void QIGFrame::feedVariations(const QRxIonogram *panel)
+{
     /*
      * Feed the derived products into the two variation panels, averaging the
      * SNR over the configured frequency band ("усреднение по частоте").
      */
-    const QIgWindow freq = m_current->horizontalInterval();
+    const QIgWindow freq = panel->horizontalInterval();
     const QVector<float> snr = averageSnrOverFreqBands(
-        m_current->snrVector(),
+        panel->snrVector(),
         freq.right() - freq.left(),
         m_snrParams.freqBandKHz);
 
-    m_snr->onValueAdded(m_current->startDateTime(), snr,
-                        m_current->luf_MHz(),
-                        m_current->muf_MHz());
+    m_snr->onValueAdded(panel->startDateTime(), snr,
+                        panel->luf_MHz(),
+                        panel->muf_MHz());
 
-    m_pdp->onValueAdded(m_current->startDateTime(), m_current->pdpVector());
-    return true;
+    m_pdp->onValueAdded(panel->startDateTime(), panel->pdpVector());
+}
+
+LiveSettings QIGFrame::liveSettings() const
+{
+    /* m_base is already this station's: its FFT length and detail. */
+    LiveSettings s;
+    s.fftCount = m_base.fftCount() > 0 ? m_base.fftCount() : 16384;
+    s.pad      = qMax(1, m_base.ionoPad);
+    s.overlap  = qMax(1, m_base.ionoOverlap);
+    s.snrMode  = m_base.ionoModeSnr;
+    s.objW     = m_base.objSizeH;
+    s.objH     = m_base.objSizeV;
+    s.objLevel = m_base.objLevel;
+    return s;
+}
+
+void QIGFrame::followLive(const QString &lfsPath)
+{
+    if (m_live && m_live->path() != lfsPath) {
+        /* A newer sounding has begun before the last one's sidecar arrived.
+         * That one still reaches the control panel, through addIg. */
+        delete m_live;
+        m_live = 0;
+    }
+
+    bool fresh = false;
+    if (!m_live) {
+        LiveIonogram *live = new LiveIonogram(lfsPath, liveSettings());
+        if (!live->isValid()) {
+            /* Header not written yet; the next tick will see it. */
+            delete live;
+            return;
+        }
+        if (m_controlIndex < 0 && !m_current->isLive()
+                && !m_current->igFileName().isEmpty())
+            m_control->load(m_current->igFileName());
+        m_live = live;
+        fresh = true;
+    }
+
+    const bool changed = m_live->update();
+    if (m_live->gone()) {
+        dropLive();
+        return;
+    }
+    if (changed || fresh) {
+        m_current->showLive(*m_live);
+        emit liveUpdated(m_live);
+    }
+}
+
+void QIGFrame::dropLive()
+{
+    if (!m_live)
+        return;
+    delete m_live;
+    m_live = 0;
+
+    if (m_current->isLive()) {
+        if (!m_history.isEmpty())
+            m_current->load(m_history.last());
+        else
+            m_current->clear();
+    }
+    if (m_controlIndex < 0 && m_history.size() >= 2)
+        m_control->load(m_history.at(m_history.size() - 2));
+    emit liveEnded();
 }
 
 void QIGFrame::setIgAreaVisible(const QString &stationName, const bool &visible)

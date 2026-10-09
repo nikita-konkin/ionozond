@@ -67,6 +67,10 @@ QBaseSoundParams QBaseSoundParams::forStation(const QTxParams &tx) const
         ? FFT_COUNT_LIST().indexOf(QString::number(tx.fftCount)) : -1;
     if (index >= 0)
         p.fftCountIndex = index;
+    if (tx.ionoPad > 0)
+        p.ionoPad = (int)tx.ionoPad;
+    if (tx.ionoOverlap > 0)
+        p.ionoOverlap = (int)tx.ionoOverlap;
     return p;
 }
 
