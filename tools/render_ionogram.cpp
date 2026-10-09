@@ -73,8 +73,10 @@ int main(int argc, char **argv)
     const double freqStartMHz = ((double)h.cf - (double)h.sample_rate / 2.0) / HZ_IN_MHZ;
     const double freqStopMHz  = freqStartMHz + (double)h.dur * (double)h.rate / HZ_IN_MHZ;
 
-    const double dKm    = earthDistanceKm(h.tx_latitude, h.tx_longitude,
-                                          h.rx_latitude, h.rx_longitude);
+    /* The original's distance, not the console's: this picture is compared
+     * against the original's own display. See common.cpp. */
+    const double dKm    = earthDistanceKmOriginal(h.tx_latitude, h.tx_longitude,
+                                                  h.rx_latitude, h.rx_longitude);
     const double rayKm  = rayDistanceKm(dKm);
     const double rminKm = rayKm - VIRT_HEIGHT_WINDOW_MARGIN_KM_DEFAULT;
     const double rmaxKm = rminKm + VIRT_HEIGHT_WINDOW_KM_DEFAULT
@@ -87,7 +89,7 @@ int main(int argc, char **argv)
      * delay: row 0 is the most negative height, row n-1 the most positive.
      * Determined empirically -- the returned-signal energy for this capture
      * sits at rows 8554..8575, which this mapping places at +2655..+2809 km,
-     * just above the 2550 km ray path. The opposite mapping put it at
+     * just above the 2599 km ray path. The opposite mapping put it at
      * -2684 km, which is unphysical.
      */
     const double hMax = LIGHT_SPEED_KM_S * (ifRate / 2.0) / (double)h.rate;

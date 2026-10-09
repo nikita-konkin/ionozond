@@ -37,15 +37,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "python"))
 
 import numpy as np
 
-
-def earth_distance_km(lat1, lon1, lat2, lon2):
-    """Great circle, the same 6371 km sphere lfp_products uses."""
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dp = math.radians(lat2 - lat1)
-    dl = math.radians(lon2 - lon1)
-    a = (math.sin(dp / 2) ** 2 +
-         math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2)
-    return 2 * 6371.0 * math.asin(math.sqrt(a))
+from lfp_products import earth_distance_km     # the sidecars' great circle
 
 
 def fold_seconds(rate, sr, limit=12):

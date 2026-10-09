@@ -59,7 +59,7 @@ void fftShift(double *spec, int n);
  * Reversing puts them back in ascending-delay order, which is why row 0 of the
  * result is the most negative virtual height and row n-1 the most positive.
  * Confirmed on a real capture: the returned signal lands at +2655..+2809 km,
- * just beyond the 2550 km ray path (the opposite convention placed it at
+ * just beyond the 2599 km ray path (the opposite convention placed it at
  * -2684 km, which is unphysical).
  *
  * specPower must hold nSpec arrays of specPointCount doubles.

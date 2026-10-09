@@ -109,7 +109,7 @@ inline double radians(double deg) { return deg * M_PI / 180.0; }
  *
  * Not the original's. Its second term lacked the cos(dlon) factor -- see
  * earthDistanceKmOriginal -- which is right only when both stations share a
- * meridian: 2538 km for Cyprus where the path is 2591, and 4414 for Magadan
+ * meridian: 2542 km for Cyprus where the path is 2591, and 4414 for Magadan
  * where it is 5476. The sounder's sidecars (lfp_products.earth_distance_km)
  * always used the correct distance, so a panel drawn from a sidecar and one
  * drawn here put the delay window 0.2 ms apart for Cyprus and 3.5 ms apart

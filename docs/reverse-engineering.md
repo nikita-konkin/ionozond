@@ -237,11 +237,15 @@ Binary constants agree exactly with `reference/ionogr_clean__ig_utils1.py`:
 - `VIRT_HEIGHT_WINDOW_MARGIN_KM_DEFAULT = 180`, `VIRT_HEIGHT_WINDOW_KM_DEFAULT = 1500`
 - ionogram window: `rmin = ray_distance(tx→rx) - 180`, `rmax = rmin + 1500 + 180`
 
-`earthDistanceKm` in `src/common.cpp` matches `reference/ionogr_clean__distance.py`
-line for line, down to `EARTH_RADIUS_KM = 6378.137` and `LAY_E_SQR = 40000`
-(reflection at 100 km, since `sqrt(d² + (2·100)²)`).
+`earthDistanceKmOriginal` in `src/common.cpp` matches
+`reference/ionogr_clean__distance.py` line for line, down to
+`EARTH_RADIUS_KM = 6378.137` and `LAY_E_SQR = 40000` (reflection at 100 km,
+since `sqrt(d² + (2·100)²)`). The console uses `earthDistanceKm`, the correct
+great circle on the same sphere, because the original's formula is short
+wherever the stations are not on one meridian — see "The console's path
+length was the original's, and wrong" below.
 
-**It is fed coordinates in the wrong units, and that is faithful to the
+**Both are fed coordinates in the wrong units, and that is faithful to the
 original.** The header's `lat`/`lon` are degrees and minutes as `DD.MM`, not
 decimal degrees; every reader in the chain multiplies them by `pi/180` anyway.
 Confirmed against a GPS fix taken at the receiving site with the site's own
@@ -1106,7 +1110,7 @@ claimed to match. The two agree on a shared meridian and nowhere else:
 
 | Path | Original's formula | Correct |
 |---|---|---|
-| Cyprus | 2538 km | 2591 km |
+| Cyprus | 2542 km | 2591 km |
 | Magadan | 4414 km | 5476 km |
 | Norilsk | 2741 km | 2447 km |
 
@@ -1359,7 +1363,7 @@ disassembly states it outright. Settled empirically by profiling mean power per
 row (`RENDER_PROFILE=1`): the returned signal sits at rows 8554..8575.
 
 - rows ASCEND with delay → that band is +2655..+2809 km, just beyond the
-  2550 km ray path. Correct.
+  2599 km ray path. Correct.
 - rows DESCEND with delay → the same band is −2684 km. Unphysical.
 
 The physical reason: dechirping against a local replica running ahead of the

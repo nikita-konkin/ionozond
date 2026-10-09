@@ -103,9 +103,12 @@ window, which is 1680 km wide, so a 35 km error does not hide the echo. It does
 mean the window is placed slightly nearer than the geometry warrants, and any
 virtual-height figure derived from the ground distance inherits the error.
 
-**This is not fixed in the reconstruction.** `earthDistanceKm` reproduces the
-original, and changing it would silently shift every existing display. The
-decision — reinterpret the archive, or normalise new captures to decimal
+**This is not fixed in the reconstruction.** `earthDistanceKm` reads the
+numbers as decimal degrees, as the original did, and reinterpreting them would
+silently shift every existing display. Its *formula* has been corrected — the
+original's was short wherever the stations are not on one meridian, see
+`reverse-engineering.md` — and the ray distances above are the corrected ones.
+The decision — reinterpret the archive, or normalise new captures to decimal
 degrees — belongs to whoever owns the archive. What `.lfp` should do is store
 decimal degrees explicitly and convert on the way in, so the ambiguity stops
 at the boundary.
