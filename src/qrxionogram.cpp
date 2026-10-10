@@ -20,6 +20,22 @@
 #include <limits>
 #include <vector>
 
+/*
+ * "10 окт. 10:35:00 UTC (13:35:00 МСК)". The captures are named and
+ * scheduled in UTC; the people at the station keep Moscow time, which has
+ * been UTC+3 all year since 2014. The Moscow date is written out only when
+ * it is not the UTC one.
+ */
+static QString captureTimeText(const QDateTime &start)
+{
+    const QDateTime utc = start.toUTC();
+    const QDateTime msk = utc.addSecs(3 * 3600);
+    const QString full = QLatin1String("dd MMM hh:mm:ss");
+    return utc.toString(full) + QLatin1String(" UTC (")
+           + msk.toString(msk.date() == utc.date() ? QLatin1String("hh:mm:ss") : full)
+           + QString::fromUtf8(" МСК)");
+}
+
 QRxIonogram::QRxIonogram(const QBaseSoundParams &base,
                          const QTxParams &tx,
                          const QRxParams &rx,
@@ -161,7 +177,7 @@ void QRxIonogram::showLive(const LiveIonogram &live)
         m_liveMarker->setXValue(live.frontierMHz());
         m_liveMarker->show();
     }
-    showTitle(m_startDateTime.toString(QLatin1String("dd MMM hh:mm:ss"))
+    showTitle(captureTimeText(m_startDateTime)
               + (live.complete() ? QString::fromUtf8(" · обработка")
                                  : QString::fromUtf8(" · приём")));
     replot();
@@ -468,7 +484,7 @@ bool QRxIonogram::loadLfsData(const QString &fileName)
     m_startDateTime = QDateTime(QDate(h.start_year, h.start_month, h.start_day),
                                 QTime(h.start_hour, h.start_minute, h.start_second),
                                 Qt::UTC);
-    showTitle(m_startDateTime.toString(QLatin1String("dd MMM hh:mm:ss")));
+    showTitle(captureTimeText(m_startDateTime));
 
     replot();
 
@@ -611,7 +627,7 @@ bool QRxIonogram::applyProducts(const LfpProducts &p)
     setLevelInterval(0.125 * top, top);
 
     m_startDateTime = QDateTime::fromMSecsSinceEpoch(p.startEpochMs, Qt::UTC);
-    showTitle(m_startDateTime.toString(QLatin1String("dd MMM hh:mm:ss")));
+    showTitle(captureTimeText(m_startDateTime));
 
     replot();
     return true;

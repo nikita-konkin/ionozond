@@ -372,6 +372,9 @@ QLabel *QIGFrame::makeCaption(const QString &text) const
 {
     QLabel *l = new QLabel(text, const_cast<QIGFrame *>(this));
     l->setMaximumHeight(18);
+    /* With the capture time in UTC and Moscow time the ionogram captions run
+     * long; in a narrow window they are cut off rather than widening it. */
+    l->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     return l;
 }
 

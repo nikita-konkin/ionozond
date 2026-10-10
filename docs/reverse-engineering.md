@@ -1230,7 +1230,12 @@ only be made taller by making its neighbour shorter.
 The four plots in a panel are also laid out tighter:
 
 - The capture time has moved from a bold title above each ionogram into its
-  caption row.
+  caption row. It is shown in UTC and in Moscow time, as in
+  `10 окт. 10:35:00 UTC (13:35:00 МСК)`. Moscow time has been UTC+3 all year
+  since 2014; its date is shown only when it differs from the UTC date. A
+  long caption is cut off in a narrow window rather than forcing the window
+  wider.
+- The colour bars stay on all four plots.
 - The top row's x-axis titles are gone. The plot below repeats the same axis
   and keeps its title.
 - Qwt's canvas margin, scale gaps and 2 px sunken frame are trimmed.
