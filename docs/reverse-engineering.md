@@ -1208,6 +1208,32 @@ Advice, not faults: when the cell is 4× or more from the original's
 length is 16384·(100 kHz/s ÷ rate)·(if_rate ÷ 40 kHz), rounded to a power of
 two. At 500 kHz/s this gives 4096.
 
+### chirptime is when the sweep reaches the band edge
+
+The sounder starts its reference sweep at `cf − sample_rate/2` at
+`chirptime`, so `chirptime` is the moment the transmitter passes that
+frequency. It is not the moment the transmitter passes 0 Hz. At 500 kHz/s,
+an error of 1 s puts the signal 500 kHz away from a band only ±20 kHz wide,
+and nothing is recorded at all.
+
+The ISZF receiver at Tory gives the real parameters for its transmitters, all
+at 500000 Hz/s, sweeping 4 → 30 MHz in 52 s, every 300 s, with a transmitter
+delay of 0:
+
+| Transmitter | Starts at 4 MHz at | Schedule here |
+|---|---|---|
+| Magadan | :x0:00 and :x5:00 | cf 16500, chirptime 0, rep 300 |
+| Norilsk | :x3:00 and :x8:00 (offset 3 min 0 s) | cf 16500, chirptime 180, rep 300 |
+
+For both, `dur` is 50: the band covers only 4–29 MHz. Tory's "Задержка" of
+9 and 6 ms is only where its delay window starts on its own paths.
+
+The earlier values of 8 and 188 assumed the sweep passes 0 Hz at the slot
+time, which made every capture 8 s late. Even with the timing right, neither
+station is heard at Yoshkar-Ola. Both transmit antennas point at Irkutsk:
+Magadan's rhombic at 274°, where Yoshkar-Ola lies at 315°. ISZF confirmed
+that the antenna faces away.
+
 ### Station panels scroll and stretch
 
 The original stacked the stations in a splitter. The splitter's minimum
