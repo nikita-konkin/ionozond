@@ -14,6 +14,44 @@ static const int PDP_REFERENCE_FFT = 16384;
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#include <qwt_plot_canvas.h>
+/* Qwt 6.1's header uses a QFlags constructor newer Qt deprecates. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#include <qwt_plot_layout.h>
+#pragma GCC diagnostic pop
+#include <qwt_scale_widget.h>
+
+/*
+ * Pull a panel's decorations in to its canvas. A station frame puts four
+ * plots in a third or half of the screen, and the stock Qwt spacing -- a
+ * margin round the canvas, a gap before every scale, a 2 px sunken frame --
+ * was taking a fifth of that from the data. `xTitle` false drops the bottom
+ * axis title, for a top-row plot whose axis is repeated, titled, under the
+ * plot below it.
+ */
+static void tighten(QwtPlot *plot, bool xTitle)
+{
+    plot->setContentsMargins(0, 0, 0, 0);
+    plot->plotLayout()->setCanvasMargin(0);
+    plot->plotLayout()->setSpacing(1);
+    plot->plotLayout()->setAlignCanvasToScales(true);
+    for (int axis = 0; axis < QwtPlot::axisCnt; ++axis) {
+        QwtScaleWidget *scale = plot->axisWidget(axis);
+        if (!scale)
+            continue;
+        scale->setMargin(0);
+        scale->setSpacing(1);
+    }
+    if (QwtPlotCanvas *canvas = qobject_cast<QwtPlotCanvas *>(plot->canvas())) {
+        canvas->setFrameStyle(QFrame::Box | QFrame::Plain);
+        canvas->setLineWidth(1);
+    }
+    if (!xTitle)
+        plot->setAxisTitle(QwtPlot::xBottom, QwtText());
+    plot->updateLayout();
+}
+
 QIGFrame::QIGFrame(const QBaseSoundParams &base,
                    const QTxParams &tx,
                    const QRxParams &rx,
@@ -35,13 +73,15 @@ QIGFrame::QIGFrame(const QBaseSoundParams &base,
       m_btnBack(0),
       m_btnForward(0),
       m_btnLatest(0),
-      m_live(0)
+      m_live(0),
+      m_controlCaption(0),
+      m_currentCaption(0)
 {
     setFrameShape(QFrame::StyledPanel);
 
     QVBoxLayout *outer = new QVBoxLayout(this);
-    outer->setContentsMargins(4, 4, 4, 4);
-    outer->setSpacing(4);
+    outer->setContentsMargins(2, 2, 2, 2);
+    outer->setSpacing(2);
 
     /* Title bar: white bold station name on black, as in the original. */
     QLabel *title = new QLabel(m_tx.name, this);
@@ -53,11 +93,14 @@ QIGFrame::QIGFrame(const QBaseSoundParams &base,
 
     QGridLayout *grid = new QGridLayout();
     grid->setContentsMargins(0, 0, 0, 0);
-    grid->setSpacing(6);
+    grid->setHorizontalSpacing(6);
+    grid->setVerticalSpacing(1);
 
     m_control = new QRxIonogram(m_base, m_tx, m_rx, this);
     m_control->setControlIonogram(true);
     m_current = new QRxIonogram(m_base, m_tx, m_rx, this);
+    connect(m_control, SIGNAL(titleChanged(QString)), this, SLOT(showControlTitle(QString)));
+    connect(m_current, SIGNAL(titleChanged(QString)), this, SLOT(showCurrentTitle(QString)));
 
     /* With two stations each panel is about 90 px tall: enough to see that
      * there is a trace, not to read it. Double-click opens it full size. */
@@ -104,7 +147,37 @@ QIGFrame::QIGFrame(const QBaseSoundParams &base,
     grid->setRowStretch(1, 1);
     grid->setRowStretch(3, 1);
 
+    /* The top row's x axes are the bottom row's again: frequency over
+     * frequency, UTC over UTC. Their titles are said once, underneath. */
+    m_control->setCompact(true);
+    m_current->setCompact(true);
+    tighten(m_control, false);
+    tighten(m_snr, false);
+    tighten(m_current, true);
+    tighten(m_pdp, true);
+
     outer->addLayout(grid);
+}
+
+static QString captionWithTitle(const char *caption, const QString &title)
+{
+    QString text = QString::fromUtf8(caption).toHtmlEscaped();
+    if (!title.isEmpty())
+        text += QLatin1String("&nbsp;&nbsp;<b>") + title.toHtmlEscaped()
+              + QLatin1String("</b>");
+    return text;
+}
+
+void QIGFrame::showControlTitle(const QString &title)
+{
+    if (m_controlCaption)
+        m_controlCaption->setText(captionWithTitle("Контрольная ионограмма", title));
+}
+
+void QIGFrame::showCurrentTitle(const QString &title)
+{
+    if (m_currentCaption)
+        m_currentCaption->setText(captionWithTitle("Текущая ионограмма", title));
 }
 
 QIGFrame::~QIGFrame()
@@ -129,7 +202,9 @@ QWidget *QIGFrame::makeControlHeader()
     lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(3);
 
-    lay->addWidget(makeCaption(QString::fromUtf8("Контрольная ионограмма")), 1);
+    m_controlCaption = makeCaption(QString::fromUtf8("Контрольная ионограмма"));
+    m_controlCaption->setTextFormat(Qt::RichText);
+    lay->addWidget(m_controlCaption, 1);
 
     m_controlPos = new QLabel(row);
     m_controlPos->setStyleSheet(QLatin1String("color: #808080;"));
@@ -177,7 +252,9 @@ QWidget *QIGFrame::makeCurrentHeader()
     lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(3);
 
-    lay->addWidget(makeCaption(QString::fromUtf8("Текущая ионограмма")), 1);
+    m_currentCaption = makeCaption(QString::fromUtf8("Текущая ионограмма"));
+    m_currentCaption->setTextFormat(Qt::RichText);
+    lay->addWidget(m_currentCaption, 1);
 
     QToolButton *popout = makePopoutButton(row);
     connect(popout, SIGNAL(clicked()), this, SLOT(popoutCurrent()));

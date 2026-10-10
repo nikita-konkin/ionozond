@@ -98,7 +98,15 @@ public:
     bool isControlIonogram() const  { return m_isControl; }
     void setControlIonogram(bool v) { m_isControl = v; }
 
+    /* Leave the capture time out of the plot, which then gives that line to
+     * the canvas: for a caller that shows it itself, from titleChanged. The
+     * station frame's small panels do; the pop-out viewer does not. */
+    void setCompact(bool compact);
+
 signals:
+    /* The capture time the plot would carry as its title, empty when clear. */
+    void titleChanged(const QString &title);
+
     void rxIonogramBuilt(const QString &igFileName,
                          const unsigned int &specPointCount,
                          const QIgWindow &igWindow,
@@ -111,6 +119,7 @@ private:
     void setupDefaultAxes();
     void releaseData();
     void endLive();
+    void showTitle(const QString &text);
 
     QBaseSoundParams m_base;
     QTxParams        m_tx;
@@ -147,6 +156,9 @@ private:
 
     bool           m_live;
     QwtPlotMarker *m_liveMarker;
+
+    bool           m_compact;
+    QString        m_titleText;
 };
 
 #endif /* QRXIONOGRAM_H */

@@ -42,7 +42,8 @@ QRxIonogram::QRxIonogram(const QBaseSoundParams &base,
       m_muf(-1.0f),
       m_fftCount(0),
       m_live(false),
-      m_liveMarker(0)
+      m_liveMarker(0),
+      m_compact(false)
 {
     setupPlot();
 }
@@ -160,9 +161,9 @@ void QRxIonogram::showLive(const LiveIonogram &live)
         m_liveMarker->setXValue(live.frontierMHz());
         m_liveMarker->show();
     }
-    setTitle(QwtText(m_startDateTime.toString(QLatin1String("dd MMM hh:mm:ss"))
-                     + (live.complete() ? QString::fromUtf8(" · обработка")
-                                        : QString::fromUtf8(" · приём"))));
+    showTitle(m_startDateTime.toString(QLatin1String("dd MMM hh:mm:ss"))
+              + (live.complete() ? QString::fromUtf8(" · обработка")
+                                 : QString::fromUtf8(" · приём")));
     replot();
 }
 
@@ -248,7 +249,21 @@ void QRxIonogram::clear()
     if (m_spectrogram)
         m_spectrogram->setData(0);
     m_raster = 0;
+    showTitle(QString());
     replot();
+}
+
+void QRxIonogram::setCompact(bool compact)
+{
+    m_compact = compact;
+    showTitle(m_titleText);
+}
+
+void QRxIonogram::showTitle(const QString &text)
+{
+    m_titleText = text;
+    setTitle(m_compact ? QwtText() : QwtText(text));
+    emit titleChanged(text);
 }
 
 bool QRxIonogram::loadLfsData(const QString &fileName)
@@ -453,7 +468,7 @@ bool QRxIonogram::loadLfsData(const QString &fileName)
     m_startDateTime = QDateTime(QDate(h.start_year, h.start_month, h.start_day),
                                 QTime(h.start_hour, h.start_minute, h.start_second),
                                 Qt::UTC);
-    setTitle(QwtText(m_startDateTime.toString(QLatin1String("dd MMM hh:mm:ss"))));
+    showTitle(m_startDateTime.toString(QLatin1String("dd MMM hh:mm:ss")));
 
     replot();
 
@@ -596,7 +611,7 @@ bool QRxIonogram::applyProducts(const LfpProducts &p)
     setLevelInterval(0.125 * top, top);
 
     m_startDateTime = QDateTime::fromMSecsSinceEpoch(p.startEpochMs, Qt::UTC);
-    setTitle(QwtText(m_startDateTime.toString(QLatin1String("dd MMM hh:mm:ss"))));
+    showTitle(m_startDateTime.toString(QLatin1String("dd MMM hh:mm:ss")));
 
     replot();
     return true;

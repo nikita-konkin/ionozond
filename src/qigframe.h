@@ -94,6 +94,9 @@ private slots:
     void controlBack();
     void controlForward();
     void controlLatest();
+    /* The capture time, shown in the caption row rather than over the plot. */
+    void showControlTitle(const QString &title);
+    void showCurrentTitle(const QString &title);
 
 private:
     QLabel *makeCaption(const QString &text) const;
@@ -140,6 +143,9 @@ private:
     class QToolButton *m_btnLatest;
 
     LiveIonogram *m_live;            /* the sounding being recorded, if any */
+
+    QLabel *m_controlCaption;
+    QLabel *m_currentCaption;
 };
 
 #endif /* QIGFRAME_H */

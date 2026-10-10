@@ -1227,6 +1227,18 @@ only be made taller by making its neighbour shorter.
 - **Saving:** heights are saved as `StationHeight/<station>` in `config.ini`.
   That is outside `[General]`, so they never reach `chirp_config.py`.
 
+The four plots in a panel are also laid out tighter:
+
+- The capture time has moved from a bold title above each ionogram into its
+  caption row.
+- The top row's x-axis titles are gone. The plot below repeats the same axis
+  and keeps its title.
+- Qwt's canvas margin, scale gaps and 2 px sunken frame are trimmed.
+
+At the same panel height, the ionogram canvases are about 25 % taller
+(108 → 134 px at two stations on 1080 lines). The pop-out viewer keeps its
+title and margins.
+
 ### What the console is for, once the service runs
 
 The division is not obvious, because the console looks like the thing that
