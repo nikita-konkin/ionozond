@@ -120,6 +120,22 @@ int main(int argc, char **argv)
         check(!has(is, CheckIssue::Warning, "A", "теряет"), "A loses none");
     }
 
+    std::printf("--- a third station in a five-minute schedule (2026-10-10)\n");
+    {
+        QList<ScheduleEntry> s;
+        s << station("Magadan", true, "300", "0", "500", "52", "16500", "60", "150.7", 4096)
+          << station("NIC_900", true, "600", "315", "100", "240", "20000", "35.18", "33.38")
+          << station("Norilsk", true, "300", "180", "500", "52", "16500", "69.2", "88", 4096)
+          << receiver();
+        const QList<CheckIssue> is = run(s);
+        check(has(is, CheckIssue::Warning, "NIC_900", "теряет 144 из 144"),
+              "NIC_900 at 5:15 falls inside Magadan's 5:00 capture");
+        check(has(is, CheckIssue::Warning, "NIC_900", "через сеанс (период 600 с, chirptime 0)"),
+              "advice: record Magadan every other session");
+        check(!has(is, CheckIssue::Warning, "NIC_900", "до 6 с"),
+              "not: cut a 26 MHz sweep to 3 MHz");
+    }
+
     std::printf("--- the same second\n");
     {
         QList<ScheduleEntry> s;

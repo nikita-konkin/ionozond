@@ -66,6 +66,7 @@ public slots:
     void ScheduleDlgClose();
 
 private slots:
+    void onStationHeightChanged(const QString &name, int height);
     void on_btnStartStop_clicked();
     void on_btnParams_clicked();
     void on_btnSchedule_clicked();
@@ -96,8 +97,10 @@ private:
     QHash<QString, qint64> m_growing;      /* path -> size at the last scan */
     class QTimer          *m_scanTimer;
     class QTimer          *m_liveTimer;
+    /* The station panels, in a scroll area, each with its own height. */
+    class StationStack    *m_stations;
 
-    /* One QIGFrame per active transmitter, added to splWorkPart. */
+    /* One QIGFrame per active transmitter, added to m_stations. */
     void CreateIgAreas();
     /* The session rows only -- rebuilt whenever the schedule changes. */
     void CreateSessionRows();

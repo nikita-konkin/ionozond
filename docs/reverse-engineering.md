@@ -1195,10 +1195,37 @@ the capture fails. `rep ≤ 0` hangs `determine_next` in an endless loop.
 | `data_dir` missing or not writable, `sound_app` missing | Nothing is recorded, or nothing is started. |
 | Free disk under the sounder's 5 GB floor plus one capture, or kept `.lfs` outgrowing the disk | The sounder skips sessions. |
 
+The checker suggests a shorter capture only when the shortened sweep still
+covers 5 MHz. Cutting Magadan's 52 s sweep to 6 s so that NIC_900 fits in
+would be no answer. The checker also tries recording the blocking station
+every other session: it doubles that station's period and keeps whichever of
+the two grids frees the victim. With Magadan every 5 min at :x0:00, NIC_900
+at 5:15 lands inside Magadan's 5:00 capture every time. Recording Magadan
+every 600 s at chirptime 0 frees NIC_900.
+
 Advice, not faults: when the cell is 4× or more from the original's
 41 kHz × 7.3 km, the checker names the FFT length that restores it. That
 length is 16384·(100 kHz/s ÷ rate)·(if_rate ÷ 40 kHz), rounded to a power of
 two. At 500 kHz/s this gives 4096.
+
+### Station panels scroll and stretch
+
+The original stacked the stations in a splitter. The splitter's minimum
+height is the sum of its panels' minimums, about 390 px each. A third station
+therefore pushed the window past the bottom of a 1080-line screen, cutting
+off the last panel and the log pane. Even with fewer stations, a panel could
+only be made taller by making its neighbour shorter.
+
+`StationStack` replaces the splitter and sits inside a scroll area:
+
+- **Grip:** each panel has a grip along its bottom edge. Dragging it sets
+  that panel's height, and the panels below move down.
+- **Height:** a panel nobody has resized shares the visible height, as
+  before. A resized panel keeps its height. Double-clicking the grip resets
+  it.
+- **Scroll bar:** it appears only when the panels don't fit.
+- **Saving:** heights are saved as `StationHeight/<station>` in `config.ini`.
+  That is outside `[General]`, so they never reach `chirp_config.py`.
 
 ### What the console is for, once the service runs
 

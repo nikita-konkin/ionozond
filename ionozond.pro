@@ -32,6 +32,7 @@ SOURCES += \
     src/configwriter.cpp \
     src/schedule.cpp \
     src/schedulecheck.cpp \
+    src/stationstack.cpp \
     src/qigcolormap.cpp \
     src/qigcolormap_tables.cpp \
     src/rasterdata.cpp \
@@ -57,6 +58,7 @@ HEADERS += \
     src/configwriter.h \
     src/schedule.h \
     src/schedulecheck.h \
+    src/stationstack.h \
     src/qigcolormap.h \
     src/rasterdata.h \
     src/lfpfile.h \

@@ -390,6 +390,45 @@ double shorterDur(const QVector<SimStation> &s, int victim, int culprit, double 
     return d;
 }
 
+/* `culprit` recorded every other session -- its period doubled, on either of
+ * the two grids that leaves -- if that spares `victim`. The chirptime, or -1. */
+double sparserGrid(const QVector<SimStation> &s, int victim, int culprit)
+{
+    for (int k = 0; k < 2; ++k) {
+        QVector<SimStation> tried = s;
+        tried[culprit].rep = 2.0 * s.at(culprit).rep;
+        tried[culprit].chirpt = s.at(culprit).chirpt + k * s.at(culprit).rep;
+        const LossMap after = lossesOf(tried, 0, 0);
+        if (!after.contains(qMakePair(victim, culprit))
+                && !after.contains(qMakePair(culprit, victim)))
+            return tried.at(culprit).chirpt;
+    }
+    return -1.0;
+}
+
+/*
+ * What would let `victim` be recorded too, as the end of a sentence, or empty.
+ * A shorter capture is offered only while it still sweeps 5 MHz: cutting a
+ * 52 s Magadan sweep to 6 s to fit a Cyprus session in is no answer. Recording
+ * the culprit every other session usually is.
+ */
+QString fixFor(const QVector<SimStation> &est, const QList<Station> &st,
+               int victim, int culprit, double maxDur)
+{
+    const Station &c = st.at(culprit);
+    const double d = shorterDur(est, victim, culprit, maxDur);
+    const bool cut = d > 0.0 && d * c.rateKHz >= 5000.0;
+    const double grid = sparserGrid(est, victim, culprit);
+
+    QStringList ways;
+    if (cut)
+        ways << u8("сократите продолжительность у %1 до %2 с").arg(c.name).arg(fixed(d, 0));
+    if (grid >= 0.0)
+        ways << u8("записывайте %1 через сеанс (период %2 с, chirptime %3)")
+                    .arg(c.name).arg(val(2.0 * c.rep)).arg(val(grid));
+    return ways.join(u8(" или "));
+}
+
 QVector<int> checkCollisions(const QList<Station> &st, QList<CheckIssue> &out)
 {
     const int n = st.size();
@@ -445,11 +484,9 @@ QVector<int> checkCollisions(const QList<Station> &st, QList<CheckIssue> &out)
         /* Advice from the realistic run: a cut that only clears the lead
          * would still lose them to the sidecar. */
         const double maxDur = risky.contains(it.key()) ? risky.value(it.key()).maxDur : l.maxDur;
-        const double d = shorterDur(est, v, c, maxDur);
-        QString advice;
-        if (d > 0.0)
-            advice = u8(" Чтобы записывать обе, сократите продолжительность у %1 до %2 с.")
-                         .arg(st.at(c).name).arg(fixed(d, 0));
+        QString advice = fixFor(est, st, v, c, maxDur);
+        if (!advice.isEmpty())
+            advice = u8(" Чтобы записывать обе, %1.").arg(advice);
         else if (l.maxDur < 1.0)
             advice = u8(" Сеансы начинаются почти одновременно: одним приёмником их не "
                         "принять, оставьте активной одну из станций.");
@@ -466,16 +503,14 @@ QVector<int> checkCollisions(const QList<Station> &st, QList<CheckIssue> &out)
         const Loss &l = it.value();
         if (definite.contains(it.key()) && definite.value(it.key()).count >= l.count)
             continue;
-        const double d = shorterDur(est, v, c, l.maxDur);
+        const QString advice = fixFor(est, st, v, c, l.maxDur);
         add(out, CheckIssue::Warning, st.at(v).name,
             u8("может терять до %1 из %2 сеансов в сутки: запись %3 кончается за %4 с "
                "до его начала, а на обработку записи и подготовку нужно около %5 с.%6")
                 .arg(l.count).arg(aloneE.at(v)).arg(st.at(c).name)
                 .arg(fixed(std::max(0.0, l.minGap), 0))
                 .arg(fixed(est.at(c).post + SOUNDER_LEAD_S, 0))
-                .arg(d > 0.0 ? u8(" Надёжнее сократить продолжительность у %1 до %2 с.")
-                                   .arg(st.at(c).name).arg(fixed(d, 0))
-                             : QString()));
+                .arg(advice.isEmpty() ? QString() : u8(" Надёжнее %1.").arg(advice)));
         reported = true;
     }
 

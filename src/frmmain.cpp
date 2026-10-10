@@ -8,12 +8,14 @@
 #include "qdrivepiechart.h"
 #include "schedule.h"
 #include "schedulecheck.h"
+#include "stationstack.h"
 
 #include <QApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QScrollArea>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QCloseEvent>
@@ -51,9 +53,34 @@ frmMain::frmMain(QWidget *parent)
       m_running(false),
       m_sounderCapturing(false),
       m_scanTimer(0),
-      m_liveTimer(0)
+      m_liveTimer(0),
+      m_stations(0)
 {
     ui->setupUi(this);
+
+    /*
+     * The station panels scroll, and each can be stretched by the grip under
+     * it (StationStack). The form's splitter stood here: its minimum was the
+     * sum of the panels', so a third station pushed the window past the
+     * bottom of the screen and cut off the last panel and the log pane, and
+     * no panel could be made taller without making a neighbour shorter. Two
+     * stations still fill the area as before; the scroll bar appears only
+     * when they do not fit.
+     */
+    {
+        QScrollArea *scroll = new QScrollArea(ui->fraWorkPart);
+        scroll->setWidgetResizable(true);
+        scroll->setFrameShape(QFrame::NoFrame);
+        scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        delete ui->verticalLayout->replaceWidget(ui->splWorkPart, scroll);
+        delete ui->splWorkPart;
+        ui->splWorkPart = 0;
+        m_stations = new StationStack();
+        scroll->setWidget(m_stations);
+        m_stations->followViewport(scroll->viewport());
+        connect(m_stations, SIGNAL(heightChanged(QString,int)),
+                this, SLOT(onStationHeightChanged(QString,int)));
+    }
 
     m_settings = new QSettings(configIniPath(), QSettings::IniFormat, this);
     m_scheduleSettings = new QSettings(scheduleIniPath(), QSettings::IniFormat, this);
@@ -259,7 +286,9 @@ void frmMain::CreateIgAreas()
                                        snrParams, pdpParams, this);
         m_igFrames.append(frame);
         m_sessionParams.append(tx);
-        ui->splWorkPart->addWidget(frame);
+        m_stations->addStation(frame, station,
+                               m_settings->value(QLatin1String("StationHeight/") + station,
+                                                 0).toInt());
     }
 }
 
@@ -1017,6 +1046,17 @@ void frmMain::ParamsDlgClose()
     ApplyConfigChange(QLatin1String("Parameters"));
     /* The parameters dialog has no list of its own, unlike the schedule's. */
     CheckSettings(true);
+}
+
+/* Remembered per station, outside [General] so it never reaches
+ * chirp_config.py. */
+void frmMain::onStationHeightChanged(const QString &name, int height)
+{
+    const QString key = QLatin1String("StationHeight/") + name;
+    if (height > 0)
+        m_settings->setValue(key, height);
+    else
+        m_settings->remove(key);
 }
 
 int frmMain::CheckSettings(bool popupNew)
