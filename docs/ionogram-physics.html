@@ -1,3 +1,6 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Oblique Chirp Ionograms</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -636,6 +639,69 @@ footer {
     <li><b>The speckle filter is counted in cells.</b> Its 9 × 3 window is 1.8 MHz × 4.4 km at 16 384 and 0.46 MHz × 17.6 km at 4 096. The original's, at 100 kHz/s, was 0.37 MHz × 22 km. A three-column trace can't collect the neighbours the filter asks for, so it's deleted as speckle.</li>
   </ul>
   <p>On a synthetic Magadan capture with four hops at 18.9–21.0 ms, 4 096 shows all four as clean lines. At 16 384 two are barely visible.</p>
+
+  <figure>
+    <div class="figframe">
+      <svg viewBox="0 0 700 300" role="img" aria-label="The same short trace analysed at 500 kHz per second with two FFT lengths. At 16384 points the cells are wide and flat, the trace gets three columns and its slope carries it across three delay bins. At 4096 the cells are nearer square, the trace gets twelve columns and stays inside one bin.">
+        <defs>
+          <clipPath id="cell-l"><rect x="70" y="50" width="276" height="160"/></clipPath>
+          <clipPath id="cell-r"><rect x="394" y="50" width="270" height="160"/></clipPath>
+        </defs>
+
+        <!-- left: FFT 16384 -->
+        <text x="70" y="38" font-size="12.5" fill="currentColor" font-family="IBM Plex Mono, monospace">FFT 16 384 — 205 kHz × 1.5 km</text>
+        <rect x="70" y="50" width="276" height="160" fill="#0b6b7c" opacity=".06"/>
+        <g stroke="currentColor" stroke-width=".7" opacity=".30">
+          <line x1="162" y1="50" x2="162" y2="210"/><line x1="254" y1="50" x2="254" y2="210"/>
+          <line x1="70" y1="60" x2="346" y2="60"/><line x1="70" y1="70" x2="346" y2="70"/>
+          <line x1="70" y1="80" x2="346" y2="80"/><line x1="70" y1="90" x2="346" y2="90"/>
+          <line x1="70" y1="100" x2="346" y2="100"/><line x1="70" y1="110" x2="346" y2="110"/>
+          <line x1="70" y1="120" x2="346" y2="120"/><line x1="70" y1="130" x2="346" y2="130"/>
+          <line x1="70" y1="140" x2="346" y2="140"/><line x1="70" y1="150" x2="346" y2="150"/>
+          <line x1="70" y1="160" x2="346" y2="160"/><line x1="70" y1="170" x2="346" y2="170"/>
+          <line x1="70" y1="180" x2="346" y2="180"/><line x1="70" y1="190" x2="346" y2="190"/>
+          <line x1="70" y1="200" x2="346" y2="200"/>
+        </g>
+        <g clip-path="url(#cell-l)">
+          <!-- the echo smears across three rows because the cell is only 1.5 km tall -->
+          <rect x="70" y="98" width="92" height="12" fill="#9d5407" opacity=".30"/>
+          <rect x="162" y="110" width="92" height="12" fill="#9d5407" opacity=".30"/>
+          <rect x="254" y="122" width="92" height="12" fill="#9d5407" opacity=".30"/>
+          <line x1="70" y1="104" x2="346" y2="140" stroke="#0b6b7c" stroke-width="2.4"/>
+        </g>
+        <rect x="70" y="50" width="276" height="160" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".6"/>
+        <text x="208" y="228" font-size="11.5" text-anchor="middle" fill="#9d5407" font-family="IBM Plex Mono, monospace">3 columns, and the echo leaves its bin</text>
+        <text x="208" y="244" font-size="11.5" text-anchor="middle" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace">the 6 dB the longer window buys is lost</text>
+
+        <!-- right: FFT 4096 -->
+        <text x="394" y="38" font-size="12.5" fill="currentColor" font-family="IBM Plex Mono, monospace">FFT 4 096 — 51 kHz × 5.9 km</text>
+        <rect x="394" y="50" width="270" height="160" fill="#0b6b7c" opacity=".06"/>
+        <g stroke="currentColor" stroke-width=".7" opacity=".30">
+          <line x1="416" y1="50" x2="416" y2="210"/><line x1="439" y1="50" x2="439" y2="210"/>
+          <line x1="461" y1="50" x2="461" y2="210"/><line x1="484" y1="50" x2="484" y2="210"/>
+          <line x1="506" y1="50" x2="506" y2="210"/><line x1="529" y1="50" x2="529" y2="210"/>
+          <line x1="551" y1="50" x2="551" y2="210"/><line x1="574" y1="50" x2="574" y2="210"/>
+          <line x1="596" y1="50" x2="596" y2="210"/><line x1="619" y1="50" x2="619" y2="210"/>
+          <line x1="641" y1="50" x2="641" y2="210"/>
+          <line x1="394" y1="90" x2="664" y2="90"/><line x1="394" y1="130" x2="664" y2="130"/>
+          <line x1="394" y1="170" x2="664" y2="170"/>
+        </g>
+        <g clip-path="url(#cell-r)">
+          <rect x="394" y="90" width="270" height="40" fill="#0b6b7c" opacity=".22"/>
+          <line x1="394" y1="104" x2="664" y2="126" stroke="#0b6b7c" stroke-width="2.4"/>
+        </g>
+        <rect x="394" y="50" width="270" height="160" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".6"/>
+        <text x="529" y="228" font-size="11.5" text-anchor="middle" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">12 columns, and the echo stays in one bin</text>
+        <text x="529" y="244" font-size="11.5" text-anchor="middle" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace">the 9 × 3 speckle window has neighbours</text>
+
+        <!-- shared axis labels -->
+        <text x="365" y="276" font-size="12" text-anchor="middle" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace">frequency — Magadan's night trace, 5.3–5.9 MHz: 1.2 s of sweep at 500 kHz/s</text>
+        <text x="365" y="292" font-size="12" text-anchor="middle" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace">vertical: delay, same 24 km of group path in both panels</text>
+      </svg>
+    </div>
+    <figcaption>Why the FFT length has to follow the sweep rate. Both panels show the same short trace over the same 600 kHz and the same 24 km of delay; only the cell changes. A cell is <span class="mono">k·N/f<sub>IF</sub></span> of sweep by <span class="mono">f<sub>IF</sub>/(k·N)</span> of delay, so at 500 kHz/s the length that was square at 100 kHz/s comes out five times wider and five times flatter. The trace then crosses several delay bins instead of sitting in one, and three columns are too few for the speckle filter to keep.</figcaption>
+  </figure>
+
   <p>So the schedule carries an optional FFT length for each station (<span class="mono">Длина БПФ</span>), along with its own picture detail. The row beneath shows the cell the length gives at that station's rate. A station left on <span class="mono">общ.</span> uses the parameters dialog's value. 100 kHz/s stations should stay on 16 384, and 500 kHz/s stations should use 4 096.</p>
 
   <h3>A finer picture is not a finer measurement</h3>
@@ -1046,6 +1112,81 @@ footer {
   <span class="part-no">Part 12 · Reading</span>
   <h2 class="part">White stripes in the daily-course panels</h2>
   <p class="part-lede">The signal-to-noise and power-delay panels are built one column per capture, so anything that costs a capture leaves a white column. The <em>shape</em> of the white says which thing went wrong — these panels are a fault log as much as a propagation record.</p>
+
+  <figure>
+    <div class="figframe">
+      <svg viewBox="0 0 700 360" role="img" aria-label="A day of the power-delay daily-course panel. Delay against time of day, one column per capture. The one-hop trace dips through the middle of the day and rises at night, a two-hop trace runs 0.65 ms above it, and four kinds of white stripe mark captures that were lost.">
+        <defs>
+          <marker id="pdp-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+          <clipPath id="pdp-clip"><rect x="70" y="40" width="590" height="190"/></clipPath>
+        </defs>
+
+        <!-- panel -->
+        <rect x="70" y="40" width="590" height="190" fill="#0b6b7c" opacity=".10"/>
+        <rect x="70" y="40" width="590" height="190" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".6"/>
+
+        <g clip-path="url(#pdp-clip)">
+          <!-- 1F: delay low by day, high at night -->
+          <path d="M70,142 C 130,142 150,196 240,196 C 330,196 400,196 470,196 C 540,196 560,142 660,142"
+                fill="none" stroke="#0b6b7c" stroke-width="7" stroke-linecap="round" opacity=".85"/>
+          <!-- 2F, night only, 0.65 ms above -->
+          <path d="M70,120 C 130,120 150,174 240,174 C 330,174 400,174 470,174 C 540,174 560,120 660,120"
+                fill="none" stroke="#0b6b7c" stroke-width="4.5" stroke-linecap="round" opacity=".45"/>
+
+          <!-- stripe 1: one lost capture -->
+          <rect x="218" y="40" width="4" height="190" fill="#ffffff"/>
+          <rect x="218" y="40" width="4" height="190" fill="#9d5407" opacity=".18"/>
+          <!-- stripe 2: the loop stopped and restarted -->
+          <rect x="300" y="40" width="19" height="190" fill="#ffffff"/>
+          <rect x="300" y="40" width="19" height="190" fill="#9d5407" opacity=".18"/>
+          <!-- stripe 3: upper part only, ragged lower edge -->
+          <path d="M424,40 h34 v96 l-5,7 l-6,-9 l-6,10 l-5,-8 l-6,9 l-6,-8 z" fill="#ffffff"/>
+          <path d="M424,40 h34 v96 l-5,7 l-6,-9 l-6,10 l-5,-8 l-6,9 l-6,-8 z" fill="#9d5407" opacity=".18"/>
+          <!-- stripe 4: speckled white through the body -->
+          <g fill="#ffffff">
+            <rect x="556" y="58" width="2.5" height="13"/><rect x="561" y="92" width="2.5" height="18"/>
+            <rect x="566" y="70" width="2.5" height="11"/><rect x="556" y="131" width="2.5" height="16"/>
+            <rect x="571" y="105" width="2.5" height="21"/><rect x="561" y="152" width="2.5" height="12"/>
+            <rect x="566" y="178" width="2.5" height="17"/><rect x="571" y="48" width="2.5" height="14"/>
+            <rect x="556" y="199" width="2.5" height="19"/><rect x="566" y="214" width="2.5" height="12"/>
+          </g>
+        </g>
+
+        <!-- axes -->
+        <line x1="70" y1="230" x2="660" y2="230" stroke="currentColor" stroke-width="1.4"/>
+        <line x1="70" y1="230" x2="70" y2="40" stroke="currentColor" stroke-width="1.4"/>
+        <g font-size="11" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace" text-anchor="middle">
+          <text x="70" y="246">00</text><text x="217" y="246">06</text><text x="365" y="246">12</text>
+          <text x="512" y="246">18</text><text x="660" y="246">24</text>
+        </g>
+        <g font-size="11" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace" text-anchor="end">
+          <text x="63" y="234">8</text><text x="63" y="200">9</text><text x="63" y="165">10</text>
+          <text x="63" y="131">11</text><text x="63" y="96">12</text><text x="63" y="61">13</text>
+        </g>
+        <text x="365" y="264" font-size="12" text-anchor="middle" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace">time of day, UTC — one column per capture, 288 of them at rep 300 s</text>
+        <text x="20" y="135" font-size="12" text-anchor="middle" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace" transform="rotate(-90 20 135)">delay, ms</text>
+
+        <!-- callouts -->
+        
+        <text x="92" y="157" font-size="12.5" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">1F</text>
+        
+        <text x="92" y="116" font-size="12.5" fill="#0b6b7c" opacity=".75" font-family="IBM Plex Mono, monospace">2F</text>
+
+        <line x1="220" y1="40" x2="196" y2="26" stroke="#9d5407" stroke-width="1" opacity=".8"/>
+        <text x="192" y="23" font-size="11.5" text-anchor="end" fill="#9d5407" font-family="IBM Plex Mono, monospace">one .partial</text>
+        <line x1="310" y1="40" x2="330" y2="26" stroke="#9d5407" stroke-width="1" opacity=".8"/>
+        <text x="334" y="23" font-size="11.5" fill="#9d5407" font-family="IBM Plex Mono, monospace">guard stopped the loop</text>
+        <line x1="441" y1="143" x2="441" y2="322" stroke="#9d5407" stroke-width="1" opacity=".8"/>
+        <text x="441" y="336" font-size="11.5" text-anchor="middle" fill="#9d5407" font-family="IBM Plex Mono, monospace">overflow cut the sweep: ragged lower edge</text>
+        <line x1="564" y1="230" x2="612" y2="300" stroke="#9d5407" stroke-width="1" opacity=".8"/>
+        <text x="660" y="304" font-size="11.5" text-anchor="end" fill="#9d5407" font-family="IBM Plex Mono, monospace">gate too strict</text>
+      </svg>
+    </div>
+    <figcaption>A day of the power-delay panel, schematic. Each column is one capture, and its value at a given row is the power summed over that delay across every spectrum between <span class="mono">LUF</span> and <span class="mono">MUF</span> — so a column is the whole usable band, not one frequency. Blue is the ionosphere: both hop modes sink through the middle of the day as the layer does, 2F riding 0.65 ms above 1F. Amber is the instrument, and the shape of the white says which thing went wrong. A day of continuous colour is the strongest single piece of evidence that the receive path is healthy.</figcaption>
+  </figure>
+
 
   <div class="tablewrap">
     <table>
