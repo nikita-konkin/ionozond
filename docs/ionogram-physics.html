@@ -355,6 +355,7 @@ footer {
     <li><a href="#parallel">In turn or in parallel</a></li>
     <li><a href="#timing">Finding a sounder's timing</a></li>
     <li><a href="#anatomy">Reading a trace</a></li>
+    <li><a href="#gdd">Trace slope: GDD</a></li>
     <li><a href="#causes">Appearance → cause</a></li>
     <li><a href="#stripes">Daily-course stripes</a></li>
     <li><a href="#budget">Error budget</a></li>
@@ -1009,9 +1010,235 @@ footer {
   </figure>
 </section>
 
+<!-- ================================================================== GDD -->
+<section id="gdd">
+  <span class="part-no">Part 11 · Reading</span>
+  <h2 class="part">The slope of a trace: group-delay dispersion</h2>
+  <p class="part-lede">A trace is never quite flat. How fast its delay climbs with frequency, dτ/df, is the path's group-delay dispersion (GDD). It decides how wide a signal this circuit can carry before the signal's own band arrives smeared.</p>
+
+  <p>Each frequency in a signal's band follows its own column of the ionogram and arrives at that column's delay. Across a band <var>B</var> the trace's slope therefore spreads the arrival times by</p>
+
+  <div class="eq">
+    <div class="eq-line">Δ<var>τ</var> = GDD · <var>B</var>,&nbsp;&nbsp;&nbsp; GDD = d<var>τ</var> ⁄ d<var>f</var></div>
+    <div class="eq-line"><var>B</var><sub>max</sub> ≈ 1 ⁄ √|GDD| &nbsp;&nbsp; i.e. &nbsp; <var>B</var><sub>max</sub> [kHz] ≈ 1000 ⁄ √GDD [µs/MHz]</div>
+    <p class="eq-where"><var>B</var><sub>max</sub> is where the spread equals 1/<var>B</var>, the band's own time resolution. It is a cautious limit. In a simulation with a Hann-shaped band, a pulse at <var>B</var><sub>max</sub> loses 0.06 dB of peak and widens by 3 %; the damage becomes visible at about twice <var>B</var><sub>max</sub> (GDD·<var>B</var>² ≈ 5: −1.5 dB, 1.6× wider). A GDD of 10 µs/MHz gives <var>B</var><sub>max</sub> ≈ 320 kHz; 35 µs/MHz gives about 170 kHz.</p>
+  </div>
+
+  <p>The same quantity, seen as phase. The channel's phase response φ(<var>f</var>) bends with frequency, and the group delay is its slope:</p>
+
+  <div class="eq">
+    <div class="eq-line"><var>τ</var> = −(1⁄2π) · dφ ⁄ d<var>f</var> &nbsp;&nbsp;⇒&nbsp;&nbsp; GDD = −(1⁄2π) · d²φ ⁄ d<var>f</var>²</div>
+    <p class="eq-where">If φ is fitted as <var>a</var><var>f</var>² + <var>b</var><var>f</var> + <var>c</var>, with <var>f</var> in MHz and φ in radians, then GDD = −<var>a</var>⁄π in µs/MHz. The sign depends on the phase convention; on an ionogram, positive means delay rising with frequency, as on the lower ray approaching the MUF.</p>
+  </div>
+
+  <div class="note caution">
+    <span class="lbl">Three traps in the conversion</span>
+    <p>The factor is 1/2π, not 1/π. Since d²φ/d<var>f</var>² = 2<var>a</var>, writing GDD = (1/π)·d²φ/d<var>f</var>² doubles every value.</p>
+    <p>1 µs/MHz is 10<sup>−12</sup> s/Hz, not 10<sup>−9</sup>. That thousandfold slip turns a mild channel into an impossible one.</p>
+    <p>Written with angular frequency, as ½·GDD·Ω² in a Taylor series of the phase, the coefficient is 2π smaller again. Say which one you mean.</p>
+  </div>
+
+  <h3>How big it is on this path</h3>
+  <p>The figure below comes from 583 Cyprus sweeps of 4–9 February 2026 whose 1F MUF lay between 18 and 32.4 MHz. At each frequency the slope of the lower 1F ray was fitted over ±0.5 MHz. The slopes were then binned by <var>f</var>/MUF, so sweeps with different MUFs share one axis.</p>
+
+  <figure>
+    <div class="figframe">
+      <svg viewBox="0 0 700 320" role="img" aria-label="Group-delay dispersion of the lower 1F ray against f over MUF, from 583 Cyprus sweeps. The median rises from about 3 microseconds per megahertz at 0.6 MUF to 13.5 at 0.85 MUF and 33 to 37 in the last 5 percent below the MUF; the interquartile range widens with it. A dashed one-parameter curve follows the median.">
+        <defs><clipPath id="gdd-a"><rect x="70" y="30" width="590" height="232"/></clipPath></defs>
+        <!-- grid -->
+        <g stroke="currentColor" stroke-width=".7" opacity=".14">
+          <line x1="70" y1="205.8" x2="660" y2="205.8"/>
+          <line x1="70" y1="170.6" x2="660" y2="170.6"/>
+          <line x1="70" y1="135.5" x2="660" y2="135.5"/>
+          <line x1="70" y1="100.3" x2="660" y2="100.3"/>
+          <line x1="70" y1="65.2" x2="660" y2="65.2"/>
+          <line x1="70" y1="30.0" x2="660" y2="30.0"/>
+        </g>
+        <line x1="70" y1="240.9" x2="660" y2="240.9" stroke="currentColor" stroke-width="1" opacity=".45"/>
+        <g clip-path="url(#gdd-a)">
+          <!-- interquartile range -->
+          <polygon points="84.7,205.8 114.2,216.0 143.8,214.2 173.3,215.2 202.8,220.9 232.2,218.8 261.8,216.0 291.2,210.0 320.8,207.2 350.3,204.4 379.7,202.6 409.2,198.0 438.8,189.9 468.2,180.8 497.8,170.3 527.2,161.1 556.8,144.6 586.2,104.9 615.8,60.9 645.2,39.1 645.2,187.1 615.8,183.3 586.2,205.1 556.8,205.1 527.2,206.1 497.8,210.7 468.2,217.4 438.8,223.3 409.2,226.5 379.7,226.5 350.3,227.6 320.8,229.7 291.2,235.3 261.8,240.6 232.2,243.4 202.8,243.4 173.3,245.5 143.8,249.3 114.2,255.7 84.7,258.8" style="fill:var(--accent-soft)" stroke="#0b6b7c" stroke-width=".8" stroke-opacity=".45"/>
+          <!-- one-parameter law -->
+          <polyline points="70.0,230.0 72.9,229.9 75.9,229.8 78.8,229.7 81.8,229.6 84.7,229.5 87.7,229.4 90.6,229.3 93.6,229.2 96.5,229.1 99.5,229.0 102.4,228.9 105.4,228.8 108.3,228.7 111.3,228.6 114.2,228.5 117.2,228.4 120.1,228.3 123.1,228.2 126.0,228.0 129.0,227.9 131.9,227.8 134.9,227.7 137.8,227.6 140.8,227.5 143.8,227.4 146.7,227.3 149.7,227.1 152.6,227.0 155.6,226.9 158.5,226.8 161.5,226.7 164.4,226.6 167.4,226.4 170.3,226.3 173.3,226.2 176.2,226.1 179.2,225.9 182.1,225.8 185.1,225.7 188.0,225.5 191.0,225.4 193.9,225.3 196.9,225.1 199.8,225.0 202.8,224.9 205.7,224.7 208.7,224.6 211.6,224.5 214.6,224.3 217.5,224.2 220.4,224.0 223.4,223.9 226.4,223.7 229.3,223.6 232.2,223.4 235.2,223.3 238.2,223.1 241.1,223.0 244.0,222.8 247.0,222.7 249.9,222.5 252.9,222.3 255.8,222.2 258.8,222.0 261.8,221.8 264.7,221.7 267.6,221.5 270.6,221.3 273.5,221.1 276.5,221.0 279.4,220.8 282.4,220.6 285.4,220.4 288.3,220.2 291.2,220.1 294.2,219.9 297.1,219.7 300.1,219.5 303.1,219.3 306.0,219.1 309.0,218.9 311.9,218.7 314.9,218.5 317.8,218.3 320.8,218.0 323.7,217.8 326.7,217.6 329.6,217.4 332.6,217.2 335.5,216.9 338.5,216.7 341.4,216.5 344.4,216.2 347.3,216.0 350.3,215.7 353.2,215.5 356.1,215.2 359.1,215.0 362.1,214.7 365.0,214.5 367.9,214.2 370.9,213.9 373.9,213.7 376.8,213.4 379.7,213.1 382.7,212.8 385.7,212.5 388.6,212.2 391.5,211.9 394.5,211.6 397.5,211.3 400.4,211.0 403.3,210.7 406.3,210.3 409.3,210.0 412.2,209.7 415.1,209.3 418.1,209.0 421.1,208.6 424.0,208.2 426.9,207.9 429.9,207.5 432.9,207.1 435.8,206.7 438.8,206.3 441.7,205.9 444.6,205.5 447.6,205.0 450.6,204.6 453.5,204.1 456.4,203.7 459.4,203.2 462.4,202.7 465.3,202.3 468.2,201.8 471.2,201.3 474.2,200.7 477.1,200.2 480.1,199.6 483.0,199.1 486.0,198.5 488.9,197.9 491.8,197.3 494.8,196.7 497.8,196.1 500.7,195.4 503.6,194.7 506.6,194.0 509.6,193.3 512.5,192.6 515.4,191.8 518.4,191.0 521.4,190.2 524.3,189.4 527.2,188.5 530.2,187.6 533.2,186.7 536.1,185.8 539.0,184.8 542.0,183.7 545.0,182.7 547.9,181.6 550.8,180.4 553.8,179.2 556.8,178.0 559.7,176.7 562.6,175.3 565.6,173.9 568.5,172.4 571.5,170.8 574.5,169.2 577.4,167.4 580.4,165.6 583.3,163.7 586.2,161.6 589.2,159.4 592.1,157.1 595.1,154.6 598.0,152.0 601.0,149.1 604.0,146.0 606.9,142.7 609.9,139.1 612.8,135.2 615.8,130.8 618.7,126.0 621.6,120.7 624.6,114.7 627.6,107.9 630.5,100.1 633.5,91.1 636.4,80.4 639.3,67.5 642.3,51.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4" opacity=".7"/>
+          <!-- median -->
+          <polyline points="84.7,237.7 114.2,236.7 143.8,230.4 173.3,229.3 202.8,230.7 232.2,231.4 261.8,227.9 291.2,222.3 320.8,218.8 350.3,217.0 379.7,215.2 409.2,212.8 438.8,208.6 468.2,200.1 497.8,193.5 527.2,187.5 556.8,180.4 586.2,164.3 615.8,126.0 645.2,112.6" fill="none" stroke="#0b6b7c" stroke-width="2.4" stroke-linejoin="round"/>
+          <g fill="#0b6b7c"><circle cx="84.7" cy="237.7" r="2.8"/><circle cx="114.2" cy="236.7" r="2.8"/><circle cx="143.8" cy="230.4" r="2.8"/><circle cx="173.3" cy="229.3" r="2.8"/><circle cx="202.8" cy="230.7" r="2.8"/><circle cx="232.2" cy="231.4" r="2.8"/><circle cx="261.8" cy="227.9" r="2.8"/><circle cx="291.2" cy="222.3" r="2.8"/><circle cx="320.8" cy="218.8" r="2.8"/><circle cx="350.3" cy="217.0" r="2.8"/><circle cx="379.7" cy="215.2" r="2.8"/><circle cx="409.2" cy="212.8" r="2.8"/><circle cx="438.8" cy="208.6" r="2.8"/><circle cx="468.2" cy="200.1" r="2.8"/><circle cx="497.8" cy="193.5" r="2.8"/><circle cx="527.2" cy="187.5" r="2.8"/><circle cx="556.8" cy="180.4" r="2.8"/><circle cx="586.2" cy="164.3" r="2.8"/><circle cx="615.8" cy="126.0" r="2.8"/><circle cx="645.2" cy="112.6" r="2.8"/></g>
+        </g>
+        <line x1="483.0" y1="30" x2="483.0" y2="262" stroke="currentColor" stroke-width="1" stroke-dasharray="3 4" opacity=".45"/>
+        <text x="477.0" y="42" font-size="11.5" text-anchor="end" fill="currentColor" opacity=".7" font-family="IBM Plex Mono, monospace">0.85 MUF, a usual working frequency</text>
+        <!-- axes -->
+        <line x1="70" y1="262" x2="660" y2="262" stroke="currentColor" stroke-width="1.4"/>
+        <line x1="70" y1="262" x2="70" y2="24" stroke="currentColor" stroke-width="1.4"/>
+        <g font-size="11" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace" text-anchor="end">
+          <text x="63" y="244.9">0</text>
+          <text x="63" y="209.8">10</text>
+          <text x="63" y="174.6">20</text>
+          <text x="63" y="139.5">30</text>
+          <text x="63" y="104.3">40</text>
+          <text x="63" y="69.2">50</text>
+          <text x="63" y="34.0">60</text>
+        </g>
+        <g font-size="11" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace" text-anchor="middle">
+          <text x="70.0" y="278">0.5</text>
+          <text x="188.0" y="278">0.6</text>
+          <text x="306.0" y="278">0.7</text>
+          <text x="424.0" y="278">0.8</text>
+          <text x="542.0" y="278">0.9</text>
+          <text x="660.0" y="278">1.0</text>
+        </g>
+        <text x="365" y="302" font-size="12" text-anchor="middle" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace">f / MUF of the 1F trace</text>
+        <text x="22" y="146" font-size="12" text-anchor="middle" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace" transform="rotate(-90 22 146)">dτ/df, µs/MHz</text>
+        <!-- labels -->
+        <text x="306.0" y="189.9" font-size="11.5" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">median, 583 sweeps</text>
+        <text x="93.6" y="193.5" font-size="11.5" fill="#0b6b7c" opacity=".85" font-family="IBM Plex Mono, monospace">interquartile range</text>
+        <line x1="87.7" y1="59.9" x2="123.1" y2="59.9" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4" opacity=".7"/>
+        <text x="131.4" y="63.9" font-size="11.5" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace">7.5·(1/√(1 − f/MUF) − 1)</text>
+      </svg>
+    </div>
+    <figcaption>19 033 one-megahertz slopes, median and interquartile range per 0.025 of <var>f</var>/MUF. Far below the MUF the trace is flat to within what one sweep resolves. The slope then grows as the ray penetrates deeper, roughly as 1/√(1 − <var>f</var>/MUF), and the spread between sweeps grows with it. The nose itself, where the lower and upper rays meet, is steeper still and is not resolved at this 1 MHz scale.</figcaption>
+  </figure>
+
+  <div class="tablewrap">
+    <table>
+      <caption>Read from the figure. Spread over 1 MHz is GDD × 1 MHz; <var>B</var><sub>max</sub> uses the median. On the console a delay bin is 24.4 µs, so even 0.85 MUF smears a 1 MHz band by only about half a bin.</caption>
+      <thead>
+        <tr><th class="num">f / MUF</th><th class="num">Median GDD</th><th class="num">Interquartile</th><th class="num">Spread over 1 MHz</th><th class="num">B<sub>max</sub></th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="num">0.61</td><td class="num">2.9 µs/MHz</td><td class="num">−0.7 … 5.7</td><td class="num">2.9 µs</td><td class="num">590 kHz</td></tr>
+        <tr><td class="num">0.71</td><td class="num">6.3 µs/MHz</td><td class="num">3.2 … 9.6</td><td class="num">6.3 µs</td><td class="num">400 kHz</td></tr>
+        <tr><td class="num">0.81</td><td class="num">9.2 µs/MHz</td><td class="num">5.0 … 14.5</td><td class="num">9.2 µs</td><td class="num">330 kHz</td></tr>
+        <tr class="hi"><td class="num">0.86</td><td class="num">13.5 µs/MHz</td><td class="num">8.6 … 20.1</td><td class="num">13.5 µs</td><td class="num">270 kHz</td></tr>
+        <tr><td class="num">0.91</td><td class="num">17.2 µs/MHz</td><td class="num">10.2 … 27.4</td><td class="num">17.2 µs</td><td class="num">240 kHz</td></tr>
+        <tr><td class="num">0.96</td><td class="num">32.7 µs/MHz</td><td class="num">16.4 … 51.2</td><td class="num">32.7 µs</td><td class="num">175 kHz</td></tr>
+        <tr><td class="num">0.99</td><td class="num">36.5 µs/MHz</td><td class="num">15.3 … 57.4</td><td class="num">36.5 µs</td><td class="num">165 kHz</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p><b>The ionogram hides it column by column.</b> One column is 41 kHz of sweep, and in 41 kHz even a 35 µs/MHz trace climbs 1.4 µs, about 6% of a delay bin. The slope only shows as a drift across dozens of columns, which is why a trace looks flat until the nose.</p>
+
+  <h3>Measuring it: fit the delays, not the phase</h3>
+  <p>There are two ways to get GDD out of a capture: fit a straight line to the trace's delay against frequency, or fit a parabola to the echo's phase. On a still ionosphere the phase fit is far more precise. On this path it is not, because the sweep is slow. One MHz takes 10 s at 100 kHz/s, and the echo does not hold its phase for that long.</p>
+
+  <p>The fading spectrum of 1F, measured along the sweep at 22.8–26.8 MHz on 4 February 2026 at 12:00 UTC, has an RMS width of 0.37 Hz. The echo's correlation falls to one half in about 0.5 s, so a 10 s parabola is fitted through some twenty independent phase wanders. Each one bends the curve, and a bent curve reads as GDD.</p>
+
+  <p>Delays don't suffer the same way. Phase is the running sum of every Doppler wiggle since the window began, so its errors pile up. Each column's delay is measured afresh, so it carries only its own small error, and the line fit averages those.</p>
+
+  <figure>
+    <div class="figframe">
+      <svg viewBox="0 0 700 300" role="img" aria-label="One simulated 1 MHz window, 24 console columns, with 0.37 Hz fading. Left: delay of each column with the true straight line and the fitted one, slope 12.6 against a true 15 microseconds per megahertz. Right: phase of the same columns with the straight-line part removed, the true parabola and the fitted one, which reads 11.0.">
+        <defs><clipPath id="gdd-l"><rect x="70" y="50" width="270" height="160"/></clipPath><clipPath id="gdd-r"><rect x="400" y="50" width="270" height="160"/></clipPath></defs>
+        <text x="70" y="36" font-size="12.5" fill="currentColor" font-family="IBM Plex Mono, monospace">Delay: a straight line</text>
+        <rect x="70" y="50" width="270" height="160" fill="#0b6b7c" opacity=".05"/>
+        <text x="400" y="36" font-size="12.5" fill="currentColor" font-family="IBM Plex Mono, monospace">Phase: a parabola</text>
+        <rect x="400" y="50" width="270" height="160" fill="#0b6b7c" opacity=".05"/>
+        <g clip-path="url(#gdd-l)">
+          <line x1="70.0" y1="130.0" x2="340.0" y2="130.0" stroke="currentColor" stroke-width=".7" opacity=".3"/>
+          <line x1="70.0" y1="172.9" x2="340.0" y2="87.1" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4" opacity=".7"/>
+          <line x1="70.0" y1="166.2" x2="340.0" y2="94.0" stroke="#0b6b7c" stroke-width="2.4"/>
+          <circle cx="77.7" cy="169.3" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="88.8" cy="170.0" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="99.8" cy="115.7" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="110.9" cy="160.4" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="122.0" cy="82.4" r="3.2" fill="none" stroke="currentColor" stroke-width="1" opacity=".45"/>
+          <circle cx="133.0" cy="157.3" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="144.1" cy="183.7" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="155.2" cy="151.5" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="166.3" cy="141.8" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="177.3" cy="120.7" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="188.4" cy="125.0" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="199.5" cy="147.2" r="3.2" fill="none" stroke="currentColor" stroke-width="1" opacity=".45"/>
+          <circle cx="210.5" cy="182.2" r="3.2" fill="none" stroke="currentColor" stroke-width="1" opacity=".45"/>
+          <circle cx="221.6" cy="167.3" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="232.7" cy="111.9" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="243.7" cy="82.5" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="254.8" cy="107.5" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="265.9" cy="111.1" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="277.0" cy="118.7" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="288.0" cy="85.2" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="299.1" cy="105.4" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="310.2" cy="92.1" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="321.2" cy="143.7" r="3.2" fill="currentColor" opacity=".8"/>
+          <circle cx="332.3" cy="89.5" r="3.2" fill="currentColor" opacity=".8"/>
+        </g>
+        <g clip-path="url(#gdd-r)">
+          <line x1="400.0" y1="85.6" x2="670.0" y2="85.6" stroke="currentColor" stroke-width=".7" opacity=".3"/>
+          <polyline points="400.0,190.3 402.7,186.1 405.4,182.1 408.1,178.1 410.8,174.2 413.5,170.4 416.2,166.7 418.9,163.0 421.6,159.4 424.3,156.0 427.0,152.6 429.7,149.3 432.4,146.0 435.1,142.9 437.8,139.8 440.5,136.9 443.2,134.0 445.9,131.2 448.6,128.4 451.3,125.8 454.0,123.3 456.7,120.8 459.4,118.4 462.1,116.1 464.8,113.9 467.5,111.7 470.2,109.7 472.9,107.7 475.6,105.8 478.3,104.0 481.0,102.3 483.7,100.7 486.4,99.1 489.1,97.7 491.8,96.3 494.5,95.0 497.2,93.8 499.9,92.6 502.6,91.6 505.3,90.6 508.0,89.7 510.7,88.9 513.4,88.2 516.1,87.6 518.8,87.1 521.5,86.6 524.2,86.2 526.9,85.9 529.6,85.7 532.3,85.6 535.0,85.6 537.7,85.6 540.4,85.7 543.1,85.9 545.8,86.2 548.5,86.6 551.2,87.1 553.9,87.6 556.6,88.2 559.3,88.9 562.0,89.7 564.7,90.6 567.4,91.6 570.1,92.6 572.8,93.8 575.5,95.0 578.2,96.3 580.9,97.7 583.6,99.1 586.3,100.7 589.0,102.3 591.7,104.0 594.4,105.8 597.1,107.7 599.8,109.7 602.5,111.7 605.2,113.9 607.9,116.1 610.6,118.4 613.3,120.8 616.0,123.3 618.7,125.8 621.4,128.4 624.1,131.2 626.8,134.0 629.5,136.9 632.2,139.8 634.9,142.9 637.6,146.0 640.3,149.3 643.0,152.6 645.7,156.0 648.4,159.4 651.1,163.0 653.8,166.7 656.5,170.4 659.2,174.2 661.9,178.1 664.6,182.1 667.3,186.1 670.0,190.3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4" opacity=".7"/>
+          <polyline points="400.0,162.3 402.7,159.3 405.4,156.3 408.1,153.4 410.8,150.5 413.5,147.8 416.2,145.0 418.9,142.3 421.6,139.7 424.3,137.2 427.0,134.7 429.7,132.3 432.4,129.9 435.1,127.6 437.8,125.4 440.5,123.2 443.2,121.1 445.9,119.0 448.6,117.0 451.3,115.1 454.0,113.2 456.7,111.4 459.4,109.6 462.1,107.9 464.8,106.3 467.5,104.8 470.2,103.2 472.9,101.8 475.6,100.4 478.3,99.1 481.0,97.8 483.7,96.6 486.4,95.5 489.1,94.4 491.8,93.4 494.5,92.5 497.2,91.6 499.9,90.7 502.6,90.0 505.3,89.3 508.0,88.6 510.7,88.0 513.4,87.5 516.1,87.1 518.8,86.7 521.5,86.3 524.2,86.0 526.9,85.8 529.6,85.7 532.3,85.6 535.0,85.6 537.7,85.6 540.4,85.7 543.1,85.8 545.8,86.0 548.5,86.3 551.2,86.7 553.9,87.1 556.6,87.5 559.3,88.0 562.0,88.6 564.7,89.3 567.4,90.0 570.1,90.7 572.8,91.6 575.5,92.5 578.2,93.4 580.9,94.4 583.6,95.5 586.3,96.6 589.0,97.8 591.7,99.1 594.4,100.4 597.1,101.8 599.8,103.2 602.5,104.8 605.2,106.3 607.9,107.9 610.6,109.6 613.3,111.4 616.0,113.2 618.7,115.1 621.4,117.0 624.1,119.0 626.8,121.1 629.5,123.2 632.2,125.4 634.9,127.6 637.6,129.9 640.3,132.3 643.0,134.7 645.7,137.2 648.4,139.7 651.1,142.3 653.8,145.0 656.5,147.8 659.2,150.5 661.9,153.4 664.6,156.3 667.3,159.3 670.0,162.3" fill="none" stroke="#0b6b7c" stroke-width="2.4"/>
+          <path d="M407.7,120.9 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M418.8,138.0 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M429.8,125.3 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M440.9,125.0 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M452.0,119.4 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M463.0,129.7 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M474.1,109.9 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M485.2,95.8 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M496.3,87.8 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M507.3,90.3 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M518.4,93.4 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M529.5,91.3 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M540.5,71.0 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M551.6,65.9 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M562.7,60.6 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M573.7,71.5 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M584.8,84.6 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M595.9,93.9 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M607.0,103.0 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M618.0,113.5 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M629.1,129.8 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M640.2,143.6 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M651.2,136.9 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+          <path d="M662.3,150.2 l3.6,6.4 h-7.2 z" fill="currentColor" opacity=".8"/>
+        </g>
+        <rect x="70" y="50" width="270" height="160" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".6"/>
+        <rect x="400" y="50" width="270" height="160" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".6"/>
+        <g font-size="11" fill="currentColor" opacity=".6" font-family="IBM Plex Mono, monospace" text-anchor="end">
+          <text x="64" y="191.1">-10</text>
+          <text x="64" y="134.0">0</text>
+          <text x="64" y="76.9">+10</text>
+          <text x="394" y="178.4">-10</text>
+          <text x="394" y="134.0">-5</text>
+          <text x="394" y="89.6">0</text>
+        </g>
+        <text x="36" y="130" font-size="11" text-anchor="middle" fill="currentColor" opacity=".7" font-family="IBM Plex Mono, monospace" transform="rotate(-90 36 130)">delay − 9 ms, µs</text>
+        <text x="370" y="130" font-size="11" text-anchor="middle" fill="currentColor" opacity=".7" font-family="IBM Plex Mono, monospace" transform="rotate(-90 370 130)">phase, rad</text>
+        <text x="205" y="230" font-size="11.5" text-anchor="middle" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">fit 12.6 µs/MHz · true 15</text>
+        <text x="205" y="246" font-size="11.5" text-anchor="middle" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace">each column measured afresh</text>
+        <text x="535" y="230" font-size="11.5" text-anchor="middle" fill="#0b6b7c" font-family="IBM Plex Mono, monospace">fit 11.0 µs/MHz · true 15</text>
+        <text x="535" y="246" font-size="11.5" text-anchor="middle" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace">fading phase adds up across 10 s</text>
+        <text x="370" y="284" font-size="12" text-anchor="middle" fill="currentColor" opacity=".75" font-family="IBM Plex Mono, monospace">across each panel: 1 MHz of sweep = 10 s at 100 kHz/s, 24 columns of 0.41 s</text>
+      </svg>
+    </div>
+    <figcaption>One simulated window, true GDD 15 µs/MHz, 0.37 Hz fading, cut into the console's columns: 24 of 0.41 s across 1 MHz. Hollow points fell below 15 dB in a fade and are left out of the line fit. The phase points are the same columns with the straight-line part removed. This window is typical of its population, not a lucky one: both fits read low, by 2.4 and 4.0 µs/MHz. An <a href="gdd-demo.html">interactive version</a> lets you change the fading, signal strength and column length.</figcaption>
+  </figure>
+
+  <div class="tablewrap">
+    <table>
+      <caption>RMS error of one 1 MHz window, 300 simulated windows per cell, true GDD 15 µs/MHz. Signal 18 dB above noise in a 0.1 s piece, which is 24 dB in a 0.41 s column. Spectra are Hann-windowed and 4× zero-padded, with peaks interpolated.</caption>
+      <thead>
+        <tr><th>Method</th><th>Spectrum</th><th class="num">Still, 0.01 Hz</th><th class="num">Measured fading, 0.37 Hz</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Delay, straight line</td><td>0.1 s</td><td class="num">2.8 µs/MHz</td><td class="num">4.4 µs/MHz</td></tr>
+        <tr class="hi"><td>Delay, straight line</td><td>0.41 s, the console's</td><td class="num">0.7 µs/MHz</td><td class="num">3.6 µs/MHz</td></tr>
+        <tr><td>Phase, parabola</td><td>0.1 s</td><td class="num">0.0 µs/MHz</td><td class="num">5.9 µs/MHz, reads 2.4 low</td></tr>
+        <tr><td>Phase, parabola</td><td>0.41 s</td><td class="num">0.0 µs/MHz</td><td class="num">6.7 µs/MHz, reads 4.8 low</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>So a GDD from a single sweep carries roughly ±4 µs/MHz whichever way it is measured. The phase fit also reads low, because fades break its unwrapping. Fading is independent from one capture to the next, five minutes apart, so averaging <var>n</var> captures divides the error by √<var>n</var>. Ten captures, fifty minutes, bring it to about ±1 µs/MHz, provided the ionosphere holds still that long. The population figures above come from 583 sweeps and are not limited by this.</p>
+
+  <div class="note">
+    <span class="lbl">Try it</span>
+    <p>The <a href="gdd-playground.html">GDD playground</a> puts this on an ionogram. Move the MUF and a signal's centre frequency and bandwidth, and see the slope at that point, the delay spread across the band, what it does to a pulse, and how much of it the console can see.</p>
+  </div>
+</section>
+
 <!-- =============================================================== CAUSES -->
 <section id="causes">
-  <span class="part-no">Part 11 · Reading</span>
+  <span class="part-no">Part 12 · Reading</span>
   <h2 class="part">Appearance → cause</h2>
   <p class="part-lede">The lookup table this document exists for. The right-hand column says which stage of the chain introduced the feature, which is what decides whether to reach for a solar index or a packet counter.</p>
 
@@ -1109,7 +1336,7 @@ footer {
 
 <!-- ============================================================== STRIPES -->
 <section id="stripes">
-  <span class="part-no">Part 12 · Reading</span>
+  <span class="part-no">Part 13 · Reading</span>
   <h2 class="part">White stripes in the daily-course panels</h2>
   <p class="part-lede">The signal-to-noise and power-delay panels are built one column per capture, so anything that costs a capture leaves a white column. The <em>shape</em> of the white says which thing went wrong — these panels are a fault log as much as a propagation record.</p>
 
@@ -1233,7 +1460,7 @@ footer {
 
 <!-- =============================================================== BUDGET -->
 <section id="budget">
-  <span class="part-no">Part 13 · Instrument</span>
+  <span class="part-no">Part 14 · Instrument</span>
   <h2 class="part">Error budget</h2>
   <p class="part-lede">Measured on this station, not estimated. Each row converts an instrumental error into the range error it produces, because range is what the ionogram claims to show.</p>
 
@@ -1271,7 +1498,7 @@ footer {
 
 <!-- =============================================================== LIMITS -->
 <section id="limits">
-  <span class="part-no">Part 14</span>
+  <span class="part-no">Part 15</span>
   <h2 class="part">What this instrument cannot currently measure</h2>
   <p class="part-lede">Stated plainly so nobody builds on it by accident.</p>
 
@@ -1281,13 +1508,15 @@ footer {
 
   <p><b>Absolute range depends on the clock being GPS-locked.</b> When the GPSDO drops out, the fallback keeps the sounding running but the delay axis becomes NTP-grade — hundreds to thousands of kilometres of possible offset. Captures taken unlocked are fine for studying <em>structure</em> and worthless for absolute height.</p>
 
+  <p><b>The console does not report GDD.</b> The slopes in Part 11 were computed offline from the archive, with 0.1 s spectra and a delay envelope fitted per sweep. The console extracts no trace delays at all, and a GDD readout would need the same delay-continuity tracking that a working MUF extractor needs.</p>
+
   <p><b>Nothing here measures electron density directly.</b> Everything above is group path against frequency. Turning that into a density profile requires inversion — solving for <var>N</var><sub>e</sub>(<var>h</var>) from the retardation encoded in the trace shape — and this station does not attempt it.</p>
 </section>
 
 </main>
 
 <footer>
-  <p>Compiled from the ionozond reverse-engineering work, August 2026; Parts 7–9 added September 2026. Numeric claims were computed against the station's own archive and its measured configuration rather than quoted. The multi-hop table, resolution chain, error budget and chirptime-error table can all be re-derived from the formulae given. The census of heard transmitters comes from chirpsounder2's detection log for 13–16 August 2026. Where a figure came from a single capture rather than a population, the text says so.</p>
+  <p>Compiled from the ionozond reverse-engineering work, August 2026; Parts 7–9 added September 2026. Numeric claims were computed against the station's own archive and its measured configuration rather than quoted. The multi-hop table, resolution chain, error budget and chirptime-error table can all be re-derived from the formulae given. The census of heard transmitters comes from chirpsounder2's detection log for 13–16 August 2026. Where a figure came from a single capture rather than a population, the text says so. Part 11 was added October 2026. Its dispersion statistics come from 583 Cyprus sweeps of 4–9 February 2026 analysed offline with 0.1 s spectra (<span class="mono">lfs_tools/dispersion_stats.py</span> in the channel-modelling project), and its fading width from one sweep, 4 February 2026 at 12:00 UTC. Its error table and the window in its second figure are simulations, labelled as such.</p>
 </footer>
 
 </div>

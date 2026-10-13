@@ -1,0 +1,291 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GDD playground</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:wght@600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+:root {
+  --ground: #eff3f4; --surface: #ffffff; --raised: #f7fafb; --ink: #0f171b; --muted: #54666e;
+  --faint: #7d8f97; --rule: #d2dee2; --accent: #0b6b7c; --accent-soft: #e0eff1; --warn: #9d5407; --warn-soft: #f6ebdd;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #091013; --surface: #0f1a1f; --raised: #14242a; --ink: #dfe9ec; --muted: #8ba2ab;
+    --faint: #6b838c; --rule: #1d2d34; --accent: #4ac0d3; --accent-soft: #0d2a31; --warn: #dfa059; --warn-soft: #2a2015;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #091013; --surface: #0f1a1f; --raised: #14242a; --ink: #dfe9ec; --muted: #8ba2ab;
+  --faint: #6b838c; --rule: #1d2d34; --accent: #4ac0d3; --accent-soft: #0d2a31; --warn: #dfa059; --warn-soft: #2a2015;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); margin: 0; font: 16px/1.6 "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 900px; margin: 0 auto; padding: 48px 16px 72px; }
+.eyebrow { font: 11.5px "IBM Plex Mono", ui-monospace, monospace; letter-spacing: .13em; text-transform: uppercase; color: var(--accent); margin: 0 0 14px; }
+h1 { font-family: Spectral, Georgia, serif; font-weight: 600; font-size: clamp(1.8rem, 4vw, 2.4rem); line-height: 1.1; margin: 0 0 14px; }
+.standfirst { color: var(--muted); max-width: 66ch; margin: 0 0 28px; }
+a { color: var(--accent); }
+.panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; padding: 18px 18px 14px; margin: 0 0 18px; }
+.ctl { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 24px; }
+.ctl label { font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+.ctl label b { font: 500 13px "IBM Plex Mono", monospace; color: var(--ink); }
+.ctl input[type=range] { width: 100%; accent-color: var(--accent); }
+.presets { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+button { font: 12px "IBM Plex Mono", monospace; color: var(--ink); background: var(--raised); border: 1px solid var(--rule); border-radius: 4px; padding: 4px 9px; cursor: pointer; }
+button:hover { border-color: var(--accent); color: var(--accent); }
+.check { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.check input { accent-color: var(--accent); }
+svg { display: block; width: 100%; height: auto; color: var(--ink); }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 0 0 18px; }
+.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; padding: 8px 12px; }
+.card .l { font: 10.5px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+.card .v { font: 500 18px "IBM Plex Mono", monospace; }
+.card .s { font-size: 12px; color: var(--muted); }
+.note { border-left: 2px solid var(--accent); background: var(--surface); padding: 12px 16px; margin: 0 0 18px; border-radius: 0 4px 4px 0; }
+.note.caution { border-left-color: var(--warn); }
+.note .lbl { font: 10.5px "IBM Plex Mono", monospace; letter-spacing: .11em; text-transform: uppercase; color: var(--accent); display: block; margin-bottom: 4px; }
+.note.caution .lbl { color: var(--warn); }
+.note p { margin: 0; font-size: 14.5px; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+.cap { font: 12px "IBM Plex Mono", monospace; color: var(--muted); margin: 0 0 8px; }
+footer { color: var(--faint); font-size: 13px; max-width: 70ch; }
+</style>
+
+<main>
+  <p class="eyebrow">Ionozond · playground for Part 11</p>
+  <h1>GDD on the ionogram</h1>
+  <p class="standfirst">A model 1F trace for the Cyprus path, built on the dispersion measured over 583 sweeps. Set the MUF, then put a signal of some bandwidth anywhere on the trace. The page shows the trace's slope there, how far it spreads the band in delay, what that does to a pulse, and how much of it the console can resolve. Background: <a href="ionogram-physics.html#gdd">Oblique Chirp Ionograms, Part 11</a>, and the <a href="gdd-demo.html">measurement demo</a>.</p>
+
+  <div class="panel">
+    <div class="ctl">
+      <div><label for="muf">1F MUF <b id="mufv"></b></label><input type="range" id="muf" min="12" max="32.5" step="0.1" value="26"></div>
+      <div><label for="fc">Signal centre <b id="fcv"></b></label><input type="range" id="fc" min="7.5" max="25.87" step="0.01" value="22"></div>
+      <div><label for="bw">Signal bandwidth <b id="bwv"></b></label><input type="range" id="bw" min="0" max="1000" step="1" value="757">
+        <div class="presets"><button data-b="3">3 kHz</button><button data-b="48">48 kHz</button><button data-b="250">250 kHz</button><button data-b="1000">1 MHz</button><button id="ow">0.85 MUF</button></div></div>
+    </div>
+    <label class="check"><input type="checkbox" id="s2f" checked> Show 2F and the 1F upper ray</label>
+  </div>
+
+  <div class="panel">
+    <p class="cap">The ionogram. Shaded: the signal's band. Dashed: the trace's tangent, whose slope is the GDD.</p>
+    <svg id="iono" viewBox="0 0 760 312" role="img" aria-label="Model oblique ionogram of the Cyprus path: delay against frequency for the 1F lower ray up to the MUF, with the signal's band shaded and the tangent at its centre."></svg>
+  </div>
+
+  <div class="cards">
+    <div class="card"><div class="l">f / MUF</div><div class="v" id="k1">–</div><div class="s" id="k1s"></div></div>
+    <div class="card"><div class="l">GDD here</div><div class="v" id="k2">–</div><div class="s">slope of the trace</div></div>
+    <div class="card"><div class="l">Spread over the band</div><div class="v" id="k3">–</div><div class="s" id="k3s"></div></div>
+    <div class="card"><div class="l">B<sub>max</sub> here</div><div class="v" id="k4">–</div><div class="s">1 / √GDD</div></div>
+    <div class="card"><div class="l">Console sees</div><div class="v" id="k5">–</div><div class="s" id="k5s"></div></div>
+  </div>
+
+  <div class="note" id="verdict"><span class="lbl" id="vl"></span><p id="vt"></p></div>
+
+  <div class="two">
+    <div class="panel">
+      <p class="cap">Inside the band: delay against offset from the centre</p>
+      <svg id="zoom" viewBox="0 0 360 260" role="img" aria-label="The trace across the signal's band, delay relative to the centre, against one console delay bin."></svg>
+    </div>
+    <div class="panel">
+      <p class="cap">A pulse through it: envelope, path against no dispersion</p>
+      <svg id="pulse" viewBox="0 0 360 260" role="img" aria-label="Envelope of a pulse occupying the band after the path, compared with the same pulse without dispersion."></svg>
+    </div>
+  </div>
+
+  <footer>
+    <p><b>The model.</b> The lower 1F ray is <span style="font-family:IBM Plex Mono,monospace">τ(f) = 8.95 ms + b·MUF·(2(1 − √(1 − x)) − x)</span>, with x = f/MUF. That is the integral of the median law GDD = b·(1/√(1 − x) − 1), with b = 7.5 µs/MHz fitted to 583 Cyprus sweeps of February 2026. Real traces scatter about it by the interquartile range in Part 11's table, and a single sweep's measurement by about ±4 µs/MHz more. The upper ray and 2F are drawn for orientation and enter no number. The pulse is a Hann-shaped band of width B centred on the cursor, sent through the phase φ(f) = −2π∫(τ − τ<sub>c</sub>) df that the trace implies. Fading, O/X splitting and absorption are left out. The console column is 41 kHz and its delay bin 24.4 µs, both at FFT 16 384 and 100 kHz/s.</p>
+  </footer>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const NS = 'http://www.w3.org/2000/svg';
+function el(p, tag, a) { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); p.appendChild(e); return e; }
+function tx(p, x, y, s, a = {}) {
+  const e = el(p, 'text', Object.assign({ x, y, 'font-size': 11, fill: 'currentColor', 'font-family': 'IBM Plex Mono, monospace' }, a));
+  e.textContent = s; return e;
+}
+const path = pts => 'M' + pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' L');
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+// Model: median GDD law from Part 11, integrated to a delay curve.
+const B7 = 7.5, T1 = 8950, T2 = 9400, R2 = 0.70, BIN = 24.4, COL = 0.041;   // 2F: mirror geometry at h' 250-300 km
+const tauL = (f, M, t0 = T1) => { const x = Math.min(f / M, 1); return t0 + B7 * M * (2 * (1 - Math.sqrt(1 - x)) - x); };
+const gdd = (f, M) => B7 * (1 / Math.sqrt(1 - Math.min(f / M, 0.999999)) - 1);
+const tauU = (f, M) => tauL(M, M) + 2 * B7 * M * 1.6 * Math.sqrt(Math.max(0, 1 - f / M));
+
+const BWMIN = 3, BWMAX = 1000;
+let bExact = 250;
+const bwFromSlider = v => BWMIN * Math.pow(BWMAX / BWMIN, v / 1000);
+const sliderFromBw = b => Math.round(1000 * Math.log(b / BWMIN) / Math.log(BWMAX / BWMIN));
+const fmtB = b => b >= 1000 ? (b / 1000).toFixed(2) + ' MHz' : (b < 10 ? b.toFixed(1) : Math.round(b)) + ' kHz';
+const fmtUs = v => Math.abs(v) < 0.1 ? v.toFixed(3) + ' µs' : Math.abs(v) < 10 ? v.toFixed(2) + ' µs' : v.toFixed(1) + ' µs';
+
+function state() {
+  const M = +$('muf').value, fcEl = $('fc'), fmax = Math.floor(0.995 * M * 100) / 100;
+  fcEl.max = fmax;
+  if (+fcEl.value > fmax) fcEl.value = fmax;
+  return { M, fc: +fcEl.value, B: bExact ?? bwFromSlider(+$('bw').value), more: $('s2f').checked };
+}
+
+function drawIono(S) {
+  const svg = $('iono'); svg.innerHTML = '';
+  const X0 = 64, X1 = 744, Y0 = 18, Y1 = 262, F0 = 7.5, F1 = 32.5, D0 = 8850, D1 = 9650;
+  const fx = f => X0 + (f - F0) / (F1 - F0) * (X1 - X0), ty = t => Y1 - (t - D0) / (D1 - D0) * (Y1 - Y0);
+  const gg = el(svg, 'g', { stroke: 'currentColor', 'stroke-width': .7, opacity: .12 });
+  [10, 15, 20, 25, 30].forEach(f => el(gg, 'line', { x1: fx(f), y1: Y0, x2: fx(f), y2: Y1 }));
+  [8900, 9100, 9300, 9500].forEach(t => el(gg, 'line', { x1: X0, y1: ty(t), x2: X1, y2: ty(t) }));
+
+  const flo = S.fc - S.B / 2000, fhi = S.fc + S.B / 2000, bx = clamp(fx(flo), X0, X1), bw = clamp(fx(fhi), X0, X1) - bx;
+  el(svg, 'rect', { x: bx, y: Y0, width: Math.max(bw, 2), height: Y1 - Y0, style: 'fill:var(--accent-soft)' });
+
+  if (S.more) {
+    const M2 = R2 * S.M, p2 = [];
+    for (let f = F0; f < M2; f += 0.05) p2.push([fx(f), ty(tauL(f, M2, T2))]);
+    p2.push([fx(M2), ty(tauL(M2, M2, T2))]);
+    if (M2 > F0) {
+      el(svg, 'path', { d: path(p2), fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8, opacity: .45 });
+      tx(svg, fx(F0) + 6, ty(tauL(F0, M2, T2)) - 8, '2F', { opacity: .6 });
+    }
+    const pu = [];
+    for (let f = Math.max(F0, 0.9 * S.M); f <= S.M; f += 0.01) pu.push([fx(f), ty(tauU(f, S.M))]);
+    el(svg, 'path', { d: path(pu), fill: 'none', style: 'stroke:var(--accent)', 'stroke-width': 1.4, opacity: .5 });
+    tx(svg, fx(Math.max(F0, 0.9 * S.M)) - 6, ty(tauU(0.9 * S.M, S.M)) + 4, 'upper ray', { 'text-anchor': 'end', style: 'fill:var(--accent)', opacity: .7 });
+  }
+  const pl = [];
+  for (let f = F0; f < S.M; f += 0.02) pl.push([fx(f), ty(tauL(f, S.M))]);
+  pl.push([fx(S.M), ty(tauL(S.M, S.M))]);
+  el(svg, 'path', { d: path(pl), fill: 'none', style: 'stroke:var(--accent)', 'stroke-width': 2.6, 'stroke-linejoin': 'round' });
+  tx(svg, fx(F0) + 6, ty(tauL(F0, S.M)) - 9, '1F, lower ray', { style: 'fill:var(--accent)' });
+
+  el(svg, 'line', { x1: fx(S.M), y1: Y0, x2: fx(S.M), y2: Y1, stroke: 'currentColor', 'stroke-dasharray': '4 4', opacity: .5 });
+  const right = fx(S.M) > X1 - 70;
+  tx(svg, fx(S.M) + (right ? -5 : 5), Y1 - 8, 'MUF ' + S.M.toFixed(1), { 'text-anchor': right ? 'end' : 'start', opacity: .7 });
+
+  const g0 = gdd(S.fc, S.M), t0 = tauL(S.fc, S.M), a = Math.max(F0, S.fc - 1.5), b = Math.min(S.M, S.fc + 1.5);
+  el(svg, 'line', { x1: fx(a), y1: ty(t0 + g0 * (a - S.fc)), x2: fx(b), y2: ty(t0 + g0 * (b - S.fc)), stroke: 'currentColor', 'stroke-width': 1.3, 'stroke-dasharray': '5 4', opacity: .85 });
+  el(svg, 'circle', { cx: fx(S.fc), cy: ty(t0), r: 5, style: 'fill:var(--accent);stroke:var(--surface)', 'stroke-width': 2 });
+  const lr = fx(S.fc) > X1 - 230;
+  tx(svg, fx(S.fc) + (lr ? -9 : 9), Y0 + 14, fmtB(S.B) + ' at ' + S.fc.toFixed(2) + ' MHz', { 'text-anchor': lr ? 'end' : 'start', style: 'fill:var(--accent)' });
+
+  el(svg, 'line', { x1: X0, y1: Y1, x2: X1, y2: Y1, stroke: 'currentColor', 'stroke-width': 1.4 });
+  el(svg, 'line', { x1: X0, y1: Y1, x2: X0, y2: Y0, stroke: 'currentColor', 'stroke-width': 1.4 });
+  [7.5, 10, 15, 20, 25, 30].forEach(f => tx(svg, fx(f), Y1 + 16, String(f), { 'text-anchor': 'middle', opacity: .6 }));
+  [8900, 9100, 9300, 9500].forEach(t => tx(svg, X0 - 7, ty(t) + 4, (t / 1000).toFixed(1), { 'text-anchor': 'end', opacity: .6 }));
+  tx(svg, (X0 + X1) / 2, Y1 + 38, 'frequency, MHz', { 'text-anchor': 'middle', opacity: .75, 'font-size': 12 });
+  tx(svg, 18, (Y0 + Y1) / 2, 'delay, ms', { 'text-anchor': 'middle', opacity: .75, 'font-size': 12, transform: `rotate(-90 18 ${(Y0 + Y1) / 2})` });
+}
+
+function drawZoom(S) {
+  const svg = $('zoom'); svg.innerHTML = '';
+  const X0 = 52, X1 = 344, Y0 = 14, Y1 = 214, half = S.B / 2, t0 = tauL(S.fc, S.M), g0 = gdd(S.fc, S.M);
+  const pts = [];
+  for (let i = 0; i <= 200; i++) {
+    const df = -half + i * S.B / 200, f = S.fc + df / 1000;
+    if (f <= S.M) pts.push([df, tauL(f, S.M) - t0]);
+  }
+  const ymax = Math.max(15, 1.25 * Math.max(...pts.map(p => Math.abs(p[1]))), 1.25 * Math.abs(g0 * half / 1000));
+  const fx = d => X0 + (d + half) / S.B * (X1 - X0), ty = v => Y1 - (v + ymax) / (2 * ymax) * (Y1 - Y0);
+  const yb = Math.min(BIN / 2, ymax);
+  el(svg, 'rect', { x: X0, y: ty(yb), width: X1 - X0, height: ty(-yb) - ty(yb), style: 'fill:var(--warn-soft)' });
+  tx(svg, X0 + 6, ty(yb) + 13, 'one console delay bin, 24.4 µs', { style: 'fill:var(--warn)' });
+  el(svg, 'line', { x1: X0, y1: ty(0), x2: X1, y2: ty(0), stroke: 'currentColor', 'stroke-width': .7, opacity: .3 });
+  el(svg, 'line', { x1: fx(-half), y1: ty(-g0 * half / 1000), x2: fx(half), y2: ty(g0 * half / 1000), stroke: 'currentColor', 'stroke-width': 1.3, 'stroke-dasharray': '5 4', opacity: .85 });
+  if (pts.length > 1) el(svg, 'path', { d: path(pts.map(p => [fx(p[0]), ty(p[1])])), fill: 'none', style: 'stroke:var(--accent)', 'stroke-width': 2.6 });
+  const mo = (S.M - S.fc) * 1000;
+  if (mo < half) {
+    el(svg, 'rect', { x: fx(mo), y: Y0, width: X1 - fx(mo), height: Y1 - Y0, fill: 'currentColor', opacity: .07 });
+    tx(svg, X1 - 5, Y0 + 14, 'above the MUF', { 'text-anchor': 'end', opacity: .7 });
+  }
+  el(svg, 'rect', { x: X0, y: Y0, width: X1 - X0, height: Y1 - Y0, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.2, opacity: .6 });
+  const step = ymax > 60 ? 20 : ymax > 30 ? 10 : 5;
+  for (let v = -Math.floor(ymax / step) * step; v <= ymax; v += step) tx(svg, X0 - 6, ty(v) + 4, String(v), { 'text-anchor': 'end', opacity: .6 });
+  const kl = d => (d < 0 ? '−' : d > 0 ? '+' : '') + (Math.abs(d) < 10 ? Math.abs(d).toFixed(1) : Math.round(Math.abs(d)));
+  [-half, 0, half].forEach(d => tx(svg, fx(d), Y1 + 15, kl(d), { 'text-anchor': d < 0 ? 'start' : d > 0 ? 'end' : 'middle', opacity: .6 }));
+  tx(svg, (X0 + X1) / 2, Y1 + 34, 'offset from centre, kHz', { 'text-anchor': 'middle', opacity: .75 });
+  tx(svg, 14, (Y0 + Y1) / 2, 'delay − centre, µs', { 'text-anchor': 'middle', opacity: .75, transform: `rotate(-90 14 ${(Y0 + Y1) / 2})` });
+}
+
+function pulse(S) {
+  const K = 257, flo = S.fc - S.B / 2000, df = S.B / 1000 / (K - 1), t0 = tauL(S.fc, S.M), c = (K - 1) / 2;
+  const f = [], w = [], I = [0];
+  for (let k = 0; k < K; k++) {
+    f.push(flo + k * df);
+    w.push(f[k] <= S.M ? 0.5 - 0.5 * Math.cos(2 * Math.PI * k / (K - 1)) : 0);
+  }
+  const rel = f.map(v => (v <= S.M ? tauL(v, S.M) : tauL(S.M, S.M)) - t0);
+  for (let k = 1; k < K; k++) I.push(I[k - 1] + 0.5 * (rel[k] + rel[k - 1]) * df);
+  const ph = I.map(v => -2 * Math.PI * (v - I[c]));
+  const spread = Math.abs(rel[K - 1] - rel[0]), Bm = S.B / 1000;
+  const H = Math.max(2.5 / Bm, 0.8 * spread + 2.2 / Bm), NT = 401, t = [], h = [], r = [];
+  for (let i = 0; i < NT; i++) {
+    const tt = -H + 2 * H * i / (NT - 1); t.push(tt);
+    let hr = 0, hi = 0, rr = 0, ri = 0;
+    for (let k = 0; k < K; k++) {
+      if (!w[k]) continue;
+      const a = 2 * Math.PI * (f[k] - S.fc) * tt;
+      hr += w[k] * Math.cos(a + ph[k]); hi += w[k] * Math.sin(a + ph[k]);
+      rr += w[k] * Math.cos(a); ri += w[k] * Math.sin(a);
+    }
+    h.push(Math.hypot(hr, hi)); r.push(Math.hypot(rr, ri));
+  }
+  const rm = Math.max(...r) || 1;
+  const width = a => { let s = 0, s1 = 0, s2 = 0; a.forEach((v, i) => { const p = v * v; s += p; s1 += p * t[i]; s2 += p * t[i] * t[i]; }); return Math.sqrt(Math.max(s2 / s - (s1 / s) ** 2, 0)); };
+  return { t, h: h.map(v => v / rm), r: r.map(v => v / rm), H, peak: Math.max(...h) / rm, grow: width(h) / width(r) };
+}
+
+function drawPulse(S, P) {
+  const svg = $('pulse'); svg.innerHTML = '';
+  const X0 = 40, X1 = 344, Y0 = 14, Y1 = 214, fx = v => X0 + (v + P.H) / (2 * P.H) * (X1 - X0), ty = v => Y1 - v / 1.08 * (Y1 - Y0);
+  el(svg, 'line', { x1: X0, y1: ty(0.5), x2: X1, y2: ty(0.5), stroke: 'currentColor', 'stroke-width': .7, opacity: .15 });
+  el(svg, 'path', { d: path(P.t.map((v, i) => [fx(v), ty(P.r[i])])), fill: 'none', stroke: 'currentColor', 'stroke-width': 1.4, 'stroke-dasharray': '5 4', opacity: .65 });
+  el(svg, 'path', { d: path(P.t.map((v, i) => [fx(v), ty(P.h[i])])), fill: 'none', style: 'stroke:var(--accent)', 'stroke-width': 2.4 });
+  el(svg, 'rect', { x: X0, y: Y0, width: X1 - X0, height: Y1 - Y0, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.2, opacity: .6 });
+  [0, 0.5, 1].forEach(v => tx(svg, X0 - 6, ty(v) + 4, String(v), { 'text-anchor': 'end', opacity: .6 }));
+  const lab = v => (Math.abs(v) >= 100 ? Math.round(v) : Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(1));
+  [-P.H, 0, P.H].forEach((v, i) => tx(svg, fx(v), Y1 + 15, (v > 0 ? '+' : v < 0 ? '−' : '') + lab(Math.abs(v)), { 'text-anchor': ['start', 'middle', 'end'][i], opacity: .6 }));
+  tx(svg, (X0 + X1) / 2, Y1 + 34, 'time from the centre delay, µs', { 'text-anchor': 'middle', opacity: .75 });
+  tx(svg, X1 - 6, Y0 + 14, 'path: peak ' + (20 * Math.log10(P.peak)).toFixed(1) + ' dB', { 'text-anchor': 'end', style: 'fill:var(--accent)' });
+  tx(svg, X1 - 6, Y0 + 28, 'width ×' + P.grow.toFixed(2), { 'text-anchor': 'end', style: 'fill:var(--accent)' });
+  tx(svg, X0 + 6, Y0 + 14, '- - no dispersion', { opacity: .7 });
+}
+
+function update() {
+  const S = state(), g0 = gdd(S.fc, S.M), half = S.B / 2000;
+  const fhi = Math.min(S.fc + half, S.M), cut = S.fc + half > S.M;
+  const spread = tauL(fhi, S.M) - tauL(S.fc - half, S.M), Pn = g0 * (S.B / 1000) ** 2;
+  $('mufv').textContent = S.M.toFixed(1) + ' MHz';
+  $('fcv').textContent = S.fc.toFixed(2) + ' MHz';
+  $('bwv').textContent = fmtB(S.B);
+  $('k1').textContent = (S.fc / S.M).toFixed(3);
+  $('k1s').textContent = S.fc / S.M > 0.95 ? 'close to the nose' : S.fc / S.M < 0.65 ? 'far below the MUF' : 'working range';
+  $('k2').textContent = g0.toFixed(1) + ' µs/MHz';
+  $('k3').textContent = fmtUs(spread);
+  $('k3s').textContent = 'against 1/B = ' + fmtUs(1000 / S.B);
+  $('k4').textContent = g0 > 0.06 ? fmtB(1000 / Math.sqrt(g0)) : '> 4 MHz';
+  $('k5').textContent = (spread / BIN).toFixed(spread / BIN < 0.1 ? 3 : 2) + ' bin';
+  $('k5s').textContent = (g0 * COL).toFixed(2) + ' µs per 41 kHz column';
+  let lbl, txt, warn = false;
+  // Thresholds from simulating a Hann-shaped band: at GDD·B² = 1 the peak drops 0.06 dB, at 5 it drops 1.5 dB and widens 1.6×.
+  if (Pn < 1) { lbl = 'Flat for this band'; txt = 'The delay spread across the band is less than the band\'s own time resolution, 1/B. The pulse is practically unchanged: its peak drops by less than 0.1 dB.'; }
+  else if (Pn < 5) { lbl = 'Noticeable'; txt = 'The spread is 1–5 times 1/B. The pulse widens by up to 1.6× and loses up to 1.5 dB of peak; an equaliser removes it.'; }
+  else { lbl = 'Dispersive'; warn = true; txt = 'The spread exceeds 5/B, so the band is more than twice B_max. Without compensating the trace\'s slope the pulse smears: at GDD·B² = 10 it is 2.6× wider and 4 dB lower.'; }
+  txt += ' GDD·B² = ' + Pn.toFixed(Pn < 0.01 ? 4 : 2) + '.';
+  if (cut) { warn = true; txt += ' Part of the band lies above the MUF and is not propagated at all.'; }
+  if (spread < BIN) txt += ' On the ionogram the whole band sits inside one delay bin, so the slope shows only as a drift across many columns.';
+  $('vl').textContent = lbl; $('vt').textContent = txt;
+  $('verdict').className = warn ? 'note caution' : 'note';
+  drawIono(S); drawZoom(S); drawPulse(S, pulse(S));
+}
+
+['muf', 'fc'].forEach(id => $(id).addEventListener('input', update));
+$('bw').addEventListener('input', () => { bExact = null; update(); });
+$('s2f').addEventListener('change', update);
+document.querySelectorAll('button[data-b]').forEach(b => b.addEventListener('click', () => { bExact = +b.dataset.b; $('bw').value = sliderFromBw(bExact); update(); }));
+$('ow').addEventListener('click', () => { $('fc').value = (0.85 * +$('muf').value).toFixed(2); update(); });
+$('bw').value = sliderFromBw(250);
+update();
+</script>

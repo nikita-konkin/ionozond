@@ -1,0 +1,249 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GDD: delay slope against phase fit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:wght@600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+:root {
+  --ground: #eff3f4; --surface: #ffffff; --raised: #f7fafb; --ink: #0f171b; --muted: #54666e;
+  --faint: #7d8f97; --rule: #d2dee2; --accent: #0b6b7c; --accent-soft: #e0eff1; --warn: #9d5407;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #091013; --surface: #0f1a1f; --raised: #14242a; --ink: #dfe9ec; --muted: #8ba2ab;
+    --faint: #6b838c; --rule: #1d2d34; --accent: #4ac0d3; --accent-soft: #0d2a31; --warn: #dfa059;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #091013; --surface: #0f1a1f; --raised: #14242a; --ink: #dfe9ec; --muted: #8ba2ab;
+  --faint: #6b838c; --rule: #1d2d34; --accent: #4ac0d3; --accent-soft: #0d2a31; --warn: #dfa059;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); margin: 0; font: 16px/1.6 "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 900px; margin: 0 auto; padding: 48px 16px 72px; }
+.eyebrow { font: 11.5px "IBM Plex Mono", ui-monospace, monospace; letter-spacing: .13em; text-transform: uppercase; color: var(--accent); margin: 0 0 14px; }
+h1 { font-family: Spectral, Georgia, serif; font-weight: 600; font-size: clamp(1.8rem, 4vw, 2.4rem); line-height: 1.1; margin: 0 0 14px; }
+.standfirst { color: var(--muted); max-width: 66ch; margin: 0 0 28px; }
+.standfirst a, footer a { color: var(--accent); }
+.panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; padding: 18px 18px 14px; margin: 0 0 18px; }
+.ctl { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px 24px; }
+.ctl label { font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+.ctl label b { font: 500 13px "IBM Plex Mono", monospace; color: var(--ink); }
+.ctl input[type=range] { width: 100%; accent-color: var(--accent); }
+.seg { display: flex; gap: 6px; flex-wrap: wrap; }
+button { font: 13px "IBM Plex Sans", sans-serif; color: var(--ink); background: var(--raised); border: 1px solid var(--rule); border-radius: 4px; padding: 6px 12px; cursor: pointer; }
+button:hover { border-color: var(--accent); color: var(--accent); }
+button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin: 14px 0 4px; }
+.card { background: var(--raised); border: 1px solid var(--rule); border-radius: 4px; padding: 8px 12px; }
+.card .l { font: 10.5px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+.card .v { font: 500 19px "IBM Plex Mono", monospace; }
+.lg { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted); margin: 10px 0 6px; }
+.lg span { display: inline-flex; align-items: center; gap: 6px; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.cap { font: 12px "IBM Plex Mono", monospace; color: var(--muted); margin: 6px 0; }
+footer { color: var(--faint); font-size: 13px; max-width: 70ch; }
+</style>
+
+<main>
+  <p class="eyebrow">Ionozond · interactive companion to Part 11</p>
+  <h1>GDD from one 1 MHz window: delay slope against phase fit</h1>
+  <p class="standfirst">A simulated stretch of a Cyprus sweep, 1 MHz wide, which is 10 s at 100 kHz/s. The same window is turned into GDD two ways: a straight line through each column's delay, and a parabola through each column's phase. Fading makes the echo's phase wander over those 10 s, and the parabola reads that wander as dispersion. Background: <a href="ionogram-physics.html#gdd">Oblique Chirp Ionograms, Part 11</a>.</p>
+
+  <div class="panel">
+    <div class="ctl">
+      <div><label for="sg">Doppler spread <b id="sgv"></b></label><input type="range" id="sg" min="0" max="0.6" step="0.01" value="0.37"></div>
+      <div><label for="sn">Signal, per 0.1 s of sweep <b id="snv"></b></label><input type="range" id="sn" min="12" max="30" step="1" value="18"></div>
+      <div><label for="gd">True GDD <b id="gdv"></b></label><input type="range" id="gd" min="0" max="40" step="1" value="15"></div>
+      <div><label>Spectrum length</label>
+        <div class="seg"><button id="s041" aria-pressed="true">0.41 s, console</button><button id="s01" aria-pressed="false">0.1 s</button></div></div>
+    </div>
+    <div class="row"><button id="nw">New sweep</button></div>
+    <div class="cards">
+      <div class="card"><div class="l">Delay-slope result</div><div class="v" id="r1">–</div></div>
+      <div class="card"><div class="l">Phase-fit result</div><div class="v" id="r2">–</div></div>
+      <div class="card"><div class="l">Columns used, delay / phase</div><div class="v" id="r3">–</div></div>
+    </div>
+    <div class="lg">
+      <span><i id="lg1" style="width:9px;height:9px;border-radius:50%;display:inline-block"></i>delay of a column</span>
+      <span><i style="width:8px;height:8px;border-radius:50%;border:1px solid var(--faint);display:inline-block"></i>in a fade, below 15 dB</span>
+      <span><i id="lg2" style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid;display:inline-block"></i>phase of a column</span>
+      <span><i style="width:16px;border-top:2px solid var(--ink);display:inline-block"></i>fit</span>
+      <span><i style="width:16px;border-top:2px dashed var(--faint);display:inline-block"></i>truth</span>
+    </div>
+    <div class="two">
+      <div><p class="cap">Delay: a straight line</p><div style="position:relative;height:250px"><canvas id="c1" role="img" aria-label="Delay against frequency in one 1 MHz window, with the true and the fitted straight line">Delay of each column with true and fitted slope.</canvas></div></div>
+      <div><p class="cap">Phase, straight-line part removed: a parabola</p><div style="position:relative;height:250px"><canvas id="c2" role="img" aria-label="Phase against frequency with the straight-line part removed, with the true and the fitted parabola">Phase of each column with true and fitted parabola.</canvas></div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="ctl">
+      <div><label for="na">Captures averaged per result <b id="nav"></b></label><input type="range" id="na" min="1" max="10" step="1" value="1"></div>
+      <div style="display:flex;align-items:end"><button id="rt"><span id="rtl">Run 300 trials</span></button></div>
+    </div>
+    <div class="cards">
+      <div class="card"><div class="l">Delay slope, RMS error</div><div class="v" id="s1">–</div></div>
+      <div class="card"><div class="l">Phase fit, RMS error</div><div class="v" id="s2">–</div></div>
+      <div class="card"><div class="l">Phase fit, mean error</div><div class="v" id="s3">–</div></div>
+    </div>
+    <div class="lg">
+      <span><i id="lg3" style="width:16px;border-top:2px solid;display:inline-block"></i>delay slope</span>
+      <span><i id="lg4" style="width:16px;border-top:2px dashed;display:inline-block"></i>phase fit</span>
+    </div>
+    <div style="position:relative;height:230px"><canvas id="c3" role="img" aria-label="Distribution of the GDD error over 300 trials for the delay-slope and the phase-fit method">Error distributions of both methods.</canvas></div>
+  </div>
+
+  <footer>
+    <p>The model is deliberately small. Fading is a sum of 40 sinusoids with Gaussian-distributed Doppler frequencies. A column's delay error is its mean Doppler shift (10 µs per Hz at 100 kHz/s) plus noise of 60·(0.1 s / column)/√SNR µs, which matches full FFT processing of synthetic captures. Its phase is the fading phase at the column centre plus noise, unwrapped across the columns that pass 6 dB. Absolute numbers are a guide. Full processing of synthetic captures gave, at 0.37 Hz and 18 dB: delay slope ±3.6 µs/MHz at 0.41 s and ±4.4 at 0.1 s, phase fit ±6.7 and ±5.9.</p>
+  </footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const C = { a: css('--accent'), w: css('--warn'), m: css('--faint'), g: css('--rule'), s: css('--surface'), i: css('--ink') };
+const $ = id => document.getElementById(id);
+$('lg1').style.background = C.a; $('lg2').style.borderBottomColor = C.w;
+$('lg3').style.borderTopColor = C.a; $('lg4').style.borderTopColor = C.w;
+
+const M = 40, TP = 2 * Math.PI;
+let SEG = 0.41;
+function rn() { let u = 0; while (!u) u = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(TP * Math.random()); }
+const wrap = a => a - TP * Math.round(a / TP);
+function lin(xs, ys) {
+  const n = xs.length; let mx = 0, my = 0;
+  for (let i = 0; i < n; i++) { mx += xs[i]; my += ys[i]; }
+  mx /= n; my /= n; let sxx = 0, sxy = 0;
+  for (let i = 0; i < n; i++) { sxx += (xs[i] - mx) ** 2; sxy += (xs[i] - mx) * (ys[i] - my); }
+  const b = sxy / sxx; return [my - b * mx, b];
+}
+function quad(xs, ys) {
+  const S = [0, 0, 0, 0, 0], T = [0, 0, 0];
+  for (let i = 0; i < xs.length; i++) { let p = 1; for (let j = 0; j < 5; j++) { S[j] += p; if (j < 3) T[j] += p * ys[i]; p *= xs[i]; } }
+  const A = [[S[0], S[1], S[2], T[0]], [S[1], S[2], S[3], T[1]], [S[2], S[3], S[4], T[2]]];
+  for (let i = 0; i < 3; i++) for (let r = i + 1; r < 3; r++) { const f = A[r][i] / A[i][i]; for (let c = i; c < 4; c++) A[r][c] -= f * A[i][c]; }
+  const c = [0, 0, 0];
+  for (let i = 2; i >= 0; i--) { let s = A[i][3]; for (let j = i + 1; j < 3; j++) s -= A[i][j] * c[j]; c[i] = s / A[i][i]; }
+  return c;
+}
+
+// One window of N columns. Fading is sampled at column edges and centres.
+function sweep(sig, snr01, D) {
+  const N = Math.round(10 / SEG), fm = [], th = [];
+  for (let m = 0; m < M; m++) { fm.push(sig * rn()); th.push(TP * Math.random()); }
+  const ph = new Float64Array(2 * N + 1), g2 = new Float64Array(2 * N + 1);
+  for (let i = 0; i <= 2 * N; i++) {
+    const t = i * SEG / 2; let re = 0, im = 0;
+    for (let m = 0; m < M; m++) { const a = TP * fm[m] * t + th[m]; re += Math.cos(a); im += Math.sin(a); }
+    ph[i] = Math.atan2(im, re); g2[i] = (re * re + im * im) / M;
+  }
+  const s0 = Math.pow(10, snr01 / 10) * SEG / 0.1, K = 60 * 0.1 / SEG;
+  const dx = [], dy = [], drop = [], px = [], pw = [];
+  for (let k = 0; k < N; k++) {
+    const c = 2 * k + 1, x = (k + 0.5) / N - 0.5, s = Math.max(s0 * g2[c], 1e-6), sdb = 10 * Math.log10(s);
+    const fd = wrap(ph[c + 1] - ph[c - 1]) / (TP * SEG);
+    const tau = D * x - 10 * fd + K / Math.sqrt(s) * rn();
+    if (sdb >= 15) { dx.push(x); dy.push(tau); } else drop.push({ x: x + 0.5, y: tau });
+    if (sdb >= 6) { px.push(x); pw.push(wrap(-Math.PI * D * x * x + ph[c] + rn() / Math.sqrt(1.38 * s))); }
+  }
+  const r = { dx, dy, drop, px, dE: NaN, pE: NaN };
+  if (dx.length >= 8) { r.df = lin(dx, dy); r.dE = r.df[1]; }
+  if (px.length >= 8) {
+    const pu = [pw[0]];
+    for (let i = 1; i < pw.length; i++) pu.push(pu[i - 1] + wrap(pw[i] - pw[i - 1]));
+    r.pu = pu; r.pf = quad(px, pu); r.pE = -r.pf[2] / Math.PI;
+  }
+  return r;
+}
+
+const tick = { color: C.m, font: { size: 11, family: 'IBM Plex Mono' } };
+const ttl = t => ({ display: true, text: t, color: C.m, font: { size: 11, family: 'IBM Plex Mono' } });
+function opts(yt) {
+  return { responsive: true, maintainAspectRatio: false, animation: false,
+    plugins: { legend: { display: false }, tooltip: { filter: i => i.datasetIndex < 2, callbacks: { label: c => c.parsed.x.toFixed(2) + ' MHz, ' + c.parsed.y.toFixed(1) } } },
+    scales: { x: { type: 'linear', min: 0, max: 1, title: ttl('MHz into the window (0.1 MHz = 1 s)'), grid: { color: C.g }, ticks: tick },
+              y: { title: ttl(yt), grid: { color: C.g }, ticks: tick } } };
+}
+const pts = (col, style, r) => ({ type: 'scatter', data: [], backgroundColor: col, borderColor: C.s, borderWidth: 1, pointRadius: r, pointStyle: style });
+const line = (col, dash, w) => ({ type: 'scatter', data: [], showLine: true, borderColor: col, borderDash: dash, borderWidth: w, pointRadius: 0 });
+const ch1 = new Chart($('c1'), { type: 'scatter', data: { datasets: [pts(C.a, 'circle', 3.5), { type: 'scatter', data: [], backgroundColor: 'transparent', borderColor: C.m, borderWidth: 1, pointRadius: 3 }, line(C.m, [5, 4], 1.5), line(C.a, [], 2)] }, options: opts('delay − 9 ms, µs') });
+const ch2 = new Chart($('c2'), { type: 'scatter', data: { datasets: [pts(C.w, 'triangle', 4), { type: 'scatter', data: [] }, line(C.m, [5, 4], 1.5), line(C.w, [], 2)] }, options: opts('phase, rad') });
+const grid = Array.from({ length: 51 }, (_, i) => i / 50 - 0.5);
+const fmt = v => isFinite(v) ? v.toFixed(1) + ' µs/MHz' : '–';
+
+function newSweep() {
+  const sig = +$('sg').value, snr = +$('sn').value, D = +$('gd').value, r = sweep(sig, snr, D);
+  ch1.data.datasets[0].data = r.dx.map((x, i) => ({ x: x + 0.5, y: r.dy[i] }));
+  ch1.data.datasets[1].data = r.drop;
+  ch1.data.datasets[2].data = grid.map(x => ({ x: x + 0.5, y: D * x }));
+  ch1.data.datasets[3].data = r.df ? grid.map(x => ({ x: x + 0.5, y: r.df[0] + r.df[1] * x })) : [];
+  const lim = 10 * Math.ceil((D / 2 + (SEG < 0.2 ? 40 : 25)) / 10);
+  ch1.options.scales.y.min = -lim; ch1.options.scales.y.max = lim; ch1.update('none');
+  ch2.data.datasets[0].data = r.pf ? r.px.map((x, i) => ({ x: x + 0.5, y: r.pu[i] - r.pf[0] - r.pf[1] * x })) : [];
+  ch2.data.datasets[3].data = r.pf ? grid.map(x => ({ x: x + 0.5, y: r.pf[2] * x * x })) : [];
+  ch2.data.datasets[2].data = grid.map(x => ({ x: x + 0.5, y: -Math.PI * D * x * x }));
+  ch2.update('none');
+  $('r1').textContent = fmt(r.dE); $('r2').textContent = fmt(r.pE);
+  $('r3').textContent = r.dx.length + ' / ' + r.px.length + ' of ' + Math.round(10 / SEG);
+}
+
+const edges = []; for (let e = -24; e <= 24; e += 2) edges.push(e);
+const cent = edges.slice(0, -1).map(e => e + 1);
+function hist(errs) {
+  const h = new Array(cent.length).fill(0);
+  errs.forEach(e => { const v = Math.max(-23.9, Math.min(23.9, e)); h[Math.floor((v + 24) / 2)]++; });
+  return h.map(c => Math.round(1000 * c / errs.length) / 10);
+}
+const area = (col, dash) => ({ data: [], borderColor: col, backgroundColor: col + '1a', fill: true, stepped: 'middle', borderWidth: 2, borderDash: dash, pointRadius: 0 });
+const ch3 = new Chart($('c3'), { type: 'line', data: { labels: cent, datasets: [area(C.a, []), area(C.w, [5, 4])] },
+  options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { display: false }, tooltip: { callbacks: { title: i => 'error ' + (i[0].label - 1) + ' to ' + (+i[0].label + 1) + ' µs/MHz', label: c => (c.datasetIndex ? 'phase fit ' : 'delay slope ') + c.parsed.y.toFixed(1) + '%' } } },
+    scales: { x: { title: ttl('GDD error, µs/MHz (the end bins hold everything beyond ±24)'), grid: { display: false }, ticks: { ...tick, autoSkip: true, maxTicksLimit: 13 } },
+              y: { beginAtZero: true, title: ttl('share of trials, %'), grid: { color: C.g }, ticks: tick } } } });
+const rms = a => a.length ? Math.sqrt(a.reduce((s, v) => s + v * v, 0) / a.length) : NaN;
+const mean = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : NaN;
+
+function runTrials() {
+  $('rtl').textContent = 'Running…';
+  setTimeout(() => {
+    const sig = +$('sg').value, snr = +$('sn').value, D = +$('gd').value, na = +$('na').value, e1 = [], e2 = [];
+    for (let t = 0; t < 300; t++) {
+      let a = 0, b = 0, ca = 0, cb = 0;
+      for (let j = 0; j < na; j++) {
+        const r = sweep(sig, snr, D);
+        if (isFinite(r.dE)) { a += r.dE; ca++; }
+        if (isFinite(r.pE)) { b += r.pE; cb++; }
+      }
+      if (ca) e1.push(a / ca - D);
+      if (cb) e2.push(b / cb - D);
+    }
+    ch3.data.datasets[0].data = hist(e1); ch3.data.datasets[1].data = hist(e2); ch3.update('none');
+    $('s1').textContent = '± ' + rms(e1).toFixed(1) + ' µs/MHz';
+    $('s2').textContent = '± ' + rms(e2).toFixed(1) + ' µs/MHz';
+    $('s3').textContent = (mean(e2) >= 0 ? '+' : '') + mean(e2).toFixed(1) + ' µs/MHz';
+    $('rtl').textContent = 'Run 300 trials';
+  }, 20);
+}
+
+function labels() {
+  $('sgv').textContent = (+$('sg').value).toFixed(2) + ' Hz';
+  $('snv').textContent = $('sn').value + ' dB';
+  $('gdv').textContent = $('gd').value + ' µs/MHz';
+  $('nav').textContent = $('na').value;
+}
+function setSeg(s) {
+  SEG = s;
+  $('s041').setAttribute('aria-pressed', s === 0.41); $('s01').setAttribute('aria-pressed', s === 0.1);
+  newSweep(); runTrials();
+}
+['sg', 'sn', 'gd'].forEach(id => { $(id).addEventListener('input', () => { labels(); newSweep(); }); $(id).addEventListener('change', runTrials); });
+$('na').addEventListener('input', labels); $('na').addEventListener('change', runTrials);
+$('nw').addEventListener('click', newSweep); $('rt').addEventListener('click', runTrials);
+$('s041').addEventListener('click', () => setSeg(0.41)); $('s01').addEventListener('click', () => setSeg(0.1));
+labels(); newSweep(); runTrials();
+</script>
