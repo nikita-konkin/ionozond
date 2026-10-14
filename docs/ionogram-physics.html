@@ -493,7 +493,7 @@ footer {
 
   <p>Three things fall out of this table that are worth internalising.</p>
 
-  <p><b>Mode spacing identifies the mode.</b> Traces separated by 0.6–1.6 ms on this path are hop orders. Anything separated by very much more is not.</p>
+  <p><b>Mode spacing identifies the mode.</b> Neighbouring traces 0.5–1.3 ms apart on this path are successive hop orders: the table puts 1F–2F at 0.46–0.86 ms and 2F–3F at 0.71–1.29 ms. Anything separated by very much more is not.</p>
 
   <p><b>The 1-hop delay barely moves with layer height</b> — 0.15 ms across a 100 km change — while the 3-hop delay moves 1.1 ms. Higher-order modes are the sensitive ones, so if you want to watch the layer rise and fall through the evening, watch 3F, not 1F.</p>
 
@@ -612,10 +612,10 @@ footer {
     </table>
   </div>
 
-  <p>FFT length is a pure trade: doubling it halves the frequency step and halves the delay bin in the other direction. 16 384 is where the two agree — the transmitter moves 41 kHz during the 0.41 s each spectrum integrates, so neither axis is being resolved finer than the other can support.</p>
+  <p>FFT length is a pure trade: doubling it doubles the frequency step and halves the delay bin. The two always multiply to one — 41 kHz × 24.4 µs at 16 384 — so no length sharpens both axes; a longer FFT only moves resolution from frequency to delay. 16 384 is the balance this station uses at 100 kHz/s, and its cell is the reference the next section scales from.</p>
 
   <h3>One FFT length per sweep rate</h3>
-  <p>That agreement holds at 100 kHz/s only. A cell is <span class="mono">k·N/f<sub>IF</sub></span> of sweep by <span class="mono">f<sub>IF</sub>/(k·N)</span> of delay, so at five times the rate the same 16 384 points make a cell five times wider and five times flatter. Keeping the original's shape needs <span class="mono">N ∝ 1/√k</span>: about 7 300 at 500 kHz/s, and of the lengths on offer 4 096 is the nearer in both axes.</p>
+  <p>That balance was struck at 100 kHz/s. A cell is <span class="mono">k·N/f<sub>IF</sub></span> of sweep by <span class="mono">f<sub>IF</sub>/(k·N)</span> of delay, so at five times the rate the same 16 384 points make a cell five times wider and five times flatter. Keeping the original's shape means keeping <span class="mono">k·N</span> fixed, so <span class="mono">N ∝ 1/k</span>: about 3 300 at 500 kHz/s, and of the lengths on offer 4 096 is the nearer in both axes.</p>
 
   <div class="tablewrap">
     <table>
@@ -706,7 +706,7 @@ footer {
   <p>So the schedule carries an optional FFT length for each station (<span class="mono">Длина БПФ</span>), along with its own picture detail. The row beneath shows the cell the length gives at that station's rate. A station left on <span class="mono">общ.</span> uses the parameters dialog's value. 100 kHz/s stations should stay on 16 384, and 500 kHz/s stations should use 4 096.</p>
 
   <h3>A finer picture is not a finer measurement</h3>
-  <p>The picture is drawn by a separate pass: each FFT is zero-padded four times over, and two overlapping windows are taken per spectrum (Parameters → <span class="mono">детализация по задержке / по частоте</span>, ×4 / ×2 by default). Nothing in the table changes. A trace is still one 7.32 km bin tall and 41 kHz of sweep wide. What changes is that the picture interpolates <em>between</em> bins instead of drawing a staircase of them, so two features a bin or two apart — a nose and the layer below it, an O/X pair — stop merging into one block.</p>
+  <p>The picture is drawn by a separate pass: each FFT is zero-padded four times over, and two overlapping windows are taken per spectrum (Parameters → <span class="mono">детализация по задержке / по частоте</span>, ×4 / ×2 by default). Nothing in the table changes. A trace is still one 7.32 km bin tall and 41 kHz of sweep wide. What changes is that the picture interpolates <em>between</em> bins instead of drawing a staircase of them, so two features two or three bins apart — a nose and the layer below it, an O/X pair — show the dip between them instead of merging into one block. Closer than about two bins they stay merged: padding interpolates the Hann window's response, it does not narrow it.</p>
   <p>Only the picture changes. LUF, MUF, the SNR and ПЗМ panels and the <span class="mono">.h5</span> archive are computed on the analysis grid above, and stay bit-for-bit identical at any setting.</p>
 </section>
 
@@ -938,7 +938,7 @@ footer {
       <tbody>
         <tr class="hi"><td>100</td><td class="mono">300:235 / 240 / 245</td><td class="num">9.1–9.2 ms</td><td>8–25 MHz, all day, strong</td><td>Cyprus, 2634 km</td><td class="num">10 / 15 / 20</td></tr>
         <tr><td>100</td><td class="mono">300:0</td><td class="num">9.3 ms</td><td>4.8–15.8 MHz, all day</td><td>Cyprus, another sweep</td><td class="num">75</td></tr>
-        <tr><td>100</td><td class="mono">300:291</td><td class="num">11.7 ms</td><td>13.9–24.4 MHz, all day</td><td>fits Irkutsk, 3530 km</td><td class="num">66</td></tr>
+        <tr><td>100</td><td class="mono">300:291</td><td class="num">11.7 ms</td><td>13.9–24.4 MHz, all day</td><td>possibly Irkutsk, 3530 km, though 1F from there needs ≈ 12.1 ms</td><td class="num">66</td></tr>
         <tr><td>100</td><td class="mono">300:280</td><td class="num">16.6 ms</td><td>6–18 MHz, weak</td><td>not Cyprus, by its delay</td><td class="num">55</td></tr>
         <tr><td>100</td><td class="mono">300:270</td><td class="num">2.9 ms</td><td>14–25 MHz, 05–16 UTC</td><td>unidentified</td><td class="num">45</td></tr>
         <tr><td>125</td><td class="mono">450:17 / 407 / 437</td><td class="num">43.7 ms</td><td>5–22.5 MHz, 11–19 UTC</td><td>Australian JORN radars</td><td class="num">77 / 17 / 47</td></tr>
@@ -1228,7 +1228,7 @@ footer {
     </table>
   </div>
 
-  <p>So a GDD from a single sweep carries roughly ±4 µs/MHz whichever way it is measured. The phase fit also reads low, because fades break its unwrapping. Fading is independent from one capture to the next, five minutes apart, so averaging <var>n</var> captures divides the error by √<var>n</var>. Ten captures, fifty minutes, bring it to about ±1 µs/MHz, provided the ionosphere holds still that long. The population figures above come from 583 sweeps and are not limited by this.</p>
+  <p>So a GDD from a single sweep carries roughly ±4 µs/MHz measured from the delays and ±6–7 µs/MHz from the phase. The phase fit also reads low, because fades break its unwrapping. Fading is independent from one capture to the next, five minutes apart, so averaging <var>n</var> captures divides the error by √<var>n</var>. Ten captures, fifty minutes, bring the delay fit to about ±1.3 µs/MHz, provided the ionosphere holds still that long. The population figures above come from 583 sweeps and are not limited by this.</p>
 
   <div class="note">
     <span class="lbl">Try it</span>
@@ -1260,7 +1260,7 @@ footer {
           <td><span class="tag inst">receive</span></td>
         </tr>
         <tr>
-          <td>Several traces 0.6–1.6 ms apart, upper ones ending sooner</td>
+          <td>Several traces 0.5–1.3 ms apart, upper ones ending sooner</td>
           <td>Hop modes 1F / 2F / 3F.</td>
           <td><span class="tag phys">propagate</span></td>
         </tr>
