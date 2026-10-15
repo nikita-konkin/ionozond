@@ -20,7 +20,7 @@ transmitter sweep  ──▶  receiver  ──▶  .lfs capture  ──▶  .lfp
 | `src/` | the console: Qt5 + Qwt application, the DSP, the file formats |
 | `*.pro` | build targets — `ionozond` (console), `dsChirp_viewer` (capture browser), `lfp_build` (archive tool) |
 | `acquisition/` | integration notes for the two sounders, which live in their own repos |
-| `python/` | `lfp.py` reader, `spectrum_oracle.py` verification oracle |
+| `python/` | `lfp.py` reader, `h5_archive.py` and `echo_window.py` archive writers, `spectrum_oracle.py` verification oracle |
 | `tools/` | command-line utilities and their build scripts |
 | `docs/` | format specifications, deployment, provenance |
 | `tests/` | unit tests and differential tests |
@@ -91,6 +91,18 @@ cyprus1_20191023_071510.lfp    37.0 kB      2112x
 
 Build them for a whole archive with `lfp_build`; read them from Python with
 `python/lfp.py`.
+
+The sounder also writes chirpsounder2's `lfm_ionogram-*.h5` beside each
+capture, so that the capture can be deleted. It carries the power
+spectrogram and, in an `echo_window` group, the dechirped voltage around the
+echoes: Doppler, fading and phase survive the deletion. See
+[`docs/reverse-engineering.md`](docs/reverse-engineering.md) and
+ionograms-handler's `docs/echo-window.md`, which specifies the group.
+
+```bash
+python3 python/echo_window.py captures/2026.02.04 --dry-run
+python3 python/echo_window.py capture.lfs --into lfm_ionogram-....h5 --verify
+```
 
 ## Provenance
 

@@ -18,7 +18,8 @@ these respects: change `fft_count`, since the time/frequency trade is baked in
 at write time; re-derive the Rosin gate, which power_dynamic_limit computes
 over the *whole* spectrum and the archive keeps only a window of; or anything
 needing the complex time series, so no Doppler, coherent integration or O/X
-separation.
+separation. That last part python/echo_window.py puts back: the voltage
+around the echoes, appended to this same file as an ``echo_window`` group.
 
 Format
 ------
