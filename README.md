@@ -197,9 +197,18 @@ The window follows ionograms-handler's `docs/echo-window.md`, version 1, and
 on real captures its samples are bit-identical to the reference
 implementation's.
 
+To keep the **full voltage** instead, set *Полный сигнал z в архиве .h5* in
+the parameters dialog, or `save_raw_voltage = true` in `config.ini`. The
+window then spans the whole band, undecimated: the capture sample for sample,
+69 MB a sounding, so the `.h5` alone replaces the `.lfs`. It is stored as the
+window's own `echo_window/z`, not as chirpsounder2's root `z`. muf reads a
+root `z` with chirpsounder2's timing, which starts the sweep at 0 Hz rather
+than at the capture's 7.5 MHz.
+
 ```bash
 python3 python/echo_window.py captures/2026.02.04 --dry-run
 python3 python/echo_window.py capture.lfs --into lfm_ionogram-....h5 --verify
+python3 python/echo_window.py capture.lfs --full --out /archive/full
 ```
 
 ## Tests

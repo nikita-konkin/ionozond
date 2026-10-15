@@ -1487,16 +1487,18 @@ def load_echo_writer(log):
         return None
 
 
-def cut_echo_window(lfs_path, h5_path, writer, log):
+def cut_echo_window(lfs_path, h5_path, writer, log, full=False):
     """Append the echo window to the archive. True when the capture may go.
 
     The archive keeps power only, and the capture is the last copy of the
     voltage, so a window that failed holds the capture back. A sounding with
-    no echo and no usable path has nothing to keep, and does not.
+    no echo and no usable path has nothing to keep, and does not. With
+    `full`, the window is the whole band, undecimated: the capture's voltage
+    sample for sample, so the archive alone replaces it.
     """
     began = time.time()
     try:
-        report = writer.write(lfs_path, into=h5_path)
+        report = writer.write(lfs_path, into=h5_path, full=full)
     except writer.NoEchoError as exc:
         log("  window    none: %s" % exc)
         return True
@@ -1632,8 +1634,12 @@ def run_live(opts, cfg, sounders):
     if want_h5 and archive is None:
         want_h5 = False
     # The echo window rides in the archive, so it exists only where one does.
+    # save_raw_voltage widens it to the whole band: chirpsounder2's name for
+    # keeping the full voltage, here at about 69 MB a capture inside the .h5.
+    save_raw = bool(cfg.get("save_raw_voltage", False))
     echo = (load_echo_writer(log)
-            if want_h5 and bool(cfg.get("echo_window", True)) else None)
+            if want_h5 and (save_raw or bool(cfg.get("echo_window", True)))
+            else None)
     if not want_h5 and not keep_lfs:
         keep_lfs = True
         keep_hours = 0.0
@@ -1649,7 +1655,8 @@ def run_live(opts, cfg, sounders):
         lfs_says = "keeping lfs"
     log("  formats  %s"
         % ", ".join(["h5" if want_h5 else "no h5",
-                     "echo window" if echo else "no echo window",
+                     ("full voltage" if save_raw else "echo window")
+                     if echo else "no echo window",
                      "lfp" if products else "no lfp", lfs_says]))
     if keep_lfs and keep_hours > 0:
         # Worth saying in GB, because hours do not mean anything next to a
@@ -1818,7 +1825,8 @@ def run_live(opts, cfg, sounders):
                            raw / float(os.path.getsize(h5_out) or 1)))
                 released = True
                 if h5_out and echo is not None:
-                    released = cut_echo_window(result["path"], h5_out, echo, log)
+                    released = cut_echo_window(result["path"], h5_out, echo,
+                                               log, full=save_raw)
                 if h5_out and not keep_lfs and released:
                     drop_capture(result["path"], h5_out, archive, log)
                 elif keep_lfs and keep_hours > 0:

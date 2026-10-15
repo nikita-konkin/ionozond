@@ -258,24 +258,34 @@ def _edge_db(db, vrange, lo, hi):
 
 
 def select(src, power, vrange, step, margin_km=DEFAULT_MARGIN_KM,
-           max_hops=DEFAULT_MAX_HOPS):
-    """The range window to keep: the union of both candidates, plus margin."""
-    auto = auto_gate(power, vrange)
-    geometry = geometry_gate(src, max_hops)
-    candidates = [c for c in (auto, geometry) if c is not None]
-    if not candidates:
-        raise NoEchoError(
-            "%s: no range stands out in the power ionogram and its path has "
-            "no usable geometry, so there is nothing to keep"
-            % os.path.basename(src["path"]))
-    method = "+".join(name for name, c in (("auto_gate", auto),
-                                           ("geometry", geometry))
-                      if c is not None)
-    pad = float(margin_km)
-    lo = min(c[0] for c in candidates) - pad
-    hi = max(c[1] for c in candidates) + pad
+           max_hops=DEFAULT_MAX_HOPS, full=False):
+    """The range window to keep: the union of both candidates, plus margin.
+
+    With `full`, the whole axis instead, recorded as a manual range: the
+    specification's undecimated case, which keeps the capture sample for
+    sample when its full voltage is wanted in the archive.
+    """
     ends = sorted((src["range_zero_km"] + src["km_per_hz"] * float(-src["sr_hz"] / 2),
                    src["range_zero_km"] + src["km_per_hz"] * float(src["sr_hz"] / 2)))
+    auto = geometry = manual = None
+    if full:
+        manual = (ends[0], ends[1])
+        candidates, method, pad = [manual], "manual", 0.0
+    else:
+        auto = auto_gate(power, vrange)
+        geometry = geometry_gate(src, max_hops)
+        candidates = [c for c in (auto, geometry) if c is not None]
+        if not candidates:
+            raise NoEchoError(
+                "%s: no range stands out in the power ionogram and its path has "
+                "no usable geometry, so there is nothing to keep"
+                % os.path.basename(src["path"]))
+        method = "+".join(name for name, c in (("auto_gate", auto),
+                                               ("geometry", geometry))
+                          if c is not None)
+        pad = float(margin_km)
+    lo = min(c[0] for c in candidates) - pad
+    hi = max(c[1] for c in candidates) + pad
     lo, hi = max(lo, ends[0]), min(hi, ends[1])
     if lo >= hi:
         raise NoEchoError("%s: window %.0f..%.0f km lies outside the %.0f..%.0f "
@@ -294,7 +304,7 @@ def select(src, power, vrange, step, margin_km=DEFAULT_MARGIN_KM,
         "truncated_suspect": any(math.isfinite(e) and e >= DETECTION_DB for e in edges),
         "json": json.dumps({"method": method, "margin_km": float(margin_km),
                             "max_hops": int(max_hops), "auto_gate_km": pair(auto),
-                            "geometry_km": pair(geometry), "manual_km": None},
+                            "geometry_km": pair(geometry), "manual_km": pair(manual)},
                            sort_keys=True),
     }
 
@@ -428,7 +438,11 @@ def cut(samples, p):
     n = len(samples)
     cycles = float(-p["shift_hz"]) / float(p["source_sr_hz"])
     if p["numtaps"] <= 1:
-        return _mix(samples, 0, n, cycles).astype(np.complex64)
+        out = np.empty(n, dtype=np.complex64)
+        for start in range(0, n, CUT_BLOCK * 64):
+            stop = min(n, start + CUT_BLOCK * 64)
+            out[start:stop] = _mix(samples, start, stop, cycles).astype(np.complex64)
+        return out
     h = np.asarray(p["taps"], dtype=np.float64)
     taps, d = len(h), p["decimation"]
     half = (taps - 1) // 2
@@ -709,14 +723,16 @@ def target_for(lfs, into=None, out_dir=None):
 
 
 def write(lfs, into=None, out_dir=None, margin_km=DEFAULT_MARGIN_KM,
-          max_hops=DEFAULT_MAX_HOPS, check=False, dry_run=False):
+          max_hops=DEFAULT_MAX_HOPS, check=False, dry_run=False, full=False):
     """Cut and store the echo window of one capture. Idempotent.
 
     Into `into`, a chirpsounder2-format archive of the same capture, or a
     standalone <stem>.echo.h5 in `out_dir` (default: beside the capture).
     The capture is only ever read. Every write goes to a temporary sibling,
     is read back, and only then renamed into place, so an interruption
-    leaves the target exactly as it was. Returns a report dict.
+    leaves the target exactly as it was. With `full`, the window is the
+    whole band, undecimated: the capture's full voltage, about 69 MB. Returns
+    a report dict.
     """
     h5py = _h5py()
     target = target_for(lfs, into, out_dir)
@@ -729,7 +745,7 @@ def write(lfs, into=None, out_dir=None, margin_km=DEFAULT_MARGIN_KM,
         return report
     src = source(lfs)
     power, vrange, step, floors = spectrogram(src)
-    sel = select(src, power, vrange, step, margin_km, max_hops)
+    sel = select(src, power, vrange, step, margin_km, max_hops, full)
     del power
     p = plan(src, sel["lo_km"], sel["hi_km"])
     report = {"status": "dry-run" if dry_run else "written", "target": target,
@@ -797,6 +813,8 @@ def main(argv=None):
     ap.add_argument("--into", help="append to this chirpsounder2-format archive "
                     "of the same capture instead of writing <stem>.echo.h5")
     ap.add_argument("--out", help="write <stem>.echo.h5 here (default: beside the capture)")
+    ap.add_argument("--full", action="store_true",
+                    help="keep the whole band, undecimated: the full voltage, about 69 MB")
     ap.add_argument("--verify", action="store_true", help="re-cut and compare after writing")
     ap.add_argument("--dry-run", action="store_true", help="print the window and size, write nothing")
     args = ap.parse_args(argv)
@@ -813,7 +831,8 @@ def main(argv=None):
         try:
             print(_line(lfs, write(lfs, into=args.into, out_dir=args.out,
                                    margin_km=args.margin_km, max_hops=args.max_hops,
-                                   check=args.verify, dry_run=args.dry_run)))
+                                   check=args.verify, dry_run=args.dry_run,
+                                   full=args.full)))
         except NoEchoError as exc:
             print("%s: skipped -- %s" % (os.path.basename(lfs), exc))
         except Exception as exc:
