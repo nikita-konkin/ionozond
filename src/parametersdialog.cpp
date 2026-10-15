@@ -28,6 +28,8 @@ ParametersDialog::ParametersDialog(QSettings *settings, QWidget *parent)
     connect(ui->spbObjLevel, SIGNAL(valueChanged(double)), this, SLOT(UpdateObjLevelHint()));
 
     connect(ui->chbH5Archive, SIGNAL(toggled(bool)), this, SLOT(UpdateFormatsHint()));
+    connect(ui->chbH5Archive, SIGNAL(toggled(bool)), ui->chbSaveRawVoltage, SLOT(setEnabled(bool)));
+    connect(ui->chbSaveRawVoltage, SIGNAL(toggled(bool)), this, SLOT(UpdateFormatsHint()));
     connect(ui->chbKeepLfs, SIGNAL(toggled(bool)), this, SLOT(UpdateFormatsHint()));
     connect(ui->spbKeepLfsHours, SIGNAL(valueChanged(int)), this, SLOT(UpdateFormatsHint()));
     /* The window only means anything when something is being kept. */
@@ -136,6 +138,9 @@ void ParametersDialog::ReadSettings()
      */
     ui->chbH5Archive->setChecked(
         m_settings->value(QLatin1String("h5_archive"), true).toBool());
+    ui->chbSaveRawVoltage->setChecked(
+        m_settings->value(QLatin1String("save_raw_voltage"), false).toBool());
+    ui->chbSaveRawVoltage->setEnabled(ui->chbH5Archive->isChecked());
     const bool keepLfs = m_settings->value(QLatin1String("keep_lfs"), false).toBool();
     ui->chbKeepLfs->setChecked(keepLfs);
     ui->spbKeepLfsHours->setValue(
@@ -236,6 +241,7 @@ void ParametersDialog::WriteSettings()
     m_settings->setValue(QLatin1String("live_ionogram"), ui->chbLiveIonogram->isChecked());
 
     m_settings->setValue(QLatin1String("h5_archive"), ui->chbH5Archive->isChecked());
+    m_settings->setValue(QLatin1String("save_raw_voltage"), ui->chbSaveRawVoltage->isChecked());
     m_settings->setValue(QLatin1String("keep_lfs"), ui->chbKeepLfs->isChecked());
     m_settings->setValue(QLatin1String("keep_lfs_hours"), ui->spbKeepLfsHours->value());
 
@@ -283,6 +289,7 @@ void ParametersDialog::WriteSettings()
 void ParametersDialog::UpdateFormatsHint()
 {
     const bool h5 = ui->chbH5Archive->isChecked();
+    const bool raw = h5 && ui->chbSaveRawVoltage->isChecked();
     const bool lfs = ui->chbKeepLfs->isChecked();
     const int hours = ui->spbKeepLfsHours->value();
 
@@ -294,7 +301,10 @@ void ParametersDialog::UpdateFormatsHint()
      */
     const double perDay = 288.0;
     double gb = perDay * 0.06e-3;                 /* the sidecars alone */
-    if (h5)  gb += perDay * 1.3e-3;
+    /* The power spectrogram is 1.25 MB; beside it goes either the echo
+     * window, 1.57 MB, or the full voltage, 69 MB. */
+    const double h5MB = raw ? 70.3 : 2.8;
+    if (h5)  gb += perDay * h5MB * 1e-3;
     if (lfs) gb += perDay * 80.0e-3;
 
     QString text = tr("около %1 ГБ в сутки при периоде 300 с").arg(gb, 0, 'f', 1);
@@ -318,7 +328,7 @@ void ParametersDialog::UpdateFormatsHint()
         const double standing = hours * (perDay / 24.0) * 80.0e-3;
         text = tr("около %1 ГБ записей в хранении (%2 ч) плюс %3 ГБ архива в сутки")
                    .arg(standing, 0, 'f', 1).arg(hours)
-                   .arg(perDay * 1.3e-3, 0, 'f', 2);
+                   .arg(perDay * h5MB * 1e-3, 0, 'f', 2);
     } else {
         text += tr("  --  записи не удаляются");
     }

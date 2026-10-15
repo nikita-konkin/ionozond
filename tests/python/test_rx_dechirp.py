@@ -11,8 +11,21 @@ class Writer(object):
     def __init__(self, error):
         self.error = error
 
-    def write(self, lfs, into=None):
+    def write(self, lfs, into=None, full=False):
         raise self.error
+
+
+class Recorder(object):
+    """A stand-in for python/echo_window.py that remembers what it was asked."""
+
+    NoEchoError = echo_window.NoEchoError
+
+    def __init__(self):
+        self.asked = []
+
+    def write(self, lfs, into=None, full=False):
+        self.asked.append(full)
+        return {"status": "present", "target": into}
 
 
 def quiet(_line):
@@ -42,3 +55,17 @@ def test_window_lands_in_the_archive(capture):
     _, _, archive = lfp_products.build_one(lfs, quiet=True, h5_archive_km=(0.0, 8000.0))
     rx_dechirp.cut_echo_window(lfs, archive, echo_window, quiet)
     assert echo_window.is_sound(archive)[0], "the archive holds no readable echo window after the sounder cut one"
+
+
+def test_sounder_asks_for_the_full_voltage_when_told(capture):
+    lfs = capture()
+    writer = Recorder()
+    rx_dechirp.cut_echo_window(lfs, lfs + ".h5", writer, quiet, full=True)
+    assert writer.asked == [True], "the sounder did not ask for the full voltage"
+
+
+def test_sounder_asks_for_the_echo_window_by_default(capture):
+    lfs = capture()
+    writer = Recorder()
+    rx_dechirp.cut_echo_window(lfs, lfs + ".h5", writer, quiet)
+    assert writer.asked == [False], "the sounder asked for the full voltage unprompted"

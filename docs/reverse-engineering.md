@@ -371,6 +371,29 @@ With its built-in station table, muf places cyprus1 0.6 km differently from the
 header, so its own window is 0.6 km off this one. Both are valid. The
 coordinates decide, not the implementation.
 
+**The full voltage.** `save_raw_voltage = true` widens the window to the whole
+band: no shift, no decimation, one tap, which is a case the specification
+already allows. The `.h5` then holds the capture sample for sample, and
+replaces it outright. Measured 2026-10-16 on `cyprus1_20260204_120010`:
+
+| | result |
+|---|---|
+| stored voltage against the `.lfs` samples | identical |
+| size in the archive | 69.0 MB of 80.0, gzip with shuffle |
+| sounder step, this PC | 2.3 s |
+| muf's `verify_window` | passes: re-cut identical, 0.000 dB power |
+| muf's ionogram from it at the stored 8192 window, against the `.lfs` | identical, 0.000000 dB |
+
+It is the window's `z`, not chirpsounder2's root `z`, on purpose. muf takes a
+root `z` to be v2's voltage, whose sample 0 is the sweep's 0 Hz crossing, and
+would label every frequency of an ionozond capture 7.5 MHz low. The window
+carries its own time and sweep frequency, so nothing has to guess.
+
+At windows other than 8192, muf scales and interpolates the stored row noise
+rather than recomputing it from the full band, so its ionograms there differ
+from the `.lfs` ones by a median 0.10 dB, up to 5.4 dB at 4096. That
+approximation is muf's, and a full-band window could do without it.
+
 ### Pruning: a floor and a ceiling, not an age
 
 `tools/prune_lfs.py` deletes captures whose products exist. It deliberately

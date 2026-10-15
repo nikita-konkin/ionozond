@@ -188,3 +188,29 @@ def test_window_from_another_capture_fails_verification(capture, tmp_path):
 def test_writer_names_ionozond(capture, tmp_path):
     _, path = standalone(capture, tmp_path)
     assert echo_window.read(path)["writer"].startswith("ionozond "), "the window does not say ionozond wrote it"
+
+
+def test_full_voltage_keeps_every_sample_of_the_capture(capture, tmp_path):
+    lfs = capture(echoes=((np.random.uniform(2600.0, 3400.0), 20.0, 0.4),))
+    target = echo_window.write(lfs, out_dir=str(tmp_path / "echo"), full=True)["target"]
+    source = np.fromfile(lfs, dtype=np.complex64, offset=512)
+    assert np.array_equal(echo_window.read(target)["z"], source), "the full-voltage window is not the capture sample for sample"
+
+
+def test_full_voltage_is_not_decimated(capture, tmp_path):
+    lfs = capture()
+    target = echo_window.write(lfs, out_dir=str(tmp_path / "echo"), full=True)["target"]
+    assert echo_window.read(target)["decimation"] == 1, "the full-voltage window was decimated"
+
+
+def test_full_voltage_covers_the_whole_axis(capture, tmp_path):
+    lfs = capture()
+    window = echo_window.read(echo_window.write(lfs, out_dir=str(tmp_path / "echo"), full=True)["target"])
+    assert (window["range_lo_km"], window["range_hi_km"]) == (-60000.0, 60000.0), "the full-voltage window does not span the whole delay axis"
+
+
+def test_full_voltage_verifies_against_its_capture(capture, tmp_path):
+    lfs = capture()
+    target = echo_window.write(lfs, out_dir=str(tmp_path / "echo"), full=True)["target"]
+    ok, problems, _ = echo_window.verify(target, lfs)
+    assert ok, "a full-voltage window failed verification: %s" % "; ".join(problems)
