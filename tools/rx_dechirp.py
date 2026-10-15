@@ -1468,6 +1468,50 @@ def load_archive_writer(log):
         return None
 
 
+def load_echo_writer(log):
+    """Import python/echo_window.py, or say once why there will be no window.
+
+    Without it the capture can still go once the archive verifies, as it did
+    before the window existed; what is lost is the voltage, not the sounding.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    lib = os.path.normpath(os.path.join(here, os.pardir, "python"))
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    try:
+        import echo_window
+        echo_window._h5py()
+        return echo_window
+    except Exception as exc:
+        log("  no echo window: %s" % exc)
+        return None
+
+
+def cut_echo_window(lfs_path, h5_path, writer, log):
+    """Append the echo window to the archive. True when the capture may go.
+
+    The archive keeps power only, and the capture is the last copy of the
+    voltage, so a window that failed holds the capture back. A sounding with
+    no echo and no usable path has nothing to keep, and does not.
+    """
+    began = time.time()
+    try:
+        report = writer.write(lfs_path, into=h5_path)
+    except writer.NoEchoError as exc:
+        log("  window    none: %s" % exc)
+        return True
+    except Exception as exc:
+        log("  *** keeping the capture: echo window failed (%s)" % exc)
+        return False
+    if report.get("status") == "written":
+        log("  window    %.0f-%.0f km, %.1f Hz (/%d), %.2f MB%s (%.1f s)"
+            % (report["lo_km"], report["hi_km"], report["sr_hz"],
+               report["decimation"], report["bytes"] / 1e6,
+               ", TRUNCATION SUSPECTED" if report["truncated_suspect"] else "",
+               time.time() - began))
+    return True
+
+
 def drop_capture(lfs_path, h5_path, archive, log):
     """Delete the capture, but only against an archive that opens and reads.
 
@@ -1587,6 +1631,9 @@ def run_live(opts, cfg, sounders):
     archive = load_archive_writer(log) if want_h5 else None
     if want_h5 and archive is None:
         want_h5 = False
+    # The echo window rides in the archive, so it exists only where one does.
+    echo = (load_echo_writer(log)
+            if want_h5 and bool(cfg.get("echo_window", True)) else None)
     if not want_h5 and not keep_lfs:
         keep_lfs = True
         keep_hours = 0.0
@@ -1602,6 +1649,7 @@ def run_live(opts, cfg, sounders):
         lfs_says = "keeping lfs"
     log("  formats  %s"
         % ", ".join(["h5" if want_h5 else "no h5",
+                     "echo window" if echo else "no echo window",
                      "lfp" if products else "no lfp", lfs_says]))
     if keep_lfs and keep_hours > 0:
         # Worth saying in GB, because hours do not mean anything next to a
@@ -1768,7 +1816,10 @@ def run_live(opts, cfg, sounders):
                         % (os.path.basename(h5_out),
                            os.path.getsize(h5_out) / 1e6,
                            raw / float(os.path.getsize(h5_out) or 1)))
-                if h5_out and not keep_lfs:
+                released = True
+                if h5_out and echo is not None:
+                    released = cut_echo_window(result["path"], h5_out, echo, log)
+                if h5_out and not keep_lfs and released:
                     drop_capture(result["path"], h5_out, archive, log)
                 elif keep_lfs and keep_hours > 0:
                     sweep_retention(outroot, keep_hours, log)

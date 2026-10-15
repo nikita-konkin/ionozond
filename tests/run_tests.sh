@@ -17,6 +17,12 @@ QT_INC="-I$QT_DIR -I$QT_DIR/QtCore -I$QT_DIR/QtGui -I$QT_DIR/QtWidgets -I/usr/in
 QT_LIB="-lQt5Core -lQt5Gui -lQt5Widgets -lqwt-qt5"
 CXXFLAGS="-std=c++11 -Wall -Wextra -O2 -fPIC"
 
+# The tests below compile their own source lists, so a .pro that is missing
+# a source still passes them; only building every .pro shows it.
+echo "=== build (every .pro target compiles and links) ==="
+bash "$SRC/build.sh" || rc=1
+
+echo
 echo "=== test_igmath (differential vs original binary) ==="
 g++ $CXXFLAGS -o "$BUILD/test_igmath" \
     "$SRC/tests/test_igmath.cpp" "$SRC/src/igmath.cpp" -lfftw3 -lm || exit 1

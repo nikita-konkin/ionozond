@@ -324,6 +324,53 @@ everything below the noise *median*, and `io_chirp` reads NaN back as a
 constant. For an archive whose purpose is reprocessing, 0.37 MB is not worth
 half the distribution.
 
+### The echo window: the voltage the archive cannot hold
+
+The archive is power, so once the capture is gone so is the fast part of the
+channel: Doppler shift and spread, fading, the phase that carries group-delay
+dispersion. `python/echo_window.py` keeps it. After dechirping, the echoes
+occupy a beat band of a few hundred Hz out of the 40 kHz stored. The window
+shifts that band to zero, low-passes it and decimates it, and appends it to the
+archive as a root-level `echo_window` group: **1.57 MB** stored on cyprus1,
+1/51 of the capture, lossless inside the band.
+
+The format is ionograms-handler's `docs/echo-window.md`, version 1, and its
+`muf/echo_window.py` is the reference. This writer is held to that reference,
+not to itself:
+
+- **The same window.** The union of `auto_gate` on the full-axis power
+  ionogram and the 1–3 hop geometry, plus 150 km, ported line for line. It
+  follows the energy rather than the path alone.
+- **The same samples.** The cut sums the taps one at a time in the order
+  `scipy.signal.upfirdn` sums them, so it is bit-identical to muf's
+  `resample_poly` at complex64. That matters because muf's verifier re-cuts
+  with the stored taps and demands identical samples.
+- **numpy and h5py only**, because scipy is optional on the station. The
+  Kaiser taps come from the formula the specification writes out, and are
+  stored, so no reader has to agree with this designer.
+
+The sounder cuts the window into each archive it writes, unless
+`echo_window = False` is set in the config. It reads the window back before
+it lets the capture go. A window that fails holds the capture back. A
+sounding with no echo and no usable path has nothing to keep, so it does not
+hold the capture.
+
+Measured 2026-10-16 against muf on the five 2026-02-04 cyprus1 captures,
+03:00 to 18:00 UTC:
+
+| | result |
+|---|---|
+| window, with muf given the header's coordinates | identical: 2486–4112 km, /45, 3595 taps, all five |
+| stored samples against muf's | **0 of 222,304 differ**, all five |
+| taps against `scipy.signal.firwin` | max difference 7 × 10⁻¹⁸ |
+| muf's own `verify_window` on these files | passes: 82.6 dB stopband, 0.0006 dB ripple, re-cut identical, 0.000 dB power |
+| sounder step, this PC | 1.9 s for the window, after 1.3 s for the products |
+| archive | 1.25 → 2.81 MB a capture, +450 MB a station-day |
+
+With its built-in station table, muf places cyprus1 0.6 km differently from the
+header, so its own window is 0.6 km off this one. Both are valid. The
+coordinates decide, not the implementation.
+
 ### Pruning: a floor and a ceiling, not an age
 
 `tools/prune_lfs.py` deletes captures whose products exist. It deliberately
