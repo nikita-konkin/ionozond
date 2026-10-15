@@ -20,6 +20,7 @@ g++ -std=c++11 -O2 -fPIC -Wall $QT_INC -o "$BUILD/show_ionogram" \
     "$SRC/tools/show_ionogram.cpp" \
     "$SRC/src/common.cpp" "$BUILD/moc_common.cpp" \
     "$SRC/src/qrxionogram.cpp" "$BUILD/moc_qrxionogram.cpp" \
+    "$SRC/src/liveionogram.cpp" "$SRC/src/lfpfile.cpp" "$SRC/src/iganalytics.cpp" \
     "$SRC/src/rasterdata.cpp" "$SRC/src/lfs_header.cpp" "$SRC/src/igmath.cpp" \
     "$SRC/src/qigcolormap.cpp" "$SRC/src/qigcolormap_tables.cpp" \
     $QT_LIB -lfftw3 -lm

@@ -28,7 +28,8 @@ SOURCES += \
     src/qigcolormap_tables.cpp \
     src/rasterdata.cpp \
     src/lfpfile.cpp \
-    src/qrxionogram.cpp
+    src/qrxionogram.cpp \
+    src/liveionogram.cpp
 
 HEADERS += \
     src/common.h \
@@ -38,4 +39,5 @@ HEADERS += \
     src/qigcolormap.h \
     src/rasterdata.h \
     src/lfpfile.h \
-    src/qrxionogram.h
+    src/qrxionogram.h \
+    src/liveionogram.h
