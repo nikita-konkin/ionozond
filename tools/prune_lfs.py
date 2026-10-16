@@ -35,6 +35,13 @@ A capture with no .h5 is never deleted, even when it is ancient. Pruning
 without the archive is the one irreversible mistake here: the .lfp keeps only
 the gated dB array, so a capture pruned against a sidecar alone can never be
 reprocessed at a different gate, window or FFT length.
+
+The archive's power spectrogram is not the whole of it either. The capture is
+the last copy of the voltage, and what survives of that is the echo window
+python/echo_window.py appends to the .h5. So a capture whose archive lacks its
+window has one cut, and verified against the capture, before it goes; if that
+fails, it stays. Old captures from before the window existed are caught the
+same way. --no-echo-window restores the power-only rule.
 """
 
 import argparse
@@ -46,6 +53,18 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "python"))
 
+# Why a capture is kept when its archive has no echo window. One string,
+# because the sweep's summary, the pruner's report and the tests all look
+# for it.
+NO_WINDOW = "no echo window in the .h5"
+
+# What the sounder's own sweep may spend cutting missing windows, per sweep.
+# The sweep runs in the ~50 s between the end of one 250 s capture and the
+# start of the next, and a window with its verification takes several
+# seconds, so a backlog -- captures kept from before the window existed, or
+# whose cut failed -- would otherwise push the next sounding late. What is
+# left over waits for the next sweep, or for the timer, which has no budget.
+BACKFILL_BUDGET_S = 15.0
 
 
 def sidecar_of(lfs):
@@ -79,6 +98,55 @@ def archive_is_sound(path):
     return h5_archive.is_sound(path)
 
 
+def load_window_writer():
+    """python/echo_window.py, or the reason it cannot be had."""
+    import echo_window
+    echo_window._h5py()             # raises with the apt-get line if absent
+    return echo_window
+
+
+def has_window(path):
+    import echo_window
+    return echo_window.has_window(path)
+
+
+def cut_window(lfs, arc, writer, full=False):
+    """Cut a capture's echo window into its archive, verified. (ok, why, report).
+
+    `ok` is True when the capture may go: the window is in the archive and
+    was checked against the capture -- the stored filter meets its spec, a
+    re-cut gives the stored samples, the power it re-derives matches the
+    capture's -- or the sounding had nothing to keep, which is the one case
+    `report` is None. Reading the bytes back proves they reached the disk;
+    only the check proves they are the right bytes, and the capture is about
+    to be the only thing that could tell.
+
+    The sounder's immediate delete decides through this too, so the two
+    deletions cannot disagree about when the voltage is safe.
+    """
+    try:
+        report = writer.write(lfs, into=arc, full=full, check=True)
+    except writer.NoEchoError as exc:
+        return True, str(exc), None
+    except Exception as exc:
+        return False, "echo window failed (%s)" % exc, None
+    ok, problems, _metrics = report.get("verification",
+                                        (False, ["no verification"], {}))
+    if not ok:
+        return False, ("echo window failed verification (%s)"
+                       % "; ".join(problems)), report
+    return True, "", report
+
+
+def backfill(lfs, mtime, keep_before, writer, full=False):
+    """Give a capture the window its archive lacks, then classify it again."""
+    ok, why, report = cut_window(lfs, archive_of(lfs), writer, full)
+    if not ok:
+        return False, why
+    # No echo, no window, and there never will be one: judged on the rest.
+    return classify(lfs, mtime, keep_before, window=report is not None)
+
+
 def scan(root):
     """Every .lfs under root, oldest first by mtime."""
     found = []
@@ -95,8 +163,13 @@ def scan(root):
     return found
 
 
-def classify(lfs, mtime, keep_before):
-    """Why this capture may or may not be deleted."""
+def classify(lfs, mtime, keep_before, window=False):
+    """Why this capture may or may not be deleted.
+
+    With `window`, the archive must also carry the capture's echo window.
+    Only ever reads: cutting a missing window is backfill()'s, so that a dry
+    run stays one.
+    """
     if mtime > keep_before:
         return False, "inside the keep window"
 
@@ -114,11 +187,14 @@ def classify(lfs, mtime, keep_before):
     sound, why = archive_is_sound(arc)
     if not sound:
         return False, ".h5 %s" % why
+    if window and not has_window(arc):
+        return False, NO_WINDOW
 
     return True, ""
 
 
-def sweep_aged(root, keep_hours, log=None, apply=True):
+def sweep_aged(root, keep_hours, log=None, apply=True, writer=None,
+               full=False, budget_s=BACKFILL_BUDGET_S):
     """Delete every capture older than `keep_hours` that has sound products.
 
     This is the sounder's own retention sweep, not the disk-pressure pruner:
@@ -127,18 +203,28 @@ def sweep_aged(root, keep_hours, log=None, apply=True):
     operator's settings would keep and one the timer would keep are the same
     capture.
 
+    `writer` is the sounder's echo-window writer, None when it keeps no
+    window. With one, a capture must have its window before it goes, and a
+    missing one is cut -- for at most `budget_s` per sweep, as the full
+    voltage with `full`.
+
     Returns (removed, bytes_freed).
     """
     if keep_hours <= 0:
         return 0, 0
     keep_before = time.time() - keep_hours * 3600.0
+    window = writer is not None
+    began = time.time()
     removed = 0
     freed = 0
     blocked = {}
     for mtime, path, size in scan(root):
         if mtime > keep_before:
             break                      # scan() is oldest-first; so is the rest
-        ok, why = classify(path, mtime, keep_before)
+        ok, why = classify(path, mtime, keep_before, window)
+        if (not ok and why == NO_WINDOW and apply
+                and time.time() - began < budget_s):
+            ok, why = backfill(path, mtime, keep_before, writer, full)
         if not ok:
             blocked[why] = blocked.get(why, 0) + 1
             continue
@@ -182,6 +268,14 @@ def main():
                          "(default 50). 0 prunes purely by age.")
     ap.add_argument("--apply", action="store_true",
                     help="actually delete. Without it nothing is removed.")
+    ap.add_argument("--no-echo-window", action="store_true",
+                    help="delete against the power archive alone, as before "
+                         "the echo window existed. Without it, a capture "
+                         "whose .h5 lacks its window has one cut first, and "
+                         "is kept if that fails.")
+    ap.add_argument("--full-voltage", action="store_true",
+                    help="cut missing windows as the full voltage, the "
+                         "sounder's save_raw_voltage (about 69 MB each).")
     opts = ap.parse_args()
 
     root = os.path.expanduser(opts.archive)
@@ -202,6 +296,21 @@ def main():
         print("  target  %.1f GB free" % want_gb)
     else:
         print("  target  none; pruning by age alone")
+
+    # Without its writer a missing window cannot be cut, and a capture whose
+    # window is missing is then kept -- not released on the power alone.
+    window = not opts.no_echo_window
+    writer = None
+    if window:
+        try:
+            writer = load_window_writer()
+        except Exception as exc:
+            print("  *** no echo-window writer (%s): captures whose .h5 has no"
+                  % exc)
+            print("  *** window are kept. --no-echo-window deletes them anyway.")
+    print("  window  %s" % ("not required" if not window else
+                            "required, missing ones cut"
+                            + (" as the full voltage" if opts.full_voltage else "")))
 
     captures = scan(root)
     total_gb = sum(c[2] for c in captures) / 1e9
@@ -251,7 +360,13 @@ def main():
     for mtime, path, size in captures:
         if want_gb > 0 and freed >= need_gb:
             break
-        ok, why = classify(path, mtime, keep_before)
+        ok, why = classify(path, mtime, keep_before, window)
+        cut_first = not ok and why == NO_WINDOW and writer is not None
+        if cut_first and opts.apply:
+            ok, why = backfill(path, mtime, keep_before, writer,
+                               opts.full_voltage)
+        elif cut_first:
+            ok = True              # a dry run cuts nothing; say what it would do
         if not ok:
             blocked[why] = blocked.get(why, 0) + 1
             continue
@@ -266,7 +381,9 @@ def main():
                 continue
         print("  %-44s %5.1f d  %6.1f MB%s"
               % (os.path.basename(path), age, size / 1e6,
-                 "" if opts.apply else "   [dry run]"))
+                 "" if opts.apply else
+                 "   [dry run, window cut first]" if cut_first else
+                 "   [dry run]"))
         freed += gb
         removed += 1
 
@@ -284,8 +401,9 @@ def main():
         print()
         print("  *** still %.1f GB short of the target." % (need_gb - freed))
         print("  *** Everything else is either inside the keep window or has")
-        print("  *** no sound .h5 archive. Lower --keep-days, or check that")
-        print("  *** h5_archive is enabled in the sounder's config.")
+        print("  *** no sound .h5 archive with its echo window. Lower")
+        print("  *** --keep-days, or check that h5_archive is enabled in the")
+        print("  *** sounder's config.")
 
     if not opts.apply and removed:
         print()

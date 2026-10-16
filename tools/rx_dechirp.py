@@ -1487,26 +1487,42 @@ def load_echo_writer(log):
         return None
 
 
+def _pruner():
+    """tools/prune_lfs.py, which holds the conditions on deleting a capture."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import prune_lfs
+    return prune_lfs
+
+
 def cut_echo_window(lfs_path, h5_path, writer, log, full=False):
     """Append the echo window to the archive. True when the capture may go.
 
     The archive keeps power only, and the capture is the last copy of the
-    voltage, so a window that failed holds the capture back. A sounding with
-    no echo and no usable path has nothing to keep, and does not. With
-    `full`, the window is the whole band, undecimated: the capture's voltage
-    sample for sample, so the archive alone replaces it.
+    voltage, so a window that failed -- to be written, or to verify against
+    the capture -- holds the capture back. A sounding with no echo and no
+    usable path has nothing to keep, and does not. With `full`, the window is
+    the whole band, undecimated: the capture's voltage sample for sample, so
+    the archive alone replaces it.
+
+    The decision is prune_lfs.cut_window's, the same one the retention sweep
+    and the pruner make, so a capture is released by one rule however it goes.
     """
     began = time.time()
     try:
-        report = writer.write(lfs_path, into=h5_path, full=full)
-    except writer.NoEchoError as exc:
-        log("  window    none: %s" % exc)
-        return True
+        ok, why, report = _pruner().cut_window(lfs_path, h5_path, writer,
+                                               full=full)
     except Exception as exc:
-        log("  *** keeping the capture: echo window failed (%s)" % exc)
+        ok, why, report = False, "echo window failed (%s)" % exc, None
+    if not ok:
+        log("  *** keeping the capture: %s" % why)
         return False
+    if report is None:
+        log("  window    none: %s" % why)
+        return True
     if report.get("status") == "written":
-        log("  window    %.0f-%.0f km, %.1f Hz (/%d), %.2f MB%s (%.1f s)"
+        log("  window    %.0f-%.0f km, %.1f Hz (/%d), %.2f MB, verified%s (%.1f s)"
             % (report["lo_km"], report["hi_km"], report["sr_hz"],
                report["decimation"], report["bytes"] / 1e6,
                ", TRUNCATION SUSPECTED" if report["truncated_suspect"] else "",
@@ -1540,23 +1556,23 @@ def drop_capture(lfs_path, h5_path, archive, log):
     return True
 
 
-def sweep_retention(outroot, keep_hours, log):
+def sweep_retention(outroot, keep_hours, log, writer=None, full=False):
     """Delete captures that have aged out of the operator's keep window.
 
     Between soundings, where there is a whole repetition period of idle time
     and nothing else wants the disk. Delegated to prune_lfs so that the
-    conditions on deleting a capture are written down once.
+    conditions on deleting a capture are written down once. `writer` and
+    `full` are the sounder's echo window: with one, an aged capture goes only
+    once its window is in the archive.
     """
     try:
-        here = os.path.dirname(os.path.abspath(__file__))
-        if here not in sys.path:
-            sys.path.insert(0, here)
-        import prune_lfs
+        prune_lfs = _pruner()
     except Exception as exc:
         log("  *** retention sweep unavailable: %s" % exc)
         return
     try:
-        prune_lfs.sweep_aged(outroot, keep_hours, log=log)
+        prune_lfs.sweep_aged(outroot, keep_hours, log=log, writer=writer,
+                             full=full)
     except Exception as exc:
         # Never fatal. A sweep that fails costs disk; a sweep that stops the
         # station costs soundings, and only one of those can be caught up on.
@@ -1830,7 +1846,8 @@ def run_live(opts, cfg, sounders):
                 if h5_out and not keep_lfs and released:
                     drop_capture(result["path"], h5_out, archive, log)
                 elif keep_lfs and keep_hours > 0:
-                    sweep_retention(outroot, keep_hours, log)
+                    sweep_retention(outroot, keep_hours, log, writer=echo,
+                                    full=save_raw)
             except Exception as exc:
                 log("  *** sidecar failed: %s" % exc)
 

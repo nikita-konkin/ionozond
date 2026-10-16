@@ -141,8 +141,11 @@ python3 tools/rx_dechirp.py --self-test
 
 After each sounding it builds the `.lfp` sidecar and the `.h5` archive in the
 same pass, appends the echo window to the archive, and then deletes the capture
-— but only once the archive and the window both read back. Set `keep_lfs` to
-keep captures, for a number of hours or indefinitely.
+— but only once the archive reads back and the window verifies against the
+capture: its filter, an exact re-cut, and the power it re-derives. Set
+`keep_lfs` to keep captures, for a number of hours or indefinitely; a kept
+capture that ages out goes by the same rule, and one whose archive still lacks
+its window has one cut first.
 
 Two ways to run it, never both at once, since both open the same radio:
 
@@ -156,7 +159,7 @@ Two ways to run it, never both at once, since both open the same radio:
 
 | Tool | Does |
 |---|---|
-| `tools/prune_lfs.py` | deletes captures whose products are proven, oldest first, between a floor in days and a ceiling in free GB; `ionozond-prune.timer` runs it |
+| `tools/prune_lfs.py` | deletes captures whose products are proven — the archive and its verified echo window, cut first where missing — oldest first, between a floor in days and a ceiling in free GB; `ionozond-prune.timer` runs it |
 | `tools/nas_sync.py` | copies products to a NAS and deletes local `.h5` files only once the NAS holds identical copies; `ionozond-nas.timer` runs it |
 | `tools/find_trace.py` | profiles `.h5` archives over 0–8000 km and says where the echo is, when a new station's panel shows nothing |
 | `tools/rx_spectrum.py` | shows the HF band the receiver sees, as text, before anything is dechirped |

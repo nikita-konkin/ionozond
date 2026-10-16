@@ -11,21 +11,27 @@ class Writer(object):
     def __init__(self, error):
         self.error = error
 
-    def write(self, lfs, into=None, full=False):
+    def write(self, lfs, into=None, full=False, check=False):
         raise self.error
 
 
 class Recorder(object):
-    """A stand-in for python/echo_window.py that remembers what it was asked."""
+    """A stand-in for python/echo_window.py that remembers what it was asked,
+    and reports its window as verified, or not."""
 
     NoEchoError = echo_window.NoEchoError
 
-    def __init__(self):
+    def __init__(self, verified=True):
         self.asked = []
+        self.checked = []
+        self.verified = verified
 
-    def write(self, lfs, into=None, full=False):
+    def write(self, lfs, into=None, full=False, check=False):
         self.asked.append(full)
-        return {"status": "present", "target": into}
+        self.checked.append(check)
+        problems = [] if self.verified else ["re-cut differs from the stored samples"]
+        return {"status": "present", "target": into,
+                "verification": (self.verified, problems, {})}
 
 
 def quiet(_line):
@@ -69,3 +75,15 @@ def test_sounder_asks_for_the_echo_window_by_default(capture):
     writer = Recorder()
     rx_dechirp.cut_echo_window(lfs, lfs + ".h5", writer, quiet)
     assert writer.asked == [False], "the sounder asked for the full voltage unprompted"
+
+
+def test_sounder_checks_the_window_before_releasing_the_capture(capture):
+    lfs = capture()
+    writer = Recorder()
+    rx_dechirp.cut_echo_window(lfs, lfs + ".h5", writer, quiet)
+    assert writer.checked == [True], "the sounder released a capture against a window it never checked"
+
+
+def test_capture_is_kept_when_its_window_fails_the_check(capture):
+    lfs = capture()
+    assert not rx_dechirp.cut_echo_window(lfs, lfs + ".h5", Recorder(verified=False), quiet), "a capture was released against a window that failed verification"
