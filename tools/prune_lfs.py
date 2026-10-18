@@ -42,6 +42,13 @@ python/echo_window.py appends to the .h5. So a capture whose archive lacks its
 window has one cut, and verified against the capture, before it goes; if that
 fails, it stays. Old captures from before the window existed are caught the
 same way. --no-echo-window restores the power-only rule.
+
+Two more things hold a capture back. A window an earlier selection rule chose
+(rule 1, before 2026-10-18) is cut again first, while the capture can still be
+cut from: rule 1 took the whole band for soundings with no echo and cut echoes
+it should have kept. And a window whose echo statistic still stands at one of
+its edges -- trace_at_edge -- keeps its capture: the window may have cut a
+trace, and the capture is the only thing a better window could come from.
 """
 
 import argparse
@@ -57,6 +64,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "python"))
 # because the sweep's summary, the pruner's report and the tests all look
 # for it.
 NO_WINDOW = "no echo window in the .h5"
+OLD_RULE = "echo window chosen by an earlier selection rule"
+TRACE_AT_EDGE = "echo window has a trace at its edge"
 
 # What the sounder's own sweep may spend cutting missing windows, per sweep.
 # The sweep runs in the ~50 s between the end of one 250 s capture and the
@@ -110,6 +119,16 @@ def has_window(path):
     return echo_window.has_window(path)
 
 
+def window_held(path):
+    """Why the window in `path` holds its capture back, or "" if it does not."""
+    import echo_window
+    if echo_window.outdated(path):
+        return OLD_RULE
+    if echo_window.read(path).get("trace_at_edge"):
+        return TRACE_AT_EDGE
+    return ""
+
+
 def cut_window(lfs, arc, writer, full=False):
     """Cut a capture's echo window into its archive, verified. (ok, why, report).
 
@@ -125,7 +144,7 @@ def cut_window(lfs, arc, writer, full=False):
     deletions cannot disagree about when the voltage is safe.
     """
     try:
-        report = writer.write(lfs, into=arc, full=full, check=True)
+        report = writer.write(lfs, into=arc, full=full, check=True, recut=True)
     except writer.NoEchoError as exc:
         return True, str(exc), None
     except Exception as exc:
@@ -135,6 +154,8 @@ def cut_window(lfs, arc, writer, full=False):
     if not ok:
         return False, ("echo window failed verification (%s)"
                        % "; ".join(problems)), report
+    if report.get("trace_at_edge"):
+        return False, TRACE_AT_EDGE, report
     return True, "", report
 
 
@@ -189,6 +210,10 @@ def classify(lfs, mtime, keep_before, window=False):
         return False, ".h5 %s" % why
     if window and not has_window(arc):
         return False, NO_WINDOW
+    if window:
+        held = window_held(arc)
+        if held:
+            return False, held
 
     return True, ""
 
@@ -222,7 +247,7 @@ def sweep_aged(root, keep_hours, log=None, apply=True, writer=None,
         if mtime > keep_before:
             break                      # scan() is oldest-first; so is the rest
         ok, why = classify(path, mtime, keep_before, window)
-        if (not ok and why == NO_WINDOW and apply
+        if (not ok and why in (NO_WINDOW, OLD_RULE) and apply
                 and time.time() - began < budget_s):
             ok, why = backfill(path, mtime, keep_before, writer, full)
         if not ok:
@@ -361,7 +386,7 @@ def main():
         if want_gb > 0 and freed >= need_gb:
             break
         ok, why = classify(path, mtime, keep_before, window)
-        cut_first = not ok and why == NO_WINDOW and writer is not None
+        cut_first = not ok and why in (NO_WINDOW, OLD_RULE) and writer is not None
         if cut_first and opts.apply:
             ok, why = backfill(path, mtime, keep_before, writer,
                                opts.full_voltage)

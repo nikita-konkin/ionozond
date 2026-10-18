@@ -22,9 +22,10 @@ and ``muf/echo_window.py`` the reference implementation. This module is the
 second implementation, for .lfs only, and it is held to the reference rather
 than to itself:
 
-- the window is chosen exactly as muf chooses it -- the union of auto_gate on
-  the full-axis power ionogram and the 1..3 hop geometry, plus a margin --
-  so the same capture gives the same window from either side;
+- the window is chosen exactly as muf chooses it -- the union of the echo
+  gate on the full-axis power ionogram and the 1..3 hop geometry, plus a
+  margin (selection rule 2) -- so the same capture gives the same window
+  from either side;
 - the cut is summed tap by tap in the order scipy.signal.upfirdn sums, which
   makes its output bit-identical to muf's resample_poly. muf's verifier
   re-cuts with the stored taps and demands identical samples, so this is
@@ -72,8 +73,21 @@ DB_FLOOR = 1e-3
 DETECTION_DB = 43.0
 
 AUTO_GATE_QUANTILE = 0.98
-AUTO_GATE_FLOOR_FRACTION = 0.25
 AUTO_GATE_SMOOTH_KM = 40.0
+
+# Selection rule 2, the specification's sec. 3.7: what the echo gate counts as
+# an echo, and how it reads a window's edges. Rule 1 took auto_gate, which a
+# silent band with a tilted floor answers with its louder edge.
+SELECTION_RULE = 2
+ECHO_SIGMA = 8.0
+EXTENT_SIGMA = 3.0
+EDGE_SIGMA = EXTENT_SIGMA
+ECHO_REACH_KM = 1500.0
+FLOOR_FRACTION = 0.25
+FLOOR_NODES = 257
+EDGE_GUARD_FRACTION = 0.04
+BACKGROUND_KM = 6000.0
+MAD_TO_SIGMA = 1.4826
 
 DEFAULT_MARGIN_KM = 150.0
 DEFAULT_MAX_HOPS = 3
@@ -184,36 +198,133 @@ def spectrogram(src):
     return power, half - np.arange(0, NOISE_WINDOW) * step, step, floors
 
 
-def auto_gate(power, vrange):
-    """muf.calibrate.auto_gate with no margin: where the energy stacks up.
+def _noise_floor(level, fraction):
+    """A running median of `level` over `fraction` of its length, evaluated at
+    FLOOR_NODES evenly spaced bins (the window shrinking at the ends) and
+    linear in between."""
+    n = level.size
+    half = max(1, int(fraction * n) // 2)
+    nodes = np.unique(np.round(np.linspace(0, n - 1, min(n, FLOOR_NODES))).astype(int))
+    at = np.array([np.median(level[max(0, i - half):i + half + 1]) for i in nodes])
+    return np.interp(np.arange(n), nodes, at)
 
-    A count of bright cells per range, not a sum of power, so scattered
-    noise spikes cannot drag the window open. None when no range stands out.
+
+def echo_profile(power, vrange):
+    """The echo statistic per range bin, in robust deviations, and its guard.
+
+    auto_gate's count -- cells over their row's 98th percentile, smoothed --
+    after each range column is divided by a running median of the column
+    medians over a quarter of the axis (the receiver's tilt); then less its
+    own running median over BACKGROUND_KM (the plateau a carrier lifts), over
+    1.4826 times a running median of its absolute value there. None for an
+    array with nothing in it.
     """
-    power = np.asarray(power)
+    power = np.asarray(power, dtype=np.float64)
     vrange = np.asarray(vrange, dtype=np.float64)
-    if power.ndim != 2 or power.shape[0] < 2 or len(vrange) < 3:
+    if power.ndim != 2 or power.shape[0] < 2 or vrange.size < 3:
         return None
-    with np.errstate(invalid="ignore"):
-        threshold = np.nanquantile(power, AUTO_GATE_QUANTILE, axis=1, keepdims=True)
-        profile = (power > threshold).sum(axis=0).astype(np.float64)
-    if not np.isfinite(profile).all() or profile.max() <= 0:
-        return None
+    with np.errstate(invalid="ignore", divide="ignore"):
+        level = np.nanmedian(power, axis=0)
+        good = np.isfinite(level) & (level > 0)
+        if not good.any():
+            return None
+        level = np.where(good, level, np.median(level[good]))
+        flat = power / _noise_floor(level, FLOOR_FRACTION)
+        threshold = np.nanquantile(flat, AUTO_GATE_QUANTILE, axis=1, keepdims=True)
+        count = (flat > threshold).sum(axis=0).astype(np.float64)
     step = abs(float(vrange[1] - vrange[0])) or 1.0
     width = max(3, int(AUTO_GATE_SMOOTH_KM / step) | 1)
-    profile = np.convolve(profile, np.ones(width) / width, mode="same")
-    baseline = float(np.median(profile))
-    peak = float(profile.max())
-    if peak <= baseline * 1.5:
+    count = np.convolve(count, np.ones(width) / width, mode="same")
+    reach = min(1.0, BACKGROUND_KM / step / count.size)
+    excess = count - _noise_floor(count, reach)
+    spread = np.maximum(MAD_TO_SIGMA * _noise_floor(np.abs(excess), reach), 1.0 / width)
+    z = excess / spread
+    guard = np.zeros(z.size, dtype=bool)
+    g = max(width, int(EDGE_GUARD_FRACTION * z.size))
+    guard[:g] = True
+    guard[-g:] = True
+    return z, guard
+
+
+def _runs(mask):
+    edges = np.flatnonzero(np.diff(np.concatenate(([0], mask.astype(np.int8), [0]))))
+    return list(zip(edges[::2].tolist(), edges[1::2].tolist()))
+
+
+def _gap_km(a, b):
+    return max(0.0, max(a[0], b[0]) - min(a[1], b[1]))
+
+
+def echo_gate(power, vrange, geometry=None, profile=None):
+    """The range the echo occupies, or None when nothing stands out.
+
+    A dict of lo_km, hi_km, sigma (the main run's peak), reach ("near" the
+    geometry, "far" from it, "axis" with none) and runs. A run is a stretch
+    of the profile at EXTENT_SIGMA or more, and an echo if it peaks at
+    ECHO_SIGMA outside the guard. The strongest echo within ECHO_REACH_KM of
+    the geometry leads, with every other echo within reach of it or of the
+    geometry; with none near the geometry, the strongest anywhere, with its
+    own neighbours -- the displaced echo.
+    """
+    vrange = np.asarray(vrange, dtype=np.float64)
+    profile = profile if profile is not None else echo_profile(power, vrange)
+    if profile is None:
         return None
-    cut_level = baseline + AUTO_GATE_FLOOR_FRACTION * (peak - baseline)
-    lo_i = hi_i = int(np.argmax(profile))
-    while lo_i > 0 and profile[lo_i - 1] > cut_level:
-        lo_i -= 1
-    while hi_i < len(profile) - 1 and profile[hi_i + 1] > cut_level:
-        hi_i += 1
-    lo_km, hi_km = sorted((float(vrange[lo_i]), float(vrange[hi_i])))
-    return lo_km - 0.0, hi_km + 0.0
+    z, guard = profile
+    usable = np.where(guard, -np.inf, z)
+    found = []
+    for a, b in _runs(z >= EXTENT_SIGMA):
+        peak = float(usable[a:b].max())
+        if peak >= ECHO_SIGMA:
+            span = vrange[a:b]
+            found.append((peak, (float(span.min()), float(span.max()))))
+    if not found:
+        return None
+    if geometry is not None:
+        near = [f for f in found if _gap_km(f[1], geometry) <= ECHO_REACH_KM]
+        reach = "near" if near else "far"
+    else:
+        near, reach = [], "axis"
+    main = max(near or found, key=lambda f: f[0])
+    anchors = [main[1]] + ([tuple(geometry)] if reach == "near" else [])
+    kept = [f for f in found
+            if f is main or min(_gap_km(f[1], a) for a in anchors) <= ECHO_REACH_KM]
+    return {"lo_km": min(f[1][0] for f in kept), "hi_km": max(f[1][1] for f in kept),
+            "sigma": main[0], "reach": reach, "runs": len(kept)}
+
+
+def _edge_sigma(profile, vrange, outer, inner):
+    """The profile's peak between a window edge and a margin inside it,
+    half-open at `inner`, where a kept run ends."""
+    if profile is None:
+        return float("nan")
+    z, guard = profile
+    vr = np.asarray(vrange, dtype=np.float64)
+    half = 0.5 * (abs(float(vr[1] - vr[0])) if vr.size > 1 else 0.0)
+    near, far = sorted((outer, inner))
+    cols = ((vr > near + half) if inner < outer else (vr >= near)) & (
+        (vr < far - half) if inner > outer else (vr <= far)) & ~guard
+    return float(z[cols].max()) if cols.any() else float("nan")
+
+
+def _grow(profile, vrange, lo, hi, edge, axis):
+    """Move each edge out by `edge` while the echo statistic in the margin
+    inside it stands at EDGE_SIGMA, up to ECHO_REACH_KM a side and the axis.
+    What is left at an edge after this is what trace_at_edge flags."""
+    step = max(float(edge), 1.0)
+
+    def busy(outer, inner):
+        return _edge_sigma(profile, vrange, outer, inner) >= EDGE_SIGMA   # NaN: no
+
+    for _ in range(int(ECHO_REACH_KM // step)):
+        if lo <= axis[0] or not busy(lo, lo + edge):
+            break
+        lo = max(axis[0], lo - step)
+    for _ in range(int(ECHO_REACH_KM // step)):
+        if hi >= axis[1] or not busy(hi, hi - edge):
+            break
+        hi = min(axis[1], hi + step)
+    return lo, hi
 
 
 def _ground_km(src):
@@ -264,23 +375,30 @@ def select(src, power, vrange, step, margin_km=DEFAULT_MARGIN_KM,
     With `full`, the whole axis instead, recorded as a manual range: the
     specification's undecimated case, which keeps the capture sample for
     sample when its full voltage is wanted in the archive.
+
+    The edges are read twice. truncated_suspect is rule 1's test, a cell at
+    the detection threshold near an edge, which a carrier crossing the row
+    passes as readily as a trace; trace_at_edge asks the echo statistic,
+    which a carrier does not move.
     """
     ends = sorted((src["range_zero_km"] + src["km_per_hz"] * float(-src["sr_hz"] / 2),
                    src["range_zero_km"] + src["km_per_hz"] * float(src["sr_hz"] / 2)))
-    auto = geometry = manual = None
+    echo = geometry = manual = None
+    profile = echo_profile(power, vrange)
     if full:
         manual = (ends[0], ends[1])
         candidates, method, pad = [manual], "manual", 0.0
     else:
-        auto = auto_gate(power, vrange)
         geometry = geometry_gate(src, max_hops)
-        candidates = [c for c in (auto, geometry) if c is not None]
+        echo = echo_gate(power, vrange, geometry, profile)
+        found = None if echo is None else (echo["lo_km"], echo["hi_km"])
+        candidates = [c for c in (found, geometry) if c is not None]
         if not candidates:
             raise NoEchoError(
                 "%s: no range stands out in the power ionogram and its path has "
                 "no usable geometry, so there is nothing to keep"
                 % os.path.basename(src["path"]))
-        method = "+".join(name for name, c in (("auto_gate", auto),
+        method = "+".join(name for name, c in (("echo_gate", found),
                                                ("geometry", geometry))
                           if c is not None)
         pad = float(margin_km)
@@ -293,19 +411,31 @@ def select(src, power, vrange, step, margin_km=DEFAULT_MARGIN_KM,
                           % (os.path.basename(src["path"]), lo, hi, ends[0], ends[1]))
     db = _to_db(power).astype(np.float32)
     edge = max(float(margin_km), abs(float(step)))
+    if not full:
+        lo, hi = _grow(profile, vrange, lo, hi, edge, ends)
     edges = (_edge_db(db, vrange, lo, lo + edge), _edge_db(db, vrange, hi - edge, hi))
+    sigmas = (_edge_sigma(profile, vrange, lo, lo + edge),
+              _edge_sigma(profile, vrange, hi, hi - edge))
 
     def pair(v):
         return None if v is None else [round(float(v[0]), 3), round(float(v[1]), 3)]
 
+    found = None if echo is None else (echo["lo_km"], echo["hi_km"])
     return {
         "lo_km": float(lo), "hi_km": float(hi), "method": method,
         "edge_energy_db": edges,
         "truncated_suspect": any(math.isfinite(e) and e >= DETECTION_DB for e in edges),
-        "json": json.dumps({"method": method, "margin_km": float(margin_km),
-                            "max_hops": int(max_hops), "auto_gate_km": pair(auto),
-                            "geometry_km": pair(geometry), "manual_km": pair(manual)},
-                           sort_keys=True),
+        "edge_sigma": sigmas,
+        "trace_at_edge": any(math.isfinite(e) and e >= EDGE_SIGMA for e in sigmas),
+        "echo": echo,
+        "json": json.dumps({
+            "rule": SELECTION_RULE, "method": method, "margin_km": float(margin_km),
+            "max_hops": int(max_hops), "echo_gate_km": pair(found),
+            "echo_gate_sigma": None if echo is None else round(echo["sigma"], 2),
+            "echo_gate_reach": None if echo is None else echo["reach"],
+            "echo_gate_runs": None if echo is None else echo["runs"],
+            "auto_gate_km": None, "geometry_km": pair(geometry),
+            "manual_km": pair(manual)}, sort_keys=True),
     }
 
 
@@ -540,6 +670,8 @@ def _attrs(src, sel, p):
         "selection": sel["json"],
         "edge_energy_db": np.asarray(sel["edge_energy_db"], dtype=np.float64),
         "truncated_suspect": np.bool_(sel["truncated_suspect"]),
+        "edge_sigma": np.asarray(sel["edge_sigma"], dtype=np.float64),
+        "trace_at_edge": np.bool_(sel["trace_at_edge"]),
         "writer": _writer(),
     }
 
@@ -625,6 +757,11 @@ def read(path):
                     "km_per_hz", "range_zero_km"):
             window[key] = float(a[key])
         window["truncated_suspect"] = bool(a["truncated_suspect"])
+        # Selection rule 2 on; a window rule 1 chose has neither.
+        window["trace_at_edge"] = (bool(a["trace_at_edge"]) if "trace_at_edge" in a
+                                   else None)
+        window["edge_sigma"] = (tuple(float(v) for v in a["edge_sigma"])
+                                if "edge_sigma" in a else None)
         window["z"] = np.asarray(g[SAMPLES][()], dtype=np.complex64)
         window["taps"] = np.asarray(g[TAPS][()], dtype=np.float64)
         if window["taps"].shape != (int(window["filter"]["numtaps"]),):
@@ -722,8 +859,43 @@ def target_for(lfs, into=None, out_dir=None):
                         stem + STANDALONE_SUFFIX)
 
 
+def _selection(path):
+    h5py = _h5py()
+    with h5py.File(path, "r") as fh:
+        return json.loads(_text(fh[GROUP].attrs["selection"]))
+
+
+def window_rule(path):
+    """The selection rule that chose the window in `path`; 1 when its
+    selection JSON names none, as rule 1 wrote it."""
+    return int(_selection(path).get("rule", 1))
+
+
+def outdated(path):
+    """Does the window in `path` want cutting again under this rule? A window
+    an earlier rule chose, unless it was a manual range -- the full voltage
+    is the same window under any rule, and rewriting 69 MB gains nothing."""
+    selection = _selection(path)
+    return (int(selection.get("rule", 1)) < SELECTION_RULE
+            and selection.get("method") != "manual")
+
+
+def _copy_without_window(path, tmp):
+    """`path` into `tmp` with everything but the echo window: every other
+    dataset, group and attribute, filters and all. HDF5 does not give back
+    the space of a deleted group, so a window is replaced by a new file."""
+    h5py = _h5py()
+    with h5py.File(path, "r") as src, h5py.File(tmp, "w") as dst:
+        for key, value in src.attrs.items():
+            dst.attrs[key] = value
+        for key in src:
+            if key != GROUP:
+                src.copy(src[key], dst, name=key)
+
+
 def write(lfs, into=None, out_dir=None, margin_km=DEFAULT_MARGIN_KM,
-          max_hops=DEFAULT_MAX_HOPS, check=False, dry_run=False, full=False):
+          max_hops=DEFAULT_MAX_HOPS, check=False, dry_run=False, full=False,
+          recut=False):
     """Cut and store the echo window of one capture. Idempotent.
 
     Into `into`, a chirpsounder2-format archive of the same capture, or a
@@ -731,27 +903,34 @@ def write(lfs, into=None, out_dir=None, margin_km=DEFAULT_MARGIN_KM,
     The capture is only ever read. Every write goes to a temporary sibling,
     is read back, and only then renamed into place, so an interruption
     leaves the target exactly as it was. With `full`, the window is the
-    whole band, undecimated: the capture's full voltage, about 69 MB. Returns
-    a report dict.
+    whole band, undecimated: the capture's full voltage, about 69 MB. With
+    `recut`, a window an earlier selection rule chose is replaced (outdated());
+    one this rule chose, or a manual range, is still left alone. Returns a
+    report dict.
     """
     h5py = _h5py()
     target = target_for(lfs, into, out_dir)
     if into is not None and not os.path.exists(into):
         raise FileNotFoundError("%s: --into must name an existing archive" % into)
+    replacing = False
     if os.path.exists(target) and has_window(target):
-        report = {"status": "present", "target": target}
-        if check:
-            report["verification"] = verify(target, lfs)
-        return report
+        replacing = recut and outdated(target)
+        if not replacing:
+            report = {"status": "present", "target": target}
+            if check:
+                report["verification"] = verify(target, lfs)
+            return report
     src = source(lfs)
     power, vrange, step, floors = spectrogram(src)
     sel = select(src, power, vrange, step, margin_km, max_hops, full)
     del power
     p = plan(src, sel["lo_km"], sel["hi_km"])
-    report = {"status": "dry-run" if dry_run else "written", "target": target,
+    status = "replaced" if replacing else "written"
+    report = {"status": "dry-run" if dry_run else status, "target": target,
               "lo_km": sel["lo_km"], "hi_km": sel["hi_km"], "method": sel["method"],
               "decimation": p["decimation"], "sr_hz": p["source_sr_hz"] / p["decimation"],
               "numtaps": p["numtaps"], "truncated_suspect": sel["truncated_suspect"],
+              "trace_at_edge": sel["trace_at_edge"], "replacing": replacing,
               "bytes": _n_out(p, src["n_samples"]) * 8}
     if dry_run:
         return report
@@ -761,7 +940,9 @@ def write(lfs, into=None, out_dir=None, margin_km=DEFAULT_MARGIN_KM,
         os.makedirs(folder)
     tmp = os.path.join(folder, ".%s.%d.tmp" % (os.path.basename(target), os.getpid()))
     try:
-        if os.path.exists(target):
+        if replacing:
+            _copy_without_window(target, tmp)
+        elif os.path.exists(target):
             shutil.copyfile(target, tmp)
         with h5py.File(tmp, "a" if os.path.exists(target) else "w") as fh:
             if not os.path.exists(target):
@@ -791,8 +972,10 @@ def _line(lfs, report):
         bits.append("%.0f-%.0f km [%s], %.1f Hz (/%d), %.2f MB"
                     % (report["lo_km"], report["hi_km"], report["method"],
                        report["sr_hz"], report["decimation"], report["bytes"] / 1e6))
-        if report["truncated_suspect"]:
-            bits.append("TRUNCATION SUSPECTED")
+        if report.get("trace_at_edge"):
+            bits.append("TRUNCATION SUSPECTED: a trace at an edge")
+        if report.get("replacing") and report["status"] == "dry-run":
+            bits.append("would replace a rule-1 window")
     if "verification" in report:
         ok, problems, metrics = report["verification"]
         bits.append("verified (%s)" % ", ".join("%s %s" % kv for kv in sorted(metrics.items()))
@@ -817,6 +1000,8 @@ def main(argv=None):
                     help="keep the whole band, undecimated: the full voltage, about 69 MB")
     ap.add_argument("--verify", action="store_true", help="re-cut and compare after writing")
     ap.add_argument("--dry-run", action="store_true", help="print the window and size, write nothing")
+    ap.add_argument("--recut", action="store_true",
+                    help="replace a window an earlier selection rule chose (rule 1)")
     args = ap.parse_args(argv)
     paths = []
     for t in args.target:
@@ -832,7 +1017,7 @@ def main(argv=None):
             print(_line(lfs, write(lfs, into=args.into, out_dir=args.out,
                                    margin_km=args.margin_km, max_hops=args.max_hops,
                                    check=args.verify, dry_run=args.dry_run,
-                                   full=args.full)))
+                                   full=args.full, recut=args.recut)))
         except NoEchoError as exc:
             print("%s: skipped -- %s" % (os.path.basename(lfs), exc))
         except Exception as exc:

@@ -1521,11 +1521,12 @@ def cut_echo_window(lfs_path, h5_path, writer, log, full=False):
     if report is None:
         log("  window    none: %s" % why)
         return True
-    if report.get("status") == "written":
-        log("  window    %.0f-%.0f km, %.1f Hz (/%d), %.2f MB, verified%s (%.1f s)"
+    if report.get("status") in ("written", "replaced"):
+        log("  window    %.0f-%.0f km, %.1f Hz (/%d), %.2f MB, verified%s%s (%.1f s)"
             % (report["lo_km"], report["hi_km"], report["sr_hz"],
                report["decimation"], report["bytes"] / 1e6,
-               ", TRUNCATION SUSPECTED" if report["truncated_suspect"] else "",
+               ", replacing a rule-1 window" if report["status"] == "replaced" else "",
+               ", TRACE AT AN EDGE" if report.get("trace_at_edge") else "",
                time.time() - began))
     return True
 

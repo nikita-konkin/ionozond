@@ -11,7 +11,7 @@ class Writer(object):
     def __init__(self, error):
         self.error = error
 
-    def write(self, lfs, into=None, full=False, check=False):
+    def write(self, lfs, into=None, full=False, check=False, recut=False):
         raise self.error
 
 
@@ -24,11 +24,13 @@ class Recorder(object):
     def __init__(self, verified=True):
         self.asked = []
         self.checked = []
+        self.recut = []
         self.verified = verified
 
-    def write(self, lfs, into=None, full=False, check=False):
+    def write(self, lfs, into=None, full=False, check=False, recut=False):
         self.asked.append(full)
         self.checked.append(check)
+        self.recut.append(recut)
         problems = [] if self.verified else ["re-cut differs from the stored samples"]
         return {"status": "present", "target": into,
                 "verification": (self.verified, problems, {})}
@@ -82,6 +84,28 @@ def test_sounder_checks_the_window_before_releasing_the_capture(capture):
     writer = Recorder()
     rx_dechirp.cut_echo_window(lfs, lfs + ".h5", writer, quiet)
     assert writer.checked == [True], "the sounder released a capture against a window it never checked"
+
+
+def test_sounder_cuts_a_rule_one_window_again(capture):
+    """A window an earlier selection rule chose is replaced while the capture
+    is still there; the writer leaves one this rule chose alone."""
+    lfs = capture()
+    writer = Recorder()
+    rx_dechirp.cut_echo_window(lfs, lfs + ".h5", writer, quiet)
+    assert writer.recut == [True], "the sounder did not ask for an old window to be cut again"
+
+
+def test_sounder_keeps_a_capture_whose_window_has_a_trace_at_its_edge(capture):
+    lfs = capture()
+
+    class Edge(Recorder):
+        def write(self, *args, **kwargs):
+            report = Recorder.write(self, *args, **kwargs)
+            report.update(status="written", trace_at_edge=True)
+            return report
+
+    assert not rx_dechirp.cut_echo_window(lfs, lfs + ".h5", Edge(), quiet), \
+        "the sounder released a capture although its window may have cut a trace"
 
 
 def test_capture_is_kept_when_its_window_fails_the_check(capture):

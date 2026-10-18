@@ -198,7 +198,13 @@ it with no new code. It holds two things:
 
 The window follows ionograms-handler's `docs/echo-window.md`, version 1, and
 on real captures its samples are bit-identical to the reference
-implementation's.
+implementation's. It is chosen by selection rule 2 (2026-10-18): the range
+where an echo stands out of a flattened noise floor, joined with the path's
+1–3 hop geometry. Rule 1 took the whole band for soundings with no echo -- the
+receiver's tilted floor gave it the louder edge, 70 MB a sounding on NIC5 --
+and cut echoes it should have kept. A capture whose window rule 1 chose is cut
+again before it is deleted, and a capture whose window still has a trace at
+an edge (`trace_at_edge`) is not deleted at all.
 
 To keep the **full voltage** instead, set *Полный сигнал z в архиве .h5* in
 the parameters dialog, or `save_raw_voltage = true` in `config.ini`. The
@@ -212,6 +218,7 @@ than at the capture's 7.5 MHz.
 python3 python/echo_window.py captures/2026.02.04 --dry-run
 python3 python/echo_window.py capture.lfs --into lfm_ionogram-....h5 --verify
 python3 python/echo_window.py capture.lfs --full --out /archive/full
+python3 python/echo_window.py captures/2026.10.18 --recut --verify   # replace rule-1 windows
 ```
 
 ## Tests

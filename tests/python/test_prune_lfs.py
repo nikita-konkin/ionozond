@@ -18,7 +18,7 @@ class Writer(object):
     def __init__(self, error):
         self.error = error
 
-    def write(self, lfs, into=None, full=False, check=False):
+    def write(self, lfs, into=None, full=False, check=False, recut=False):
         raise self.error
 
 
@@ -27,7 +27,7 @@ class Unverified(object):
 
     NoEchoError = echo_window.NoEchoError
 
-    def write(self, lfs, into=None, full=False, check=False):
+    def write(self, lfs, into=None, full=False, check=False, recut=False):
         return {"status": "written", "target": into,
                 "verification": (False, ["window power differs by 3.10 dB median"], {})}
 
@@ -88,3 +88,39 @@ def test_sweep_stops_cutting_when_its_budget_is_spent(capture):
     lfs, archive = aged(capture)
     prune_lfs.sweep_aged(os.path.dirname(lfs), 1.0, log=quiet, writer=echo_window, budget_s=0.0)
     assert os.path.exists(lfs) and not echo_window.has_window(archive), "the sweep cut a window past its time budget"
+
+
+def _rule_one(archive):
+    """Make the archive's window look as rule 1 wrote it."""
+    import json
+    h5py = echo_window._h5py()
+    with h5py.File(archive, "a") as fh:
+        attrs = fh[echo_window.GROUP].attrs
+        selection = json.loads(echo_window._text(attrs["selection"]))
+        selection.pop("rule")
+        attrs["selection"] = json.dumps(selection, sort_keys=True)
+        del attrs["trace_at_edge"]
+        del attrs["edge_sigma"]
+
+
+def test_a_rule_one_window_is_cut_again_before_the_capture_goes(capture):
+    lfs, archive = aged(capture)
+    echo_window.write(lfs, into=archive)
+    _rule_one(archive)
+    ok, why = prune_lfs.classify(lfs, os.path.getmtime(lfs), time.time(), window=True)
+    assert (ok, why) == (False, prune_lfs.OLD_RULE), "a rule-1 window released its capture: %r" % why
+    prune_lfs.sweep_aged(os.path.dirname(lfs), 1.0, log=quiet, writer=echo_window)
+    assert not os.path.exists(lfs), "the capture stayed although its window could be cut again"
+    assert echo_window.window_rule(archive) == echo_window.SELECTION_RULE, "the sweep left the rule-1 window in place"
+
+
+def test_a_trace_at_the_edge_holds_the_capture(capture):
+    lfs, archive = aged(capture)
+    echo_window.write(lfs, into=archive)
+    h5py = echo_window._h5py()
+    with h5py.File(archive, "a") as fh:
+        fh[echo_window.GROUP].attrs["trace_at_edge"] = True
+    ok, why = prune_lfs.classify(lfs, os.path.getmtime(lfs), time.time(), window=True)
+    assert (ok, why) == (False, prune_lfs.TRACE_AT_EDGE), "a window with a trace at its edge released its capture: %r" % why
+    prune_lfs.sweep_aged(os.path.dirname(lfs), 1.0, log=quiet, writer=echo_window)
+    assert os.path.exists(lfs), "a capture went although its window may have cut a trace"

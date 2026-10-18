@@ -22,10 +22,11 @@ def capture(tmp_path):
 
     Each echo is (range_km, amplitude, doppler_hz): a tone at the beat its
     range implies on the .lfs axis, -range/3 Hz at 100 kHz/s, shifted by the
-    Doppler. The header comes from the sounder's own writer.
+    Doppler. `extra(n, sr)` adds any other signal. The header comes from the
+    sounder's own writer.
     """
     def make(echoes=((2700.0, 30.0, 0.0),), seconds=10, noise=1.0,
-             tx="cyprus1", rx="yoshkar-ola", seed=None, name=None):
+             tx="cyprus1", rx="yoshkar-ola", seed=None, name=None, extra=None):
         rng = np.random.default_rng(seed)
         sr = 40000.0
         n = int(seconds * sr)
@@ -34,6 +35,8 @@ def capture(tmp_path):
         for rng_km, amplitude, doppler in echoes:
             beat = rng_km / KM_PER_HZ + doppler
             z = z + amplitude * np.exp(2j * np.pi * (beat * t + rng.uniform()))
+        if extra is not None:
+            z = z + extra(n, sr)        # anything else the receiver heard
         head = rx_dechirp.pack_lfs_header(
             tx, 34.68, 33.04, rx, 56.63, 47.89, 1770206410, 10, 12500000,
             int(seconds), 100000, 300, 0, 6000, 625, 25000000, False, 0, 0)
