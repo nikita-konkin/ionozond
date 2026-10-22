@@ -22,9 +22,12 @@ and ``muf/echo_window.py`` the reference implementation. This module is the
 second implementation, for .lfs only, and it is held to the reference rather
 than to itself:
 
-- the window is chosen exactly as muf chooses it -- the union of auto_gate on
-  the full-axis power ionogram and the 1..3 hop geometry, plus a margin --
-  so the same capture gives the same window from either side;
+- the window is chosen as muf chooses it -- the union of auto_gate on the
+  full-axis power ionogram and the 1..3 hop geometry, plus a margin -- with
+  one exception: this auto_gate counts detections against a local floor,
+  because muf's opened on chance noise peaks and on the band edges and kept
+  the whole band (issue 4). Where an echo stands clear, both draw a gate
+  around it;
 - the cut is summed tap by tap in the order scipy.signal.upfirdn sums, which
   makes its output bit-identical to muf's resample_poly. muf's verifier
   re-cuts with the stored taps and demands identical samples, so this is
@@ -71,9 +74,12 @@ NOISE_WINDOW = 8192
 DB_FLOOR = 1e-3
 DETECTION_DB = 43.0
 
-AUTO_GATE_QUANTILE = 0.98
 AUTO_GATE_FLOOR_FRACTION = 0.25
 AUTO_GATE_SMOOTH_KM = 40.0
+
+# This writer's own, not muf's: see auto_gate.
+AUTO_GATE_BLOCK_BINS = 64
+AUTO_GATE_MIN_ROWS = 3
 
 DEFAULT_MARGIN_KM = 150.0
 DEFAULT_MAX_HOPS = 3
@@ -185,26 +191,38 @@ def spectrogram(src):
 
 
 def auto_gate(power, vrange):
-    """muf.calibrate.auto_gate with no margin: where the energy stacks up.
+    """Where the echoes stack up: the ranges a detection sees in several rows.
 
-    A count of bright cells per range, not a sum of power, so scattered
-    noise spikes cannot drag the window open. None when no range stands out.
+    A cell counts when it stands DETECTION_DB above the median of the
+    AUTO_GATE_BLOCK_BINS around it in its row, not of the whole row, so a
+    floor that rises toward the band edges -- the boxcar decimator folds the
+    outside band onto them at night -- counts for nothing. At that level noise
+    alone practically never counts, and a range opens a gate only when
+    AUTO_GATE_MIN_ROWS rows count within AUTO_GATE_SMOOTH_KM of it, so
+    neither a chance peak nor one bright row can open one. muf's counts cells
+    above each row's 98% quantile and opens at 1.5 times the median count,
+    which both of those did (issue 4). None when no range stands out.
     """
     power = np.asarray(power)
     vrange = np.asarray(vrange, dtype=np.float64)
     if power.ndim != 2 or power.shape[0] < 2 or len(vrange) < 3:
         return None
-    with np.errstate(invalid="ignore"):
-        threshold = np.nanquantile(power, AUTO_GATE_QUANTILE, axis=1, keepdims=True)
-        profile = (power > threshold).sum(axis=0).astype(np.float64)
-    if not np.isfinite(profile).all() or profile.max() <= 0:
-        return None
+    rows, bins = power.shape
+    if bins % AUTO_GATE_BLOCK_BINS:
+        raise ValueError("%d range bins do not split into blocks of %d"
+                         % (bins, AUTO_GATE_BLOCK_BINS))
+    blocks = power.reshape(rows, -1, AUTO_GATE_BLOCK_BINS)
+    level = NOISE_COEF * DB_FLOOR * 10.0 ** (DETECTION_DB / 10.0)
+    bright = (blocks > level * np.median(blocks, axis=2, keepdims=True)).reshape(rows, bins)
     step = abs(float(vrange[1] - vrange[0])) or 1.0
-    width = max(3, int(AUTO_GATE_SMOOTH_KM / step) | 1)
-    profile = np.convolve(profile, np.ones(width) / width, mode="same")
+    near = bright.copy()
+    for shift in range(1, max(1, int(AUTO_GATE_SMOOTH_KM / step) // 2) + 1):
+        near[:, shift:] |= bright[:, :-shift]
+        near[:, :-shift] |= bright[:, shift:]
+    profile = near.sum(axis=0).astype(np.float64)
     baseline = float(np.median(profile))
     peak = float(profile.max())
-    if peak <= baseline * 1.5:
+    if peak < AUTO_GATE_MIN_ROWS:
         return None
     cut_level = baseline + AUTO_GATE_FLOOR_FRACTION * (peak - baseline)
     lo_i = hi_i = int(np.argmax(profile))

@@ -338,9 +338,10 @@ The format is ionograms-handler's `docs/echo-window.md`, version 1, and its
 `muf/echo_window.py` is the reference. This writer is held to that reference,
 not to itself:
 
-- **The same window.** The union of `auto_gate` on the full-axis power
-  ionogram and the 1–3 hop geometry, plus 150 km, ported line for line. It
-  follows the energy rather than the path alone.
+- **The same window, but for the auto gate.** The union of `auto_gate` on
+  the full-axis power ionogram and the 1–3 hop geometry, plus 150 km. It
+  follows the energy rather than the path alone. `auto_gate` was ported line
+  for line until issue 4, and now differs; see below.
 - **The same samples.** The cut sums the taps one at a time in the order
   `scipy.signal.upfirdn` sums them, so it is bit-identical to muf's
   `resample_poly` at complex64. That matters because muf's verifier re-cuts
@@ -370,6 +371,35 @@ Measured 2026-10-16 against muf on the five 2026-02-04 cyprus1 captures,
 With its built-in station table, muf places cyprus1 0.6 km differently from the
 header, so its own window is 0.6 km off this one. Both are valid. The
 coordinates decide, not the implementation.
+
+**The auto gate (issue 4).** muf's `auto_gate` counts the cells above each
+row's 98% quantile and opens where that count peaks above 1.5 times its
+median. Two things opened it far from any echo, and the union with the
+geometry then spanned too much of the band to decimate, so the archive kept
+all of it: 65 MB instead of 3, on 11 of 76 NIC1 soundings on 2026-10-21.
+
+- *A chance peak.* On a flat noise-only band of 8,192 bins the count reaches
+  1.5 times its median by chance: 1.54 at 07:10 on 2026-10-22, which held no
+  echo.
+- *The band edges.* A quantile threshold counts more cells wherever the floor
+  is higher, and at night the boxcar decimator folds the outside band onto
+  both edges (issue 3). At 19:20 on 2026-10-21 the edges stood 2.4 times above
+  the centre and counted 39 against 5.6, and won over a real echo at 1,500 km.
+
+This `auto_gate` counts a cell when it stands `DETECTION_DB` above the median
+of the 64 bins around it in its row, which a rising floor cannot do and noise
+alone practically never does, and opens only where three rows count within
+40 km. Re-run on those two soundings, rebuilt from their stored voltage:
+
+| sounding | before | after |
+|---|---|---|
+| 2026-10-21 19:20, echo at 1,465–1,523 km | gate at the band edge; whole band, 75.2 MB of window | gate 1,421–1,567 km; window 1,271–4,113 km, /27, 2.8 MB |
+| 2026-10-22 07:10, no echo | gate at 57,000 km; whole band, 75.2 MB of window | no gate; geometry 2,487–4,113 km, /45, 1.7 MB |
+
+Each gate takes 0.1 s on this PC.
+
+The geometry alone would not do: issue 2's clock drift put that echo
+1,000 km short of the path, outside the geometry gate.
 
 **The full voltage.** `save_raw_voltage = true` widens the window to the whole
 band: no shift, no decimation, one tap, which is a case the specification
