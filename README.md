@@ -198,7 +198,19 @@ it with no new code. It holds two things:
 
 The window follows ionograms-handler's `docs/echo-window.md`, version 1, and
 on real captures its samples are bit-identical to the reference
-implementation's.
+implementation's. Only the choice of where to cut differs: the auto gate
+ignores chance noise peaks and a floor rising toward the band edges, which
+made muf's keep the whole band (issue 4).
+
+Archives written before that fix may hold such a whole-band window, 65 MB
+each. `tools/recut_windows.py` finds them, rebuilds each capture from its
+window, cuts it again and replaces the archive, keeping its power spectrogram
+and its time. Without `--apply` it only lists them:
+
+```bash
+python3 tools/recut_windows.py /mnt/ionozond_5tb/ionozond_data
+python3 tools/recut_windows.py /mnt/ionozond_5tb/ionozond_data --apply
+```
 
 To keep the **full voltage** instead, set *Полный сигнал z в архиве .h5* in
 the parameters dialog, or `save_raw_voltage = true` in `config.ini`. The
