@@ -401,6 +401,14 @@ Each gate takes 0.1 s on this PC.
 The geometry alone would not do: issue 2's clock drift put that echo
 1,000 km short of the path, outside the geometry gate.
 
+The archives written before the fix are re-cut by `tools/recut_windows.py`. A
+whole-band window is the capture mixed down by its shift and nothing else, so
+the capture is rebuilt from it, checked by mixing it down again, cut by the
+new gate, verified against the rebuild, and the archive replaced with its
+time kept. A manual range, which is `save_raw_voltage` asking for the whole
+band, is left alone. On copies of the two archives above: 65.5 → 3.6 MB and
+66.0 → 2.7 MB, everything but the window byte-identical, about 9 s each.
+
 **The full voltage.** `save_raw_voltage = true` widens the window to the whole
 band: no shift, no decimation, one tap, which is a case the specification
 already allows. The `.h5` then holds the capture sample for sample, and
