@@ -94,16 +94,20 @@ def is_remote(dest):
     return ":" in head
 
 
-def mount_entry_for(path):
+def mount_entry_for(path, table="/proc/self/mountinfo"):
     """(mount point, fstype) of the filesystem holding `path`, from
     /proc/self/mountinfo. (None, None) where that does not exist.
 
     The longest mount point that prefixes the path wins, which is how the
-    kernel resolves it too. Fields before the " - " separator are variable in
-    number, so the separator is found rather than counted.
+    kernel resolves it too. Between equal points the later entry wins: mounts
+    stack, and the table lists them in the order they went on. A fired
+    automount is two entries at one point, the autofs trigger and then the
+    share on top of it, and the path reaches the share. Fields before the
+    " - " separator are variable in number, so the separator is found rather
+    than counted.
     """
     try:
-        with open("/proc/self/mountinfo", "r") as fh:
+        with open(table, "r") as fh:
             lines = fh.readlines()
     except (IOError, OSError):
         return None, None
@@ -123,7 +127,7 @@ def mount_entry_for(path):
         except (IndexError, ValueError):
             continue
         if target == point or target.startswith(point.rstrip("/") + "/"):
-            if len(point) > best_len:
+            if len(point) >= best_len:
                 best, best_len = (point, fstype), len(point)
     return best
 
