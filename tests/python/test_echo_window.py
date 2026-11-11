@@ -19,6 +19,11 @@ def standalone(capture, tmp_path, **kwargs):
     return lfs, report["target"]
 
 
+def gate(lfs):
+    power, vrange, _, _ = echo_window.spectrogram(echo_window.source(lfs))
+    return echo_window.auto_gate(power, vrange)
+
+
 def test_echo_sits_at_its_injected_range(capture, tmp_path):
     distance = np.random.uniform(2600.0, 3400.0)
     _, path = standalone(capture, tmp_path, echoes=((distance, 30.0, 0.0),))
@@ -158,6 +163,30 @@ def test_silent_vertical_sounding_has_no_window(capture, tmp_path):
     lfs = capture(echoes=(), noise=0.0, tx="yoshkar-ola", rx="yoshkar-ola")
     with pytest.raises(echo_window.NoEchoError):
         echo_window.write(lfs, out_dir=str(tmp_path))
+
+
+def test_noise_alone_opens_no_gate(capture):
+    assert gate(capture(echoes=(), seconds=60)) is None, "noise alone opened a gate"
+
+
+def test_floor_rising_toward_the_band_edges_opens_no_gate(capture):
+    assert gate(capture(echoes=(), seconds=60, edge=np.random.uniform(0.8, 1.2))) is None, "a floor rising toward the band edges opened a gate"
+
+
+def test_short_echo_beside_a_rising_band_edge_draws_the_gate(capture):
+    distance = np.random.uniform(1000.0, 2000.0)
+    found = gate(capture(echoes=((distance, np.random.uniform(0.2, 0.4), 0.0, np.random.uniform(2.5, 4.0)),), seconds=60, edge=np.random.uniform(0.8, 1.2)))
+    assert found is not None and found[0] <= distance <= found[1], "a short echo at %.0f km did not draw the gate, which went to %s" % (distance, found)
+
+
+def test_empty_sounding_keeps_a_decimated_window(capture, tmp_path):
+    _, path = standalone(capture, tmp_path, echoes=(), seconds=60)
+    assert echo_window.read(path)["decimation"] > 1, "an empty sounding kept the whole band"
+
+
+def test_floor_rising_toward_the_band_edges_keeps_a_decimated_window(capture, tmp_path):
+    _, path = standalone(capture, tmp_path, echoes=(), seconds=60, edge=np.random.uniform(0.8, 1.2))
+    assert echo_window.read(path)["decimation"] > 1, "a floor rising toward the band edges kept the whole band"
 
 
 def test_written_window_is_sound(capture, tmp_path):
