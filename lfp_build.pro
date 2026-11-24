@@ -33,5 +33,6 @@ HEADERS += \
     src/lfpfile.h \
     src/qigcolormap.h \
     src/rasterdata.h \
+    src/rasterintervals.h \
     src/qrxionogram.h \
     src/liveionogram.h

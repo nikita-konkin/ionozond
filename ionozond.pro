@@ -61,6 +61,7 @@ HEADERS += \
     src/stationstack.h \
     src/qigcolormap.h \
     src/rasterdata.h \
+    src/rasterintervals.h \
     src/lfpfile.h \
     src/qrxionogram.h \
     src/iganalytics.h \
