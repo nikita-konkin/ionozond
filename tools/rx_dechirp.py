@@ -54,6 +54,12 @@ except ImportError:
     sys.exit(2)
 
 
+# The HackRF One ADC ceiling. The USRP path can go higher, but a capture that
+# exceeds this cannot be done by hackrf_transfer at all, so the HackRF backend
+# refuses it instead of failing halfway through a sounding.
+HACKRF_MAX_RATE = 20e6
+
+
 # ---------------------------------------------------------------- .lfs header
 
 # Byte-exact, from src/lfs_header.h, itself verified field by field against
@@ -894,14 +900,7 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
 
     radio.tune(cf)
 
-    rx = cfg.get("rx_station", {"name": "", "lat": 0.0, "lon": 0.0})
-    header = pack_lfs_header(
-        sounder["name"], sounder["lat"], sounder["lon"],
-        rx.get("name", ""), rx.get("lat", 0.0), rx.get("lon", 0.0),
-        int(t0), sounder["chirpt"], cf, sounder["dur"], rate, sounder["rep"],
-        sounder.get("rmin", 0), sounder.get("rmax", 5000), dec, sr,
-        cfg.get("whiten", False), cfg.get("whiten_len", 8192),
-        cfg.get("whiten_n", 20000))
+    header = lfs_header(cfg, sounder, t0, sr, dec, cfg.get("whiten", False))
 
     # Stream commands name a time in the radio's own base, so the target has to
     # be expressed in that base -- and which clock is authoritative decides how.
@@ -1400,14 +1399,18 @@ def report(result, opts, sr, dec, log):
     return 1
 
 
-def pick_next(sounders):
+def pick_next(sounders, now=None):
     """The station whose next chirp comes soonest.
 
     One receiver can only follow one sweep at a time. The original ran several
     in parallel threads, one per receiver; with a single radio the useful
     equivalent is simply to take whichever is due first.
+
+    `now` lets a caller substitute a better clock -- a GPSDO read over UHD, for
+    a HackRF that has no time input of its own.
     """
-    now = time.time()
+    if now is None:
+        now = time.time()
     best, best_t = None, None
     for s in sounders:
         t = determine_next(s["rep"], s["chirpt"], now)
@@ -1579,6 +1582,155 @@ def sweep_retention(outroot, keep_hours, log, writer=None, full=False):
         log("  *** retention sweep failed: %s" % exc)
 
 
+class Publication:
+    """What a station makes of a finished capture, whichever radio took it.
+
+    The sidecar, the .h5 archive and its echo window, and the fate of the
+    80 MB capture afterwards. Kept in one place so that every receiver obeys
+    the same keep and delete rules the operator chose in the dialog.
+
+    The two safety rules are both here rather than at the delete site, so
+    that a station can never be configured into throwing captures away with
+    nothing behind them: no archive writer means no deletion, and no sidecar
+    builder means no deletion either.
+
+    How long a kept capture is kept for is one number, because "keep" and
+    "keep for a while" are the same decision at different settings:
+
+      keep_lfs off              delete as soon as the archive verifies
+      keep_lfs on,  hours = 0   keep indefinitely
+      keep_lfs on,  hours > 0   keep that long, then delete
+
+    The window is swept between soundings rather than on a timer, so that the
+    setting the operator chose in the dialog is the setting that acts.
+    prune_lfs.py remains for the other axis -- disk pressure -- and shares
+    classify() with this, so the two cannot disagree about one capture.
+    """
+
+    def __init__(self, opts, cfg, outroot, log):
+        self.cfg = cfg
+        self.outroot = outroot
+        self.log = log
+        self.products = load_sidecar_builder(log) if opts.sidecar else None
+        self.want_h5 = (bool(cfg.get("h5_archive", True))
+                        and self.products is not None
+                        and not getattr(opts, "no_h5", False))
+        self.keep_lfs = (bool(cfg.get("keep_lfs", False))
+                         or getattr(opts, "keep_lfs", False))
+        self.keep_hours = float(cfg.get("keep_lfs_hours", 0.0) or 0.0)
+        if getattr(opts, "keep_lfs", False):
+            self.keep_hours = 0.0
+        self.archive = load_archive_writer(log) if self.want_h5 else None
+        if self.want_h5 and self.archive is None:
+            self.want_h5 = False
+        # The echo window rides in the archive, so it exists only where one
+        # does. save_raw_voltage widens it to the whole band: chirpsounder2's
+        # name for keeping the full voltage, about 69 MB a capture in the .h5.
+        self.save_raw = bool(cfg.get("save_raw_voltage", False))
+        self.echo = (load_echo_writer(log)
+                     if self.want_h5 and (self.save_raw
+                                          or bool(cfg.get("echo_window", True)))
+                     else None)
+        if not self.want_h5 and not self.keep_lfs:
+            self.keep_lfs = True
+            self.keep_hours = 0.0
+            log("  *** keeping the .lfs captures after all: without a .h5 archive")
+            log("  *** deleting them would leave only the gated sidecar, which")
+            log("  *** cannot be reprocessed.")
+
+    def announce(self, sr, dec, sounders):
+        log = self.log
+        if self.products:
+            log("  writing .lfp sidecars beside each capture")
+            for s in sounders:
+                fft, pad, overlap = product_grid(
+                    self.cfg, s, self.products.IONO_PAD_DEFAULT,
+                    self.products.IONO_OVERLAP_DEFAULT)
+                sweep = float(s.get("rate") or 0) * fft / (sr / dec)
+                cell = ("%.0f kHz x %.1f km a cell" % (sweep / 1e3, 3e5 / sweep)
+                        if sweep > 0 else "no rate")
+                log("    %-12s FFT %5d: %s; picture x%d delay, x%d frequency"
+                    % (s["name"], fft, cell, pad, overlap))
+        if not self.keep_lfs:
+            lfs_says = "lfs deleted once archived"
+        elif self.keep_hours > 0:
+            lfs_says = "lfs kept %g h" % self.keep_hours
+        else:
+            lfs_says = "keeping lfs"
+        log("  formats  %s"
+            % ", ".join(["h5" if self.want_h5 else "no h5",
+                         ("full voltage" if self.save_raw else "echo window")
+                         if self.echo else "no echo window",
+                         "lfp" if self.products else "no lfp", lfs_says]))
+        if self.keep_lfs and self.keep_hours > 0:
+            # Worth saying in GB, because hours do not mean anything next to
+            # a disk and 23 GB a day does.
+            log("           about %.1f GB of captures at rep=300"
+                % (self.keep_hours * 288.0 / 24.0 * 0.080))
+
+    def publish(self, path, sounder):
+        """Build the sidecar and archive for a complete capture, then let the
+        capture go if the rules allow it. Never raises: a failed sidecar costs
+        one picture, a raised one would cost the station."""
+        if not self.products:
+            return
+        cfg = self.cfg
+        log = self.log
+        h5_window = None
+        if self.want_h5:
+            h5_window = (float(cfg.get("h5_range_lo_km", 0.0)),
+                         float(cfg.get("h5_range_hi_km", 8000.0)))
+        try:
+            began = time.time()
+            status(sounder["name"], "writing")
+            # Whatever the console set in config.ini reaches us through
+            # chirp_config.py, so a sidecar built here matches what the
+            # console would have produced itself.
+            fft, pad, overlap = product_grid(
+                cfg, sounder, self.products.IONO_PAD_DEFAULT,
+                self.products.IONO_OVERLAP_DEFAULT)
+            out, size, h5_out = self.products.build_one(
+                path, fft_count=fft, quiet=True,
+                obj_w=int(cfg.get("obj_size_horizontal", 9)),
+                obj_h=int(cfg.get("obj_size_vertical", 3)),
+                obj_level=float(cfg.get("obj_level", 11.0)),
+                iono_mode=str(cfg.get("iono_mode", "gated")),
+                iono_pad=pad, iono_overlap=overlap,
+                h5_archive_km=h5_window)
+            raw = os.path.getsize(path)
+            log("  sidecar   %s  %.1f kB  (%.0fx smaller, %.1f s)"
+                % (os.path.basename(out), size / 1024.0,
+                   raw / float(size or 1), time.time() - began))
+            if h5_out:
+                log("  archive   %s  %.2f MB  (%.0fx smaller)"
+                    % (os.path.basename(h5_out),
+                       os.path.getsize(h5_out) / 1e6,
+                       raw / float(os.path.getsize(h5_out) or 1)))
+            released = True
+            if h5_out and self.echo is not None:
+                released = cut_echo_window(path, h5_out, self.echo, log,
+                                           full=self.save_raw)
+            if h5_out and not self.keep_lfs and released:
+                drop_capture(path, h5_out, self.archive, log)
+            elif self.keep_lfs and self.keep_hours > 0:
+                sweep_retention(self.outroot, self.keep_hours, log,
+                                writer=self.echo, full=self.save_raw)
+        except Exception as exc:
+            log("  *** sidecar failed: %s" % exc)
+
+
+def lfs_header(cfg, sounder, t0, sr, dec, whiten):
+    """The 512-byte .lfs header for one sounding at this station."""
+    rx = cfg.get("rx_station", {"name": "", "lat": 0.0, "lon": 0.0})
+    return pack_lfs_header(
+        sounder["name"], sounder["lat"], sounder["lon"],
+        rx.get("name", ""), rx.get("lat", 0.0), rx.get("lon", 0.0),
+        int(t0), sounder["chirpt"], float(sounder["cf"]), sounder["dur"],
+        float(sounder["rate"]), sounder["rep"],
+        sounder.get("rmin", 0), sounder.get("rmax", 5000), dec, sr,
+        whiten, cfg.get("whiten_len", 8192), cfg.get("whiten_n", 20000))
+
+
 def run_live(opts, cfg, sounders):
     import signal as signal_module
 
@@ -1602,83 +1754,8 @@ def run_live(opts, cfg, sounders):
         log("  duration %g s -- SHORTENED for a test; the header still says %d"
             % (opts.duration, first["dur"]))
 
-    products = load_sidecar_builder(log) if opts.sidecar else None
-    if products:
-        log("  writing .lfp sidecars beside each capture")
-        for s in sounders:
-            fft, pad, overlap = product_grid(
-                cfg, s, products.IONO_PAD_DEFAULT, products.IONO_OVERLAP_DEFAULT)
-            sweep = float(s.get("rate") or 0) * fft / (sr / dec)
-            cell = ("%.0f kHz x %.1f km a cell" % (sweep / 1e3, 3e5 / sweep)
-                    if sweep > 0 else "no rate")
-            log("    %-12s FFT %5d: %s; picture x%d delay, x%d frequency"
-                % (s["name"], fft, cell, pad, overlap))
-
-    # What this station writes, and what it throws away.
-    #
-    #   .h5   chirpsounder2's lfm_ionogram-*.h5. The default. 1.25 MB, and
-    #         the format ionograms-handler reads with no new code.
-    #   .lfp  always, when sidecars are on at all: it is the only thing the
-    #         console opens, so turning it off would empty the display.
-    #   .lfs  the 80 MB capture. Kept only when asked for, because at 288 a
-    #         day it is 23 GB and nothing else here comes close.
-    #
-    # The two safety rules are both here rather than at the delete site, so
-    # that a station can never be configured into throwing captures away with
-    # nothing behind them: no archive writer means no deletion, and no sidecar
-    # builder means no deletion either.
-    want_h5 = (bool(cfg.get("h5_archive", True)) and products is not None
-               and not getattr(opts, "no_h5", False))
-    keep_lfs = bool(cfg.get("keep_lfs", False)) or getattr(opts, "keep_lfs", False)
-
-    # How long a kept capture is kept for. One number, because "keep" and
-    # "keep for a while" are the same decision at different settings:
-    #
-    #   keep_lfs off              delete as soon as the archive verifies
-    #   keep_lfs on,  hours = 0   keep indefinitely
-    #   keep_lfs on,  hours > 0   keep that long, then delete
-    #
-    # The window is swept between soundings rather than on a timer, so that
-    # the setting the operator chose in the dialog is the setting that acts.
-    # prune_lfs.py remains for the other axis -- disk pressure -- and shares
-    # classify() with this, so the two cannot disagree about one capture.
-    keep_hours = float(cfg.get("keep_lfs_hours", 0.0) or 0.0)
-    if getattr(opts, "keep_lfs", False):
-        keep_hours = 0.0            # an override asked for by hand means keep
-
-    archive = load_archive_writer(log) if want_h5 else None
-    if want_h5 and archive is None:
-        want_h5 = False
-    # The echo window rides in the archive, so it exists only where one does.
-    # save_raw_voltage widens it to the whole band: chirpsounder2's name for
-    # keeping the full voltage, here at about 69 MB a capture inside the .h5.
-    save_raw = bool(cfg.get("save_raw_voltage", False))
-    echo = (load_echo_writer(log)
-            if want_h5 and (save_raw or bool(cfg.get("echo_window", True)))
-            else None)
-    if not want_h5 and not keep_lfs:
-        keep_lfs = True
-        keep_hours = 0.0
-        log("  *** keeping the .lfs captures after all: without a .h5 archive")
-        log("  *** deleting them would leave only the gated sidecar, which")
-        log("  *** cannot be reprocessed.")
-
-    if not keep_lfs:
-        lfs_says = "lfs deleted once archived"
-    elif keep_hours > 0:
-        lfs_says = "lfs kept %g h" % keep_hours
-    else:
-        lfs_says = "keeping lfs"
-    log("  formats  %s"
-        % ", ".join(["h5" if want_h5 else "no h5",
-                     ("full voltage" if save_raw else "echo window")
-                     if echo else "no echo window",
-                     "lfp" if products else "no lfp", lfs_says]))
-    if keep_lfs and keep_hours > 0:
-        # Worth saying in GB, because hours do not mean anything next to a
-        # disk and 23 GB a day does.
-        log("           about %.1f GB of captures at rep=300"
-            % (keep_hours * 288.0 / 24.0 * 0.080))
+    publication = Publication(opts, cfg, outroot, log)
+    publication.announce(sr, dec, sounders)
 
     radio = Radio(opts, cfg, float(first["cf"]))
     if not opts.no_gpsdo:
@@ -1804,52 +1881,8 @@ def run_live(opts, cfg, sounders):
         # The sidecar is what anything downstream actually reads, and there is
         # a whole repetition period of idle time to build it in. Doing it here
         # means the console never has to touch the 80 MB capture.
-        # A chirpsounder2-format archive beside the sidecar, which is what
-        # makes deleting the 80 MB capture survivable: 1.25 MB, and
-        # ionograms-handler reads it with no new code.
-        h5_window = None
-        if want_h5:
-            h5_window = (float(cfg.get("h5_range_lo_km", 0.0)),
-                         float(cfg.get("h5_range_hi_km", 8000.0)))
-
-        if products and rc <= 1 and not result["incomplete"]:
-            try:
-                began_side = time.time()
-                status(sounder["name"], "writing")
-                # Whatever the console set in config.ini reaches us through
-                # chirp_config.py, so a sidecar built here matches what the
-                # console would have produced itself.
-                fft, pad, overlap = product_grid(
-                    cfg, sounder, products.IONO_PAD_DEFAULT,
-                    products.IONO_OVERLAP_DEFAULT)
-                out, size, h5_out = products.build_one(
-                    result["path"], fft_count=fft, quiet=True,
-                    obj_w=int(cfg.get("obj_size_horizontal", 9)),
-                    obj_h=int(cfg.get("obj_size_vertical", 3)),
-                    obj_level=float(cfg.get("obj_level", 11.0)),
-                    iono_mode=str(cfg.get("iono_mode", "gated")),
-                    iono_pad=pad, iono_overlap=overlap,
-                    h5_archive_km=h5_window)
-                raw = os.path.getsize(result["path"])
-                log("  sidecar   %s  %.1f kB  (%.0fx smaller, %.1f s)"
-                    % (os.path.basename(out), size / 1024.0,
-                       raw / float(size or 1), time.time() - began_side))
-                if h5_out:
-                    log("  archive   %s  %.2f MB  (%.0fx smaller)"
-                        % (os.path.basename(h5_out),
-                           os.path.getsize(h5_out) / 1e6,
-                           raw / float(os.path.getsize(h5_out) or 1)))
-                released = True
-                if h5_out and echo is not None:
-                    released = cut_echo_window(result["path"], h5_out, echo,
-                                               log, full=save_raw)
-                if h5_out and not keep_lfs and released:
-                    drop_capture(result["path"], h5_out, archive, log)
-                elif keep_lfs and keep_hours > 0:
-                    sweep_retention(outroot, keep_hours, log, writer=echo,
-                                    full=save_raw)
-            except Exception as exc:
-                log("  *** sidecar failed: %s" % exc)
+        if rc <= 1 and not result["incomplete"]:
+            publication.publish(result["path"], sounder)
 
         # After the sidecar, so the panel reads capturing -> products -> result
         # rather than announcing a verdict and then going quiet for a second.
@@ -1900,6 +1933,408 @@ def run_live(opts, cfg, sounders):
     if done == 1 and worst == 0:
         log("")
         log("  point the console at %s" % outroot)
+    return worst
+
+
+class UsrpTime:
+    """UTC read from a USRP's GPSDO, for a receiver with no time input.
+
+    A HackRF cannot take a PPS, so its sounding has no hardware epoch of its
+    own. An N210 on the same LAN holds GPS time and can be read over UHD; the
+    median of a few reads gives the offset between that UTC and this host's
+    clock, which is then used to schedule the HackRF and to stamp t0.
+
+    The accuracy is the UHD round-trip on this link -- a millisecond or so --
+    which is far better than an undisiplined host clock and independent of NTP.
+    """
+
+    def __init__(self, args, log):
+        self.valid = False
+        self.offset = 0.0
+        try:
+            import uhd
+        except ImportError:
+            log("  *** --time-from-usrp: python3-uhd is not installed")
+            return
+        dev = args if "addr=" in args else "addr=" + args
+        try:
+            self.u = uhd.usrp.MultiUSRP(dev)
+        except Exception as exc:
+            log("  *** --time-from-usrp: cannot open %s: %s" % (dev, exc))
+            return
+        locked = False
+        try:
+            locked = str(self.u.get_mboard_sensor("gps_locked", 0).value).lower() == "true"
+        except Exception as exc:
+            log("  *** --time-from-usrp: GPSDO unreadable: %s" % exc)
+        if not locked:
+            log("  *** --time-from-usrp: GPSDO not locked; using this host's clock")
+            return
+        try:
+            gt = int(float(self.u.get_mboard_sensor("gps_time", 0).value))
+            self.u.set_time_next_pps(uhd.types.TimeSpec(gt + 1))
+            time.sleep(1.2)
+        except Exception as exc:
+            log("  *** --time-from-usrp: could not set the radio clock: %s" % exc)
+            return
+        try:
+            latched = self.u.get_time_last_pps().get_real_secs()
+            gt = float(self.u.get_mboard_sensor("gps_time", 0).value)
+        except Exception as exc:
+            log("  *** --time-from-usrp: cannot read back the PPS time: %s" % exc)
+            return
+        if abs(latched - gt) > 1.0:
+            log("  *** --time-from-usrp: the radio latched %.0f at PPS but the"
+                " GPSDO says %.0f; no PPS reached it, using this host's clock"
+                % (latched, gt))
+            return
+        offs = []
+        for _ in range(7):
+            try:
+                offs.append(self.u.get_time_now().get_real_secs() - time.time())
+            except Exception:
+                pass
+            time.sleep(0.05)
+        if not offs:
+            log("  *** --time-from-usrp: the radio clock is unreadable; using"
+                " this host's clock")
+            return
+        offs.sort()
+        self.offset = offs[len(offs) // 2]
+        self.valid = True
+        log("  time     GPSDO is %+.6f s from this host (median of %d reads)"
+            % (self.offset, len(offs)))
+
+    def now(self):
+        return time.time() + self.offset
+
+
+def capture_fraction(size, wanted):
+    """How much of a HackRF capture is on disk, for the console's progress bar.
+
+    hackrf_transfer writes two signed bytes per complex sample; the file can
+    overrun the request by a buffer, so the fraction stops at one.
+    """
+    return min(1.0, size / 2.0 / wanted)
+
+
+def stream_epoch(probes, sr):
+    """When the first HackRF sample was taken, from (time, bytes on disk) probes.
+
+    hackrf_transfer has no timestamps, so the capture file is watched instead.
+    Bytes reach the disk no earlier than their samples were taken, so every
+    probe bounds the start from above by its time less the samples it holds.
+    The smallest bound over a whole capture is the tightest one: it discards
+    the jitter of USB transfers and buffered writes, leaving only the constant
+    part of that delay.
+    """
+    if not probes:
+        raise ValueError("no capture-size probes, so the stream start is unknown")
+    return min(t - size / 2.0 / sr for t, size in probes)
+
+
+class RawDechirp:
+    """A .lfs dechirped from a hackrf_transfer capture while it still grows.
+
+    The console draws a live ionogram by following a .lfs as it lengthens, so
+    the HackRF path writes one during the capture rather than after it. Sample
+    `start` of the raw file is t0, the first sample of the sounding, and the
+    .lfs stops after `want` output samples, one sounding's worth. Work is done
+    in steps of `step` input samples, so a call never holds up the size probes
+    that time the stream for longer than one step takes.
+    """
+
+    def __init__(self, raw, path, header, sr, rate, dec, start, want, step=1 << 22):
+        self.source = open(raw, "rb")
+        self.sink = open(path, "wb")
+        self.sink.write(header)
+        self.sink.flush()
+        self.dech = Dechirper(sr, -sr / 2.0, rate, dec)
+        self.pos = int(start)
+        self.left = int(want)
+        self.want = int(want)
+        self.step = int(step)
+
+    def advance(self, size, final):
+        """Dechirp what the capture holds up to `size` bytes: one step of it,
+        or all of it once the capture has ended."""
+        while self.left > 0:
+            count = size // 2 - self.pos
+            if count <= 0 or (not final and count < self.step):
+                return
+            count = min(count, self.step)
+            self.source.seek(2 * self.pos)
+            pair = np.frombuffer(self.source.read(2 * count), dtype=np.int8)
+            count = len(pair) // 2
+            if count == 0:
+                return
+            seg = pair[:2 * count].astype(np.float32).reshape(-1, 2)
+            out = self.dech.feed((seg[:, 0] + 1j * seg[:, 1]).astype(np.complex64))
+            out = out[:self.left]
+            out.tofile(self.sink)
+            self.sink.flush()
+            self.left -= len(out)
+            self.pos += count
+            if not final:
+                return
+
+    def written(self):
+        return self.want - self.left
+
+    def close(self):
+        self.source.close()
+        self.sink.close()
+
+
+def hackrf_tail(path, lines=5):
+    """The last lines hackrf_transfer wrote, for a failure message."""
+    try:
+        with open(path, errors="replace") as f:
+            return [line.rstrip() for line in f.readlines()[-lines:] if line.strip()]
+    except OSError:
+        return []
+
+
+def run_hackrf(opts, cfg, sounders):
+    """The same schedule and file formats, captured with a HackRF One.
+
+    The HackRF has no UHD driver, no PPS input and a 20 MS/s ceiling, so the
+    USRP streaming loop is replaced wholesale: hackrf_transfer records a raw
+    int8 IQ file, which is dechirped with the same Dechirper while it grows.
+    Time comes from this host's clock, or from an N210's GPSDO with
+    --time-from-usrp. The stream start is estimated from the growth of the
+    capture file (see stream_epoch), which leaves the constant part of the
+    USB and write latency in the delay axis; on the station laptop that is a
+    fraction of a millisecond.
+    """
+    import signal as signal_module
+    import subprocess
+
+    sr = float(cfg["sample_rate"])
+    dec = int(cfg["dec"])
+
+    if sr > HACKRF_MAX_RATE:
+        print("HackRF One samples at most 20 MS/s; this config asks for %.3f MS/s."
+              % (sr / 1e6))
+        print("Lower the sample rate and keep rate x dur within it, then")
+        print("rebuild chirp_config.py.")
+        return 2
+    if sr < 2e6:
+        print("HackRF One cannot sample below 2 MS/s; config asks for %.3f MS/s."
+              % (sr / 1e6))
+        return 2
+
+    outroot = opts.outdir or cfg.get("data_dir", ".")
+    os.makedirs(outroot, exist_ok=True)
+    log = Logger(outroot)
+    workdir = opts.hackrf_workdir
+    os.makedirs(workdir, exist_ok=True)
+    raw = os.path.join(workdir, "hackrf-%d.cs8" % os.getpid())
+    chatter = os.path.join(workdir, "hackrf-%d.log" % os.getpid())
+
+    first = sounders[0]
+    log("backend   HackRF One via hackrf_transfer")
+    log("  centre   %.3f MHz, sweep reference from %.3f MHz"
+        % (first["cf"] / 1e6, (first["cf"] - sr / 2) / 1e6))
+    log("  sampling %.3f MS/s, dec %d -> %.0f Hz out" % (sr / 1e6, dec, sr / dec))
+    for s in sounders:
+        span = float(s["rate"]) * float(s["dur"])
+        flag = "" if span <= sr + 1e-3 else "  *** WIDER THAN THE BAND"
+        log("  station  %-12s rate %g kHz/s, dur %g s -> %.2f MHz sweep%s"
+            % (s["name"], s["rate"] / 1e3, s["dur"], span / 1e6, flag))
+    log("  gain     LNA %d dB, VGA %d dB, RF amp %s"
+        % (opts.hackrf_gain, opts.hackrf_vga,
+           "on" if opts.hackrf_amp else "off"))
+    utc = None
+    if getattr(opts, "time_from_usrp", ""):
+        utc = UsrpTime(opts.time_from_usrp, log)
+    if utc is not None and utc.valid:
+        log("  timing   UTC from the USRP GPSDO at %s; the HackRF is the"
+            % opts.time_from_usrp)
+        log("           receiver, and t0 is scheduled against real UTC")
+    else:
+        log("  timing   host clock -- no GPSDO/PPS on a HackRF, so the delay")
+        log("           axis is good to this host's clock (1 ms ~ 300 km)")
+    log("  scratch  %s" % raw)
+
+    def now_utc():
+        return utc.now() if (utc is not None and utc.valid) else time.time()
+
+    publication = Publication(opts, cfg, outroot, log)
+    publication.announce(sr, dec, sounders)
+
+    stop = {"now": False}
+
+    def on_signal(signum, _frame):
+        if stop["now"]:
+            raise SystemExit(130)
+        stop["now"] = True
+        log("signal %d received; stopping after this sounding" % signum)
+
+    signal_module.signal(signal_module.SIGINT, on_signal)
+    signal_module.signal(signal_module.SIGTERM, on_signal)
+
+    lead = max(0.0, float(getattr(opts, "hackrf_lead", 2.0)))
+    limit = opts.count if opts.count else (0 if opts.loop else 1)
+    stall = 5.0
+    drift = 5e-5
+    done = 0
+    worst = 0
+    while not stop["now"]:
+        # --duration means "one short test run now", not "wait for the next
+        # scheduled slot" -- otherwise testing would wait up to a whole rep.
+        # The start still has to be far enough ahead for the lead to fit.
+        if opts.duration:
+            sounder = sounders[0]
+            t0 = now_utc() + lead + 1.0
+        else:
+            sounder, t0 = pick_next(sounders, now=now_utc())
+
+        dur = float(opts.duration if opts.duration else sounder["dur"])
+        stamp = time.gmtime(t0)
+        day = time.strftime("%Y.%m.%d", stamp)
+        name = "%s_%04d%02d%02d_%02d%02d%02d.lfs" % (
+            sounder["name"], stamp.tm_year, stamp.tm_mon, stamp.tm_mday,
+            stamp.tm_hour, stamp.tm_min, stamp.tm_sec)
+        outdir = os.path.join(outroot, day)
+        os.makedirs(outdir, exist_ok=True)
+        path = os.path.join(outdir, name)
+
+        log("")
+        log("%s at %s UTC (%.0f s away) -> %s/%s"
+            % (sounder["name"],
+               time.strftime("%Y-%m-%d %H:%M:%S", stamp), t0 - now_utc(),
+               day, name))
+        status(sounder["name"], "waiting", int(t0), int(t0 + dur))
+
+        # Start early and trim, rather than starting at t0 and living with the
+        # ~0.6-0.8 s between process launch and the first captured sample.
+        # The excess is discarded by sample count, so sample 0 lands on t0.
+        while now_utc() < t0 - lead and not stop["now"]:
+            time.sleep(0.05)
+        if stop["now"]:
+            break
+
+        nsamp = int(sr * (dur + lead))
+        want = int(sr * dur) // dec
+        log("  capturing %g s + %.2f s lead (%d samples)" % (dur, lead, nsamp))
+        status(sounder["name"], "capturing", "%.4f" % 0.0, 0)
+        cmd = ["hackrf_transfer", "-r", raw,
+               "-f", str(int(sounder["cf"])),
+               "-s", str(int(sr)), "-n", str(nsamp),
+               "-l", str(opts.hackrf_gain), "-g", str(opts.hackrf_vga),
+               "-a", "1" if opts.hackrf_amp else "0"]
+        try:
+            os.remove(raw)
+        except OSError:
+            pass
+        began = time.time()
+        try:
+            with open(chatter, "w") as sink:
+                proc = subprocess.Popen(cmd, stdout=sink,
+                                        stderr=subprocess.STDOUT)
+        except FileNotFoundError:
+            log("  *** hackrf_transfer not found:  sudo apt install hackrf")
+            status(sounder["name"], "failed", 0, 0)
+            return 2
+
+        # Timestamp the samples by watching the capture grow: hackrf_transfer
+        # has no timestamps of its own, and its stdio is buffered by a second.
+        # Once t0 is on disk the .lfs is started from the estimate so far, so
+        # the console can draw the sweep as it arrives.
+        probes = []
+        tick = 0.0
+        last = (0, began)
+        patience = max(5.0, lead + 3.0)
+        live = None
+        trim = 0
+        fault = None
+        while proc.poll() is None:
+            try:
+                size = os.path.getsize(raw)
+            except OSError:
+                size = 0
+            moment = time.time()
+            if size > last[0]:
+                last = (size, moment)
+                probes.append((now_utc(), size))
+            elif moment - last[1] > (stall if last[0] else patience):
+                fault = ("hackrf_transfer stalled at %d bytes" % last[0]
+                         if last[0] else "hackrf_transfer wrote nothing")
+                break
+            if probes and live is None and probes[-1][0] > t0:
+                trim = int(round((t0 - stream_epoch(probes, sr)) * sr))
+                if trim < 0:
+                    fault = ("stream began %.0f ms after t0"
+                             % (-trim / sr * 1e3))
+                    break
+                live = RawDechirp(raw, path,
+                                  lfs_header(cfg, sounder, t0, int(sr), dec, False),
+                                  sr, float(sounder["rate"]), dec, trim, want)
+            if live is not None:
+                live.advance(size, False)
+            if probes and probes[-1][0] - tick >= 1.0:
+                tick = probes[-1][0]
+                status(sounder["name"], "capturing",
+                       "%.4f" % capture_fraction(size, nsamp), 0)
+            time.sleep(0.002)
+        if fault is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        rc = proc.wait()
+        if fault is None and rc != 0:
+            fault = "hackrf_transfer failed (rc=%d)" % rc
+        if fault is None and live is None:
+            fault = "the capture never reached t0"
+
+        if fault is None:
+            final = int(round((t0 - stream_epoch(probes, sr)) * sr))
+            log("  timing   stream start from %d size probes, %+.0f ms vs t0"
+                % (len(probes), -final / sr * 1e3))
+            if final - trim > drift * sr:
+                # The minimum only ever falls, so a later probe can move the
+                # start earlier. Past the tolerance the live file is redone
+                # from the scratch capture, which still holds every sample.
+                log("  timing   start moved %.3f ms after the live dechirp began;"
+                    " dechirping again" % ((final - trim) / sr * 1e3))
+                live.close()
+                live = RawDechirp(raw, path,
+                                  lfs_header(cfg, sounder, t0, int(sr), dec, False),
+                                  sr, float(sounder["rate"]), dec, final, want)
+            live.advance(os.path.getsize(raw), True)
+            live.close()
+            log("  captured in %.1f s; %d of %d dechirped samples"
+                % (time.time() - began, live.written(), want))
+            if live.written() < want:
+                fault = "only %d of %d dechirped samples" % (live.written(), want)
+        elif live is not None:
+            live.close()
+        try:
+            os.remove(raw)
+        except OSError:
+            pass
+
+        done += 1
+        if fault is not None:
+            log("  *** %s; nothing published" % fault)
+            for line in hackrf_tail(chatter):
+                log("  *** " + line)
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            status(sounder["name"], "failed", 0, 0)
+            worst = 2
+        else:
+            log("  wrote %s" % path)
+            publication.publish(path, sounder)
+            status(sounder["name"], "clean", 0, want)
+        if limit and done >= limit:
+            break
+
     return worst
 
 
@@ -2187,6 +2622,25 @@ def main():
     ap.add_argument("--rate", type=float, default=25e6, help="--from-raw only")
     ap.add_argument("--chirp-rate", type=float, default=100e3, help="--from-raw only")
     ap.add_argument("--dec", type=int, default=625, help="--from-raw only")
+    ap.add_argument("--hackrf", action="store_true",
+                    help="capture with a HackRF One via hackrf_transfer "
+                         "(20 MS/s max) instead of UHD/USRP")
+    ap.add_argument("--hackrf-gain", type=int, default=32,
+                    help="HackRF LNA gain dB (0/8/16/24/32/40)")
+    ap.add_argument("--hackrf-vga", type=int, default=20,
+                    help="HackRF VGA gain dB (0..62, step 2)")
+    ap.add_argument("--hackrf-amp", type=int, default=0,
+                    help="HackRF RF amp 0=off 1=on (usually harmful below 30 MHz)")
+    ap.add_argument("--hackrf-workdir", default=os.path.expanduser("~/captures"),
+                    help="where hackrf_transfer leaves its temporary capture")
+    ap.add_argument("--hackrf-lead", type=float, default=2.0,
+                    help="seconds to start hackrf_transfer before t0; the "
+                         "measured excess is trimmed so sample 0 lands on t0. "
+                         "Launch-to-stream was ~0.77 s on this host, so 2 s "
+                         "leaves margin for a slower USB enumeration")
+    ap.add_argument("--time-from-usrp", default="",
+                    help="take UTC from this USRP's GPSDO (e.g. addr=192.168.10.2) "
+                         "instead of the host clock, while the HackRF receives")
     opts = ap.parse_args()
 
     if opts.self_test:
@@ -2222,6 +2676,9 @@ def main():
     chosen = sounders[0]
     if opts.repair:
         return repair_header(opts, cfg, chosen)
+    use_hackrf = opts.hackrf or (opts.args or "").lower().startswith("hackrf")
+    if use_hackrf:
+        return run_hackrf(opts, cfg, sounders)
     return run_live(opts, cfg, sounders)
 
 

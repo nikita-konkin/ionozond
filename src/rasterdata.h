@@ -3,7 +3,7 @@
 
 #include <QRectF>
 
-#include <qwt_raster_data.h>
+#include "rasterintervals.h"
 
 /*
  * RasterData @0x472170
@@ -19,7 +19,7 @@
  * clamps, which cannot change the rendered result for in-range queries but
  * avoids a crash if Qwt probes slightly outside the interval.
  */
-class RasterData : public QwtRasterData
+class RasterData : public RasterIntervals
 {
 public:
     RasterData(float **data, const int &specCount, const int &specPointCount,

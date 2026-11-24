@@ -21,6 +21,7 @@
 #include <QCloseEvent>
 #include <QSet>
 #include <QMessageBox>
+#include <QProcessEnvironment>
 #include <QSizePolicy>
 #include <QTextCursor>
 #include <QTextEdit>
@@ -814,6 +815,21 @@ void frmMain::seanseStart()
         if (!m_configFileName.isEmpty())
             args << m_configFileName;
         args << getBaseSoundParams().dataDir;
+
+        /* The receiver chosen in the parameters dialog, in the order of its
+         * combo box. sounder.sh turns the name into arguments and takes the
+         * radio's address from the station's own settings; the last entry,
+         * and a console that never chose, leave those settings to stand. */
+        const QStringList receivers = QStringList()
+            << QLatin1String("hackrf") << QLatin1String("n210")
+            << QLatin1String("n210-gpsdo") << QLatin1String("hackrf-usrp-time");
+        QProcessEnvironment sounderEnv = QProcessEnvironment::systemEnvironment();
+        sounderEnv.insert(QLatin1String("SOUNDER_RECEIVER"),
+                          receivers.value(m_settings->value(
+                              QLatin1String("receiver_backend"),
+                              receivers.size()).toInt()));
+        m_soundProcess->setProcessEnvironment(sounderEnv);
+
         m_soundProcess->start(m_soundAppFileName, args);
         console(QString(QLatin1String("launching %1 %2"))
                     .arg(m_soundAppFileName, args.join(QLatin1Char(' '))),

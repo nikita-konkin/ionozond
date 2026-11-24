@@ -130,9 +130,9 @@ how long `.h5` files stay local.
 
 ## The sounder
 
-`tools/rx_dechirp.py` receives 25 MS/s from the USRP, dechirps it against the
-transmitter's sweep, decimates by 625 to 40 kHz and writes each sounding as an
-`.lfs` capture. It is a port of gr-juha's `chirp_downconvert` to plain Python;
+`tools/rx_dechirp.py` receives from a USRP N210 (25 MS/s) or a HackRF One
+(up to 20 MS/s), dechirps against the transmitter's sweep, decimates by `dec`
+(625 gives 40 kHz at 25 MS/s) and writes each sounding as an `.lfs` capture. It is a port of gr-juha's `chirp_downconvert` to plain Python;
 see its module docstring for the algorithm. Check it without a radio first:
 
 ```bash
@@ -154,6 +154,38 @@ Two ways to run it, never both at once, since both open the same radio:
 - **Unattended**, as `ionozond-sounder.service`. Install it with
   `tools/host-setup/18-install-service.sh`, which writes the site settings to
   `/etc/default/ionozond`.
+
+### Receivers
+
+The parameters dialog's *Приёмник* chooses the radio for a console launch.
+`tools/sounder.sh` gets the choice as `SOUNDER_RECEIVER` and turns it into
+arguments; the radio's address always comes from `RADIO_ADDR` and `JUMBO` in
+`/etc/default/ionozond`. The service ignores the dialog and runs what that file
+says.
+
+| Choice | Arguments | Time from |
+|---|---|---|
+| HackRF One | `--hackrf --hackrf-gain 24` | this host's clock |
+| USRP N210 (host clock) | `--no-gpsdo` | this host's clock |
+| USRP N210 (GPSDO) | none | the N210's GPSDO and PPS |
+| HackRF One (USRP GPSDO time) | `--hackrf --hackrf-gain 24 --time-from-usrp addr=$RADIO_ADDR` | the N210's GPSDO, read over UHD |
+| As configured | `SOUNDER_ARGS` from `/etc/default/ionozond` | whatever that says |
+
+The dechirp reference starts at `centre - sample_rate / 2`, so the centre is
+the sweep's start plus half the sample rate. NIC2 sweeps from 7.5 MHz, so it
+needs 17.5 MHz at 20 MS/s on the HackRF and 20 MHz at 25 MS/s on the N210. A
+start that is off by `Δf` reads as a delay error of `Δf / rate`: 100 Hz at
+100 kHz/s is 1 ms, or 300 km.
+
+The HackRF has no timestamps. The sounder starts `hackrf_transfer` two seconds
+early (`--hackrf-lead`), watches the capture file grow, and takes the stream
+start as the earliest time consistent with every size it saw. That discards
+the jitter of USB transfers and buffered writes; what remains is their
+constant part, a fraction of a millisecond on the station laptop. The `.lfs`
+is dechirped while the capture arrives, so the console draws the ionogram
+live; if a later size probe moves the start by more than 0.05 ms the capture
+is dechirped again before its products are built. A capture that starts late,
+stalls or comes up short is marked failed and nothing is published.
 
 ### Archive upkeep and diagnostics
 

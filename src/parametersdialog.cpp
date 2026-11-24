@@ -71,6 +71,9 @@ void ParametersDialog::ReadSettings()
                         m_settings->value(QLatin1String("sample_rate_index")).toInt());
     SetParamsToComboBox(ui->cmbFftCount, FFT_COUNT_LIST(),
                         m_settings->value(QLatin1String("fft_count_index")).toInt());
+    ui->cmbReceiver->setCurrentIndex(
+        m_settings->value(QLatin1String("receiver_backend"),
+                          ui->cmbReceiver->count() - 1).toInt());
     SetParamsToComboBox(ui->cmbIgVerticalScale, IG_VERTICAL_SCALE_LIST(),
                         m_settings->value(QLatin1String("ig_vertical_scale_index")).toInt());
 
@@ -223,6 +226,8 @@ void ParametersDialog::WriteSettings()
     m_settings->setValue(QLatin1String("sample_rate_index"), ui->cmbSampleRate->currentIndex());
     m_settings->setValue(QLatin1String("sample_rate"), ui->cmbSampleRate->currentText());
     m_settings->setValue(QLatin1String("fft_count_index"), ui->cmbFftCount->currentIndex());
+    m_settings->setValue(QLatin1String("receiver_backend"),
+                         ui->cmbReceiver->currentIndex());
     m_settings->setValue(QLatin1String("ig_vertical_scale_index"),
                          ui->cmbIgVerticalScale->currentIndex());
     m_settings->setValue(QLatin1String("dec"), ui->edtDec->text());

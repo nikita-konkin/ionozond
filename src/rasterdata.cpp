@@ -4,7 +4,7 @@
 
 RasterData::RasterData(float **data, const int &specCount, const int &specPointCount,
                        const QRectF &area, const float &powerMax)
-    : QwtRasterData(),
+    : RasterIntervals(),
       m_data(data),
       m_specCount(specCount),
       m_specPointCount(specPointCount),

@@ -26,7 +26,8 @@ const QStringList &SAMPLE_RATE_LIST()
 {
     static const QStringList list = QStringList()
         << QLatin1String("3125") << QLatin1String("6250")
-        << QLatin1String("12500") << QLatin1String("25000");
+        << QLatin1String("12500") << QLatin1String("25000")
+        << QLatin1String("20000");
     return list;
 }
 

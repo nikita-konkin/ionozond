@@ -1,6 +1,7 @@
 #include "snrvariationswidget.h"
 
 #include "datetimescaledraw.h"
+#include "rasterintervals.h"
 
 #include <qwt_scale_widget.h>
 #include <qwt_text.h>
@@ -11,7 +12,7 @@
  * SnrVariationsRasterData @0x485990 -- x is time (seconds since epoch),
  * y is frequency in MHz, the value is SNR in dB.
  */
-class SnrVariationsWidget::SnrRaster : public QwtRasterData
+class SnrVariationsWidget::SnrRaster : public RasterIntervals
 {
 public:
     SnrRaster(const QVector<QDateTime> *times,

@@ -1,6 +1,7 @@
 #include "pdpvariationswidget.h"
 
 #include "datetimescaledraw.h"
+#include "rasterintervals.h"
 
 #include <qwt_scale_widget.h>
 #include <qwt_text.h>
@@ -11,7 +12,7 @@
  * PdpVariationsRasterData @0x489620 -- x is time (seconds since epoch),
  * y is delay in ms, the value is the integrated power at that delay.
  */
-class PdpVariationsWidget::PdpRaster : public QwtRasterData
+class PdpVariationsWidget::PdpRaster : public RasterIntervals
 {
 public:
     PdpRaster(const QVector<QDateTime> *times, const QVector<PdpVector> *columns)
