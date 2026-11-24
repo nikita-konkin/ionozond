@@ -1,3 +1,5 @@
+import numpy as np
+import pytest
 import echo_window
 import lfp_products
 import rx_dechirp
@@ -87,3 +89,73 @@ def test_sounder_checks_the_window_before_releasing_the_capture(capture):
 def test_capture_is_kept_when_its_window_fails_the_check(capture):
     lfs = capture()
     assert not rx_dechirp.cut_echo_window(lfs, lfs + ".h5", Recorder(verified=False), quiet), "a capture was released against a window that failed verification"
+
+
+def test_stream_epoch_finds_the_start_behind_jittery_probes():
+    start = np.random.uniform(1.79e9, 1.80e9)
+    sr = np.random.uniform(2e6, 20e6)
+    lag = np.random.uniform(0.001, 0.004)
+    size = np.cumsum(np.random.randint(1, 1 << 18, 5000)) * 2
+    seen = start + size / 2.0 / sr + lag + np.random.exponential(0.01, size.size)
+    k = np.random.randint(size.size)
+    seen[k] = start + size[k] / 2.0 / sr + lag
+    found = rx_dechirp.stream_epoch(list(zip(seen, size)), sr)
+    assert abs(found - (start + lag)) < 1e-5, "stream start %.6f was not recovered as %.6f" % (start + lag, found)
+
+
+def test_stream_epoch_refuses_an_empty_capture():
+    with pytest.raises(ValueError):
+        rx_dechirp.stream_epoch([], np.random.uniform(2e6, 20e6))
+
+
+def test_capture_fraction_follows_the_bytes_on_disk():
+    wanted = np.random.randint(10 ** 6, 10 ** 9)
+    got = np.random.randint(0, wanted)
+    assert abs(rx_dechirp.capture_fraction(2 * got, wanted) - got / float(wanted)) < 1e-12, "fraction did not follow the bytes written"
+
+
+def test_capture_fraction_never_passes_one():
+    wanted = np.random.randint(10 ** 6, 10 ** 9)
+    assert rx_dechirp.capture_fraction(2 * wanted + np.random.randint(2, 10 ** 6), wanted) == 1.0, "fraction ran past a full capture"
+
+
+def growing(tmp_path, count):
+    raw = str(tmp_path / "hackrf.cs8")
+    np.random.randint(-128, 128, 2 * count).astype(np.int8).tofile(raw)
+    return raw
+
+
+def test_raw_dechirp_of_a_growing_file_matches_one_pass(tmp_path):
+    sr, rate, dec = 2e6, np.random.uniform(5e4, 2e5), 50
+    count = np.random.randint(200000, 400000)
+    start = np.random.randint(0, 5000)
+    want = (count - start) // dec - np.random.randint(5, 50)
+    raw = growing(tmp_path, count)
+    lfs = str(tmp_path / "live.lfs")
+    live = rx_dechirp.RawDechirp(raw, lfs, b"h" * 512, sr, rate, dec, start, want, np.random.randint(1000, 30000))
+    for size in sorted(np.random.randint(0, 2 * count, 40)):
+        live.advance(int(size), False)
+    live.advance(2 * count, True)
+    live.close()
+    x = np.fromfile(raw, dtype=np.int8).astype(np.float32).reshape(-1, 2)
+    whole = rx_dechirp.Dechirper(sr, -sr / 2.0, rate, dec).feed((x[start:, 0] + 1j * x[start:, 1]).astype(np.complex64))[:want]
+    assert np.abs(np.fromfile(lfs, dtype=np.complex64, offset=512) - whole).max() < 1e-3 * np.abs(whole).mean(), "the live dechirp did not match a single pass over the whole capture"
+
+
+def test_raw_dechirp_stops_at_one_sounding(tmp_path):
+    count = np.random.randint(100000, 200000)
+    want = np.random.randint(100, count // 40)
+    raw = growing(tmp_path, count)
+    live = rx_dechirp.RawDechirp(raw, str(tmp_path / "live.lfs"), b"h" * 512, 2e6, 1e5, 20, 0, want, 4096)
+    live.advance(2 * count, True)
+    live.close()
+    assert live.written() == want, "the live dechirp ran past one sounding"
+
+
+def test_raw_dechirp_leaves_a_short_capture_short(tmp_path):
+    count = np.random.randint(100000, 200000)
+    raw = growing(tmp_path, count)
+    live = rx_dechirp.RawDechirp(raw, str(tmp_path / "live.lfs"), b"h" * 512, 2e6, 1e5, 20, 0, count, 4096)
+    live.advance(2 * count, True)
+    live.close()
+    assert live.written() < count, "a short capture was reported as a whole sounding"
