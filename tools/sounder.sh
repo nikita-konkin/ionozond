@@ -33,13 +33,38 @@ IONOZOND_DEFAULTS="${IONOZOND_DEFAULTS:-/etc/default/ionozond}"
 if [ -r "$IONOZOND_DEFAULTS" ]; then
     while IFS='=' read -r _key _value; do
         case "$_key" in ''|'#'*) continue ;; esac
-        _key="${_key%"${_key##*[![:space:]]}"}"      # trim trailing space
+        _key="${_key#"${_key%%[![:space:]]*}"}"     # trim leading space
+        _key="${_key%"${_key##*[![:space:]]}"}"     # trim trailing space
         [ -z "$_key" ] && continue
+        # /etc/default files are shell/env sources, so values may be quoted;
+        # this parser does not run the shell, so strip one layer itself.
+        _value="${_value#"${_value%%[![:space:]]*}"}"
+        _value="${_value%"${_value##*[![:space:]]}"}"
+        case "$_value" in
+            \"*\") _value="${_value#\"}"; _value="${_value%\"}" ;;
+            \'*\') _value="${_value#\'}"; _value="${_value%\'}" ;;
+        esac
         if [ -z "${!_key:-}" ]; then
             export "$_key=$_value"
         fi
     done < "$IONOZOND_DEFAULTS"
 fi
+
+# The receiver chosen in the console's parameters dialog. It replaces the
+# station's SOUNDER_ARGS for that launch, and leaves the radio's address to
+# RADIO_ADDR and JUMBO below, so the dialog never hard-codes a network. Unset,
+# as for the service, the station's own settings stand.
+case "${SOUNDER_RECEIVER:-}" in
+    '') ;;
+    hackrf) SOUNDER_ARGS="--hackrf --hackrf-gain 24" ;;
+    n210) SOUNDER_ARGS="--no-gpsdo" ;;
+    n210-gpsdo) SOUNDER_ARGS="" ;;
+    hackrf-usrp-time)
+        SOUNDER_ARGS="--hackrf --hackrf-gain 24 --time-from-usrp addr=${RADIO_ADDR:-192.168.10.2}" ;;
+    *)
+        echo "*** SOUNDER_RECEIVER=${SOUNDER_RECEIVER} is not a receiver this script knows" >&2
+        exit 2 ;;
+esac
 
 # One process can hold the radio. Started by hand while the service has it --
 # from a terminal, or from the console's START button -- UHD fails to open the

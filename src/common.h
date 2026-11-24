@@ -171,10 +171,12 @@ struct PdpVarParams {
  * the strings in descending order and then append them in reverse, which is
  * why fft_count_index=5 selects 16384 and sample_rate_index=3 selects 25000
  * (both confirmed against the running original's Parameters dialog).
+ * 20000, the HackRF ceiling, is appended out of order rather than sorted in,
+ * so a config saved before it still selects the rate it was saved with.
  * ------------------------------------------------------------------ */
 
 const QStringList &FFT_COUNT_LIST();          // 512 .. 65536
-const QStringList &SAMPLE_RATE_LIST();        // 3125 .. 25000, kHz
+const QStringList &SAMPLE_RATE_LIST();        // 3125 .. 25000, then 20000, kHz
 const QStringList &IG_VERTICAL_SCALE_LIST();  // "h, km", "t, ms"
 
 /* Virtual height limits, matching ionogr_clean/ig_utils1.py. */

@@ -61,11 +61,21 @@
         <property name="text"><string>Количество точек БПФ:</string></property></widget></item>
        <item row="6" column="1"><widget class="QComboBox" name="cmbFftCount"/></item>
 
-       <item row="7" column="0"><widget class="QLabel" name="lblTimeSource">
-        <property name="enabled"><bool>false</bool></property>
-        <property name="text"><string>Источник точного времени:</string></property></widget></item>
-       <item row="7" column="1"><widget class="QComboBox" name="cmbTimeSource">
-        <property name="enabled"><bool>false</bool></property></widget></item>
+       <item row="7" column="0"><widget class="QLabel" name="lblReceiver">
+        <property name="text"><string>Приёмник:</string></property>
+        <property name="toolTip"><string>HackRF One -- USB, LNA 24 dB, RF amp off.
+USRP N210 -- UHD at RADIO_ADDR, host clock. Only one program can hold the N210.
+USRP N210 (GPSDO) -- as above, but UTC from the N210 GPSDO; requires gps_locked.
+HackRF One (USRP GPSDO time) -- HackRF receives, UTC read from the N210 GPSDO.
+As configured -- SOUNDER_ARGS and RADIO_ADDR from /etc/default/ionozond.</string></property></widget></item>
+       <item row="7" column="1"><widget class="QComboBox" name="cmbReceiver">
+        <property name="toolTip"><string>Which radio receiver the sounder opens.</string></property>
+        <item><property name="text"><string>HackRF One</string></property></item>
+        <item><property name="text"><string>USRP N210 (host clock)</string></property></item>
+        <item><property name="text"><string>USRP N210 (GPSDO)</string></property></item>
+        <item><property name="text"><string>HackRF One (USRP GPSDO time)</string></property></item>
+        <item><property name="text"><string>As configured (/etc/default/ionozond)</string></property></item>
+       </widget></item>
 
        <item row="8" column="0"><widget class="QLabel" name="lblNtpServerName">
         <property name="enabled"><bool>false</bool></property>
