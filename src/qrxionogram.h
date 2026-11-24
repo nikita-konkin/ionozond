@@ -117,6 +117,8 @@ signals:
 private:
     void setupPlot();
     void setupDefaultAxes();
+    void setupVerticalScale();
+    void setDelayAxisScale(double minTimeMs, double maxTimeMs);
     void releaseData();
     void endLive();
     void showTitle(const QString &text);
