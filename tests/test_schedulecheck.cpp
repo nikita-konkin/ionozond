@@ -202,6 +202,23 @@ int main(int argc, char **argv)
         check(has(is, CheckIssue::Error, "yoshkar-ola", "одним названием"), "two columns, one name");
     }
 
+    std::printf("--- automatic centre frequency\n");
+    {
+        ScheduleEntry e = station("NIC2", true, "300", "0", "100", "245", " AuTo ", "35", "34");
+        e.f0 = QLatin1String("7.525");
+        CheckConfig cfg = config();
+        cfg.sampleRateKHz = 20000;
+        const QList<CheckIssue> issues = run(QList<ScheduleEntry>() << e << receiver(), cfg);
+        check(countIssues(issues, CheckIssue::Error) == 0,
+              "automatic tuning with a sweep start did not pass validation");
+    }
+    {
+        const ScheduleEntry e = station("NIC2", true, "300", "0", "100", "245", "auto", "35", "34");
+        const QList<CheckIssue> issues = run(QList<ScheduleEntry>() << e << receiver());
+        check(has(issues, CheckIssue::Error, "NIC2", "Начало свипа, МГц"),
+              "automatic tuning without a sweep start did not report the missing field");
+    }
+
     std::printf("--- general settings\n");
     {
         QList<ScheduleEntry> s;

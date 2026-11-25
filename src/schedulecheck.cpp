@@ -195,6 +195,7 @@ void checkGeneral(const CheckConfig &cfg, QList<CheckIssue> &out)
 struct Station {
     QString name;
     double  rep, chirpt, rateKHz, dur, cfKHz, f0MHz, offset;
+    bool    autoCf;
 };
 
 void checkStation(const Station &s, int fft, const CheckConfig &cfg,
@@ -207,7 +208,7 @@ void checkStation(const Station &s, int fft, const CheckConfig &cfg,
     const double rateHz = s.rateKHz * 1e3;
 
     /* Units: cf in kHz and rate in kHz/s, as the original's table had them. */
-    if (s.cfKHz < 1000.0)
+    if (!s.autoCf && s.cfKHz < 1000.0)
         add(out, CheckIssue::Warning, n,
             u8("частота гетеродина %1 кГц — меньше 1 МГц. Она задаётся в кГц: "
                "12,5 МГц — это 12500.").arg(val(s.cfKHz)));
@@ -723,9 +724,10 @@ QList<CheckIssue> checkSchedule(const QList<ScheduleEntry> &entries, const Check
                                  "скорость перестройки", "продолжительность",
                                  "частота гетеродина" };
         const QString *texts[] = { &e.rep, &e.chirpt, &e.rate, &e.dur, &e.cf };
-        double v[5];
+        const bool autoCf = e.cf.trimmed().compare(QLatin1String("auto"), Qt::CaseInsensitive) == 0;
+        double v[5] = {};
         bool ok = true;
-        for (int k = 0; k < 5; ++k) {
+        for (int k = 0; k < (autoCf ? 4 : 5); ++k) {
             const Number num = parseNumber(*texts[k]);
             if (!num.ok) {
                 add(out, CheckIssue::Error, e.name,
@@ -762,6 +764,7 @@ QList<CheckIssue> checkSchedule(const QList<ScheduleEntry> &entries, const Check
         s.rateKHz = v[2];
         s.dur = v[3];
         s.cfKHz = v[4];
+        s.autoCf = autoCf;
         s.f0MHz = 0.0;
         s.offset = 0.0;
         if (!e.f0.trimmed().isEmpty()) {
@@ -771,15 +774,24 @@ QList<CheckIssue> checkSchedule(const QList<ScheduleEntry> &entries, const Check
                 add(out, CheckIssue::Error, e.name, u8("Начало свипа, МГц — нужно число с точкой"));
                 continue;
             }
-            if (s.f0MHz != 0.0 && cfg.sampleRateKHz > 0.0) {
-                const double bottomKHz = s.cfKHz - cfg.sampleRateKHz / 2.0;
-                s.offset = (bottomKHz - s.f0MHz * 1e3) / s.rateKHz;
-                s.dur = std::min(s.dur - s.offset, cfg.sampleRateKHz / s.rateKHz);
-                if (s.offset < 0.0 || s.dur <= 0.0) {
-                    add(out, CheckIssue::Error, e.name,
-                        u8("свип не проходит через нижнюю границу полосы приёма"));
-                    continue;
-                }
+        }
+        if (autoCf && s.f0MHz <= 0.0) {
+            add(out, CheckIssue::Error, e.name,
+                u8("Начало свипа, МГц — для частоты гетеродина auto задайте значение больше нуля"));
+            continue;
+        }
+
+        const double f0KHz = s.f0MHz * 1e3;
+        if (autoCf)
+            s.cfKHz = f0KHz + cfg.sampleRateKHz / 2.0;
+        if (s.f0MHz != 0.0 && cfg.sampleRateKHz > 0.0) {
+            const double bottomKHz = autoCf ? f0KHz : s.cfKHz - cfg.sampleRateKHz / 2.0;
+            s.offset = (bottomKHz - f0KHz) / s.rateKHz;
+            s.dur = std::min(s.dur - s.offset, cfg.sampleRateKHz / s.rateKHz);
+            if (s.offset < 0.0 || s.dur <= 0.0) {
+                add(out, CheckIssue::Error, e.name,
+                    u8("свип не проходит через нижнюю границу полосы приёма"));
+                continue;
             }
         }
         checkStation(s, e.fft > 0 ? e.fft : cfg.fft, cfg,

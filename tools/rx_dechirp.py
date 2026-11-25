@@ -59,6 +59,7 @@ except ImportError:
 # exceeds this cannot be done by hackrf_transfer at all, so the HackRF backend
 # refuses it instead of failing halfway through a sounding.
 HACKRF_MAX_RATE = 20e6
+AUTO_BAND_MARGIN = 2e6
 
 
 # ---------------------------------------------------------------- .lfs header
@@ -491,12 +492,40 @@ def recording_window(cf, sr, rate, duration, f0=None):
     return offset, length
 
 
+def auto_centre(f0, sr, sweep_end, echo_top=None, margin=AUTO_BAND_MARGIN):
+    """Choose a centre in whole Hz from the previous echo top."""
+    default = math.ceil(f0 + sr / 2)
+    if echo_top is None:
+        return default
+    highest = max(default, math.floor(sweep_end - sr / 2))
+    target = math.ceil(echo_top + margin - sr / 2)
+    return min(highest, max(default, target))
+
+
+def auto_band_settings(sounder):
+    """Read the sweep limits and echo margin in Hz."""
+    f0 = sounder.get("f0")
+    rate, duration = sounder["rate"], sounder["dur"]
+    margin = sounder.get("auto_band_margin", AUTO_BAND_MARGIN)
+    if not isinstance(f0, (int, float)) or not 0 < f0 < math.inf:
+        raise ValueError("cf='auto' requires a positive finite f0 in Hz")
+    if not (0 < rate < math.inf and 0 < duration < math.inf):
+        raise ValueError("cf='auto' requires a positive finite rate and duration")
+    if not isinstance(margin, (int, float)) or not 0 <= margin < math.inf:
+        raise ValueError("auto_band_margin must be nonnegative and finite (Hz)")
+    return f0, f0 + duration * rate, margin
+
+
 def recording_windows(sounders, sr, duration_override, log):
     """Calculate the recording window for each usable sounder."""
     windows = []
     for s in sounders:
         try:
-            offset, duration = recording_window(s["cf"], sr, s["rate"], s["dur"], s.get("f0"))
+            cf = s["cf"]
+            if cf == "auto":
+                f0, sweep_end, _ = auto_band_settings(s)
+                cf = auto_centre(f0, sr, sweep_end)
+            offset, duration = recording_window(cf, sr, s["rate"], s["dur"], s.get("f0"))
         except ValueError as exc:
             log("  *** %s: %s." % (s["name"], exc))
             continue
@@ -1434,13 +1463,16 @@ def report(result, opts, sr, dec, log):
     return 1
 
 
-def pick_next(windows, now=None):
+def pick_next(windows, now=None, after_slots=None):
     """Return the sounder, scheduled slot, capture start and length."""
     if now is None:
         now = time.time()
     best = None
     for s, offset, duration in windows:
-        t0 = determine_next(s["rep"], s["chirpt"], now - offset)
+        earliest = now - offset
+        if after_slots and s["name"] in after_slots:
+            earliest = max(earliest, after_slots[s["name"]])
+        t0 = determine_next(s["rep"], s["chirpt"], earliest)
         t1 = t0 + offset
         if best is None or t1 < best[2]:
             best = s, t0, t1, duration
@@ -1763,6 +1795,11 @@ def lfs_header(cfg, sounder, t0, sr, dec, whiten, duration):
 
 def run_live(opts, cfg, sounders):
     import signal as signal_module
+
+    for sounder in sounders:
+        if sounder["cf"] == "auto":
+            print("%s: cf='auto' requires HackRF." % sounder["name"])
+            return 2
 
     sr = float(cfg["sample_rate"])
     dec = int(cfg["dec"])
@@ -2186,6 +2223,68 @@ def hackrf_tail(path, lines=5):
         return []
 
 
+def previous_echo_top(outroot, station, now):
+    """Read the latest published echo top for this station in Hz."""
+    cutoff = time.strftime("%Y%m%d_%H%M%S", time.gmtime(now))
+    day_pattern = re.compile(r"\d{4}\.\d{2}\.\d{2}")
+    file_pattern = re.compile(re.escape(station) + r"_(\d{8}_\d{6})\.(lfp|lfs)")
+    try:
+        with os.scandir(outroot) as entries:
+            days = [entry.name for entry in entries
+                    if day_pattern.fullmatch(entry.name) and entry.is_dir()
+                    and entry.name.replace(".", "") <= cutoff[:8]]
+        for day in sorted(days, reverse=True):
+            directory = os.path.join(outroot, day)
+            with os.scandir(directory) as entries:
+                candidates = ((match[1], match[2] == "lfp", entry.name)
+                              for entry in entries
+                              if (match := file_pattern.fullmatch(entry.name))
+                              and match[1][:8] == day.replace(".", "")
+                              and match[1] <= cutoff and entry.is_file())
+                latest = max(candidates, default=None)
+            if latest is None:
+                continue
+            _, has_sidecar, filename = latest
+            if not has_sidecar:
+                return None
+            lib = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                               "python")
+            if lib not in sys.path:
+                sys.path.insert(0, lib)
+            from lfp import read_lfp
+            meta, _ = read_lfp(os.path.join(directory, filename), header_only=True)
+            top = meta["muf_mhz"]
+            if meta["muf_index"] >= 0 and 0 < top < math.inf:
+                return top * 1e6
+            return None
+    except (OSError, ValueError, ImportError):
+        return None
+    return None
+
+
+def retuned_windows(windows, sr, outroot, now):
+    """Resolve automatic bands and recalculate their capture windows."""
+    for sounder, offset, duration in windows:
+        if sounder["cf"] == "auto":
+            f0, sweep_end, margin = auto_band_settings(sounder)
+            echo_top = previous_echo_top(outroot, sounder["name"], now)
+            cf = auto_centre(f0, sr, sweep_end, echo_top, margin)
+            if echo_top is None:
+                reason = "default band without a previous echo"
+            else:
+                echo = "previous echo top %.3f MHz" % (echo_top / 1e6)
+                if cf == auto_centre(f0, sr, sweep_end):
+                    reason = "default band for %s" % echo
+                elif echo_top + margin > sweep_end:
+                    reason = "sweep-end limit for %s" % echo
+                else:
+                    reason = "%.3f MHz above %s" % (margin / 1e6, echo)
+            sounder = dict(sounder, cf=cf, auto_band_reason=reason)
+            offset, length = recording_window(cf, sr, sounder["rate"], sounder["dur"], f0)
+            duration = min(duration, length)
+        yield sounder, offset, duration
+
+
 def run_hackrf(opts, cfg, sounders):
     """The same schedule and file formats, captured with a HackRF One.
 
@@ -2230,8 +2329,9 @@ def run_hackrf(opts, cfg, sounders):
 
     first = sounders[0]
     log("backend   HackRF One via hackrf_transfer")
-    log("  centre   %.3f MHz, sweep reference from %.3f MHz"
-        % (first["cf"] / 1e6, (first["cf"] - sr / 2) / 1e6))
+    if first["cf"] != "auto":
+        log("  centre   %.3f MHz, sweep reference from %.3f MHz"
+            % (first["cf"] / 1e6, (first["cf"] - sr / 2) / 1e6))
     log("  sampling %.3f MS/s, dec %d -> %.0f Hz out" % (sr / 1e6, dec, sr / dec))
     for s in sounders:
         span = float(s["rate"]) * float(s["dur"])
@@ -2278,16 +2378,25 @@ def run_hackrf(opts, cfg, sounders):
     drift = 5e-5
     done = 0
     worst = 0
+    auto_band = any(s["cf"] == "auto" for s in sounders)
+    after_slots = {}
     while not stop["now"]:
+        if auto_band:
+            now = now_utc()
+            current = list(retuned_windows(windows, sr, outroot, now))
+        else:
+            current = windows
         # --duration means "one short test run now", not "wait for the next
         # scheduled slot" -- otherwise testing would wait up to a whole rep.
         # The start still has to be far enough ahead for the lead to fit.
         if opts.duration:
-            sounder, offset, dur = windows[0]
+            sounder, offset, dur = current[0]
             t1 = now_utc() + lead + 1.0
             t0 = t1 - offset
         else:
-            sounder, t0, t1, dur = pick_next(windows, now=now_utc())
+            sounder, t0, t1, dur = pick_next(current, now=now_utc(), after_slots=after_slots)
+            if "auto_band_reason" in sounder:
+                after_slots[sounder["name"]] = t0
         stamp = time.gmtime(t0)
         day = time.strftime("%Y.%m.%d", stamp)
         name = "%s_%04d%02d%02d_%02d%02d%02d.lfs" % (
@@ -2302,6 +2411,11 @@ def run_hackrf(opts, cfg, sounders):
             % (sounder["name"],
                time.strftime("%Y-%m-%d %H:%M:%S", stamp), t0 - now_utc(),
                day, name))
+        if "auto_band_reason" in sounder:
+            cf = sounder["cf"]
+            log("  band     %.3f-%.3f MHz (centre %.3f MHz), %s"
+                % ((cf - sr / 2) / 1e6, (cf + sr / 2) / 1e6, cf / 1e6,
+                   sounder["auto_band_reason"]))
         if t1 != t0:
             log("  recording starts %.3f s after the scheduled slot" % (t1 - t0))
         status(sounder["name"], "waiting", int(t1), int(t1 + dur))
@@ -2586,6 +2700,10 @@ def repair_header(opts, cfg, sounder):
     d, t = m.group("d"), m.group("t")
     t0 = calendar.timegm((int(d[0:4]), int(d[4:6]), int(d[6:8]),
                           int(t[0:2]), int(t[2:4]), int(t[4:6]), 0, 0, 0))
+
+    if sounder["cf"] == "auto":
+        print("Cannot repair %s with cf='auto'. Set cf to the original tuning in Hz." % path)
+        return 2
 
     size = os.path.getsize(path)
     if size % 8:

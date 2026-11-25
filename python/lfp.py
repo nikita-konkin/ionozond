@@ -30,8 +30,8 @@ def _text(raw):
     return raw.split(b'\0', 1)[0].decode('utf-8', 'replace')
 
 
-def read_lfp(path):
-    """Returns (meta dict, {section name: 2-D ndarray})."""
+def read_lfp(path, *, header_only=False):
+    """Return metadata and section arrays. Skip sections with header_only."""
     with open(path, 'rb') as f:
         head = f.read(HEADER_SIZE)
         if len(head) != HEADER_SIZE or head[:4] != MAGIC:
@@ -77,6 +77,9 @@ def read_lfp(path):
             'iono_pad': struct.unpack_from('<H', head, 0x128)[0] or 1,
             'iono_overlap': struct.unpack_from('<H', head, 0x12A)[0] or 1,
         }
+
+        if header_only:
+            return meta, {}
 
         f.seek(tab_off)
         table = f.read(nsec * SECTION_ENTRY)

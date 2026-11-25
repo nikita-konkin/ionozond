@@ -130,6 +130,21 @@ static bool theWriterEmitsTheSweepStartOnlyWhenSet()
     return ok;
 }
 
+static bool theWriterQuotesAutomaticCentre()
+{
+    QTemporaryDir dir;
+    QSettings sched(dir.filePath(QLatin1String("schedule.ini")), QSettings::IniFormat);
+    QSettings config(dir.filePath(QLatin1String("config.ini")), QSettings::IniFormat);
+    sched.setValue(QLatin1String("NIC2/active"), true);
+    sched.setValue(QLatin1String("NIC2/cf"), QLatin1String(" AuTo "));
+
+    const QString got = buildChirpConfig(sched, config);
+    const bool ok = got.contains(QLatin1String("[{'name':'NIC2','cf':'auto'}]"));
+    if (!ok)
+        std::printf("  FAIL: the writer did not emit cf as the quoted string 'auto'.\n");
+    return ok;
+}
+
 int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
@@ -165,6 +180,9 @@ int main(int argc, char **argv)
         ++failures;
 
     if (!theWriterEmitsTheSweepStartOnlyWhenSet())
+        ++failures;
+
+    if (!theWriterQuotesAutomaticCentre())
         ++failures;
 
     if (failures == 0) {
