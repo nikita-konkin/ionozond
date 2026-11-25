@@ -34,7 +34,7 @@ const QStringList &SAMPLE_RATE_LIST()
 const QStringList &IG_VERTICAL_SCALE_LIST()
 {
     static const QStringList list = QStringList()
-        << QLatin1String("h, km") << QLatin1String("t, ms");
+        << QLatin1String(HEIGHT_AXIS_TITLE_TEXT) << QLatin1String(TIME_AXIS_TITLE_TEXT);
     return list;
 }
 
@@ -159,6 +159,22 @@ double earthDistanceKmOriginal(double lat1, double lon1, double lat2, double lon
 double rayDistanceKm(double earthDistance)
 {
     return std::sqrt(LAY_E_SQR + earthDistance * earthDistance);
+}
+
+double ionogramHeightStepKm(double minTimeMs, double maxTimeMs)
+{
+    const double targetKm = heightKmFromTimeMs(std::fabs(maxTimeMs - minTimeMs)) / 8.0;
+    if (!std::isfinite(targetKm) || targetKm <= 1.0)
+        return 1.0;
+
+    const double magnitude = std::pow(10.0, std::floor(std::log10(targetKm)));
+    const double multipliers[] = { 1.0, 2.0, 2.5, 5.0 };
+    for (double multiplier : multipliers) {
+        const double stepKm = std::ceil(multiplier * magnitude);
+        if (stepKm >= targetKm)
+            return stepKm;
+    }
+    return 10.0 * magnitude;
 }
 
 /* ------------------------------------------------------------------ *

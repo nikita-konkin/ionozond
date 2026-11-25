@@ -11,6 +11,9 @@
 
 #include <qwt_color_map.h>
 #include <qwt_plot_marker.h>
+#include <qwt_scale_div.h>
+#include <qwt_scale_draw.h>
+#include <qwt_scale_engine.h>
 #include <qwt_scale_widget.h>
 #include <qwt_text.h>
 
@@ -19,6 +22,34 @@
 #include <cstdio>
 #include <limits>
 #include <vector>
+
+namespace {
+
+/* Formats delay coordinates as whole kilometres. */
+class IonogramHeightScaleDraw : public QwtScaleDraw
+{
+public:
+    QwtText label(double value) const override
+    {
+        return QwtText(QString::number(heightKmFromTimeMs(value), 'f', 0));
+    }
+};
+
+/* Uses kilometre steps when a caller such as the zoomer requests automatic ticks. */
+class IonogramHeightScaleEngine : public QwtLinearScaleEngine
+{
+public:
+    QwtScaleDiv divideScale(double minTimeMs, double maxTimeMs, int maxMajorSteps,
+                            int maxMinorSteps, double stepSize) const override
+    {
+        if (stepSize == 0.0)
+            stepSize = timeMsFromHeightKm(ionogramHeightStepKm(minTimeMs, maxTimeMs));
+        return QwtLinearScaleEngine::divideScale(minTimeMs, maxTimeMs, maxMajorSteps,
+                                                 maxMinorSteps, stepSize);
+    }
+};
+
+}
 
 /*
  * "10 окт. 10:35:00 UTC (13:35:00 МСК)". The captures are named and
@@ -79,7 +110,7 @@ void QRxIonogram::setupPlot()
     setMinimumSize(220, 150);
 
     setAxisTitle(QwtPlot::xBottom, QwtText(QString::fromLatin1(AXIS_FREQ_TITLE)));
-    setAxisTitle(QwtPlot::yLeft, QwtText(QString::fromLatin1(TIME_AXIS_TITLE_TEXT)));
+    setupVerticalScale();
 
     m_spectrogram = new QwtPlotSpectrogram();
     m_spectrogram->setRenderThreadCount(0);   /* use all cores */
@@ -100,6 +131,23 @@ void QRxIonogram::setupPlot()
     m_liveMarker->hide();
 
     setupDefaultAxes();
+}
+
+void QRxIonogram::setupVerticalScale()
+{
+    const bool height = m_base.igVerticalScaleIndex == 0;
+    const char *title = height ? HEIGHT_AXIS_TITLE_TEXT : TIME_AXIS_TITLE_TEXT;
+    setAxisTitle(QwtPlot::yLeft, QwtText(QString::fromLatin1(title)));
+    setAxisScaleDraw(QwtPlot::yLeft, height ? new IonogramHeightScaleDraw : new QwtScaleDraw);
+    setAxisScaleEngine(QwtPlot::yLeft,
+                       height ? new IonogramHeightScaleEngine : new QwtLinearScaleEngine);
+}
+
+void QRxIonogram::setDelayAxisScale(double minTimeMs, double maxTimeMs)
+{
+    const double stepMs = m_base.igVerticalScaleIndex == 0
+        ? timeMsFromHeightKm(ionogramHeightStepKm(minTimeMs, maxTimeMs)) : 0.0;
+    setAxisScale(QwtPlot::yLeft, minTimeMs, maxTimeMs, stepMs);
 }
 
 void QRxIonogram::endLive()
@@ -139,7 +187,7 @@ void QRxIonogram::showLive(const LiveIonogram &live)
         m_spectrogram->setData(m_raster);
 
         setAxisScale(QwtPlot::xBottom, area.left(), area.right());
-        setAxisScale(QwtPlot::yLeft, area.top(), area.bottom());
+        setDelayAxisScale(area.top(), area.bottom());
         m_horizontal = QIgWindow(QPointF(area.left(), 0.0), QPointF(area.right(), 0.0));
         m_vertical   = QIgWindow(QPointF(0.0, area.top()), QPointF(0.0, area.bottom()));
 
@@ -207,7 +255,7 @@ void QRxIonogram::setupDefaultAxes()
                                  + VIRT_HEIGHT_WINDOW_MARGIN_KM_DEFAULT;
 
     setAxisScale(QwtPlot::xBottom, freqStartMHz, freqStopMHz);
-    setAxisScale(QwtPlot::yLeft, timeMsFromHeightKm(rminKm), timeMsFromHeightKm(rmaxKm));
+    setDelayAxisScale(timeMsFromHeightKm(rminKm), timeMsFromHeightKm(rmaxKm));
 
     m_horizontal = QIgWindow(QPointF(freqStartMHz, 0.0), QPointF(freqStopMHz, 0.0));
     m_vertical   = QIgWindow(QPointF(0.0, timeMsFromHeightKm(rminKm)),
@@ -402,7 +450,7 @@ bool QRxIonogram::loadLfsData(const QString &fileName)
     m_spectrogram->setData(m_raster);
 
     setAxisScale(QwtPlot::xBottom, freqStartMHz, freqStopMHz);
-    setAxisScale(QwtPlot::yLeft, tMin, tMax);
+    setDelayAxisScale(tMin, tMax);
     setLevelInterval(0.125 * topDb, topDb);
 
     /*
@@ -623,7 +671,7 @@ bool QRxIonogram::applyProducts(const LfpProducts &p)
     m_spectrogram->setData(m_raster);
 
     setAxisScale(QwtPlot::xBottom, p.freqMinMHz, p.freqMaxMHz);
-    setAxisScale(QwtPlot::yLeft, p.delayMinMs, p.delayMaxMs);
+    setDelayAxisScale(p.delayMinMs, p.delayMaxMs);
     setLevelInterval(0.125 * top, top);
 
     m_startDateTime = QDateTime::fromMSecsSinceEpoch(p.startEpochMs, Qt::UTC);

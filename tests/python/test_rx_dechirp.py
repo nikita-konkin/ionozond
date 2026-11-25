@@ -161,6 +161,16 @@ def test_raw_dechirp_leaves_a_short_capture_short(tmp_path):
     assert live.written() < count, "a short capture was reported as a whole sounding"
 
 
+def test_pps_latch_a_second_behind_the_gpsdo_counts_as_received():
+    second = np.random.randint(1.7e9, 1.9e9)
+    assert rx_dechirp.pps_latched(float(second) - 1e-7, float(second + 1)), "a PPS latched one second behind the GPSDO was refused"
+
+
+def test_pps_latch_far_from_the_gpsdo_counts_as_missing():
+    second = np.random.randint(1.7e9, 1.9e9)
+    assert not rx_dechirp.pps_latched(float(np.random.uniform(0, 1e5)), float(second)), "a radio still counting from boot passed as PPS-locked"
+
+
 def test_scratch_goes_to_the_first_writable_directory(tmp_path):
     memory, disk = tmp_path / "shm", tmp_path / "captures"
     memory.mkdir()

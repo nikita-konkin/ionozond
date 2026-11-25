@@ -69,6 +69,14 @@ g++ $CXXFLAGS $QT_INC -o "$BUILD/test_axes" \
 "$BUILD/test_axes" "$CAP" || rc=1
 
 echo
+echo "=== test_verticalscale ==="
+g++ $CXXFLAGS $QT_INC -o "$BUILD/test_verticalscale" \
+    "$SRC/tests/test_verticalscale.cpp" "$SRC/src/common.cpp" "$BUILD/moc_common.cpp" \
+    "$SRC/src/qigcolormap.cpp" "$SRC/src/qigcolormap_tables.cpp" \
+    $QT_LIB -lm || exit 1
+"$BUILD/test_verticalscale" || rc=1
+
+echo
 echo "=== test_cleaning (ionogram cleaning stages) ==="
 g++ $CXXFLAGS $QT_INC -o "$BUILD/test_cleaning" \
     "$SRC/tests/test_cleaning.cpp" "$SRC/src/iganalytics.cpp" "$SRC/src/igmath.cpp" \

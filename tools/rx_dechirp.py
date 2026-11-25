@@ -1936,6 +1936,16 @@ def run_live(opts, cfg, sounders):
     return worst
 
 
+def pps_latched(latched, gps):
+    """Whether the radio's clock took the time set at the last PPS edge.
+
+    The GPSDO's time sensor is read after the edge and has usually moved on
+    by a second, so a latch one second behind it is the normal case. A radio
+    that never saw the edge still counts from boot, far from either.
+    """
+    return abs(latched - gps) < 2.5
+
+
 class UsrpTime:
     """UTC read from a USRP's GPSDO, for a receiver with no time input.
 
@@ -1983,7 +1993,7 @@ class UsrpTime:
         except Exception as exc:
             log("  *** --time-from-usrp: cannot read back the PPS time: %s" % exc)
             return
-        if abs(latched - gt) > 1.0:
+        if not pps_latched(latched, gt):
             log("  *** --time-from-usrp: the radio latched %.0f at PPS but the"
                 " GPSDO says %.0f; no PPS reached it, using this host's clock"
                 % (latched, gt))
