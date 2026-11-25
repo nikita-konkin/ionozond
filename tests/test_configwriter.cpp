@@ -16,6 +16,7 @@
 #include <QString>
 #include <QStringList>
 #include <QTextStream>
+#include <QTemporaryDir>
 
 #include <cstdio>
 
@@ -107,6 +108,28 @@ static bool twoStationsAreSeparated(const QString &dir)
     return true;
 }
 
+static bool theWriterEmitsTheSweepStartOnlyWhenSet()
+{
+    QTemporaryDir dir;
+    QSettings sched(dir.filePath(QLatin1String("schedule.ini")), QSettings::IniFormat);
+    QSettings config(dir.filePath(QLatin1String("config.ini")), QSettings::IniFormat);
+    const char *const values[] = { "7.525", "0", "", nullptr };
+    for (int i = 0; i < 4; ++i) {
+        sched.beginGroup(QString::number(i));
+        sched.setValue(QLatin1String("active"), true);
+        if (values[i])
+            sched.setValue(QLatin1String("f0"), QLatin1String(values[i]));
+        sched.endGroup();
+    }
+
+    const QString got = buildChirpConfig(sched, config);
+    const bool ok = got.count(QLatin1String("'f0':")) == 1
+                 && got.contains(QLatin1String("[{'name':'0','f0':7525000}]"));
+    if (!ok)
+        std::printf("  FAIL: the writer did not emit only the configured sweep start in Hz.\n");
+    return ok;
+}
+
 int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
@@ -139,6 +162,9 @@ int main(int argc, char **argv)
 
     std::printf("\n");
     if (!twoStationsAreSeparated(QDir::tempPath()))
+        ++failures;
+
+    if (!theWriterEmitsTheSweepStartOnlyWhenSet())
         ++failures;
 
     if (failures == 0) {

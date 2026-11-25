@@ -1,5 +1,16 @@
 #include "lfs_header.h"
 
+double lfs_header::duration() const
+{
+  if (memcmp(reserved + 8, "DURS", 4) == 0) {
+    double seconds;
+    memcpy(&seconds, reserved + 12, sizeof(seconds));
+    if (seconds >= dur && seconds < dur + 1.0)
+      return seconds;
+  }
+  return dur;
+}
+
 /*
  * Reconstructed from lfsheader_read(_IO_FILE*, lfs_header&) at 0x47fb50.
  *

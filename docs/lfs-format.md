@@ -51,13 +51,20 @@ real captures.
 | 0x0D8 | `uint32` | `whiten_n` | 20000 |
 | 0x0DC | `char[292]` | `reserved` | eight ASCII `0` then NULs — see below |
 
-`start_epoch` agrees with the broken-down fields; either may be used.
+`start_epoch` and the broken-down fields give the scheduled sounding time.
+The filename uses the same UTC timestamp, including for a capture that starts
+later when the sweep enters the receiver band.
 
-`reserved` is **not** blank. Every capture carries eight ASCII `'0'` characters
+Legacy captures carry eight ASCII `'0'` characters in `reserved`
 followed by NULs — checked across captures from several days. A writer that
 zero-fills instead produces a header differing from the original's in exactly
 those eight bytes, so `tools/rx_dechirp.py` reproduces them and its headers are
 byte-identical to the archive's.
+
+A capture of fractional duration stores whole seconds in `dur`, ASCII
+`DURS` at `0x0E4`, and the duration in seconds as a little-endian float64 at
+`0x0E8`. Readers use that value for the frequency span and live sample count.
+Legacy readers see only the whole-second duration.
 
 ## ⚠ Coordinates are degrees and minutes, and everything reads them as degrees
 

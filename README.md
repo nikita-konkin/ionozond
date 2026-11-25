@@ -171,10 +171,18 @@ says.
 | HackRF One (USRP GPSDO time) | `--hackrf --hackrf-gain 24 --time-from-usrp addr=$RADIO_ADDR` | the N210's GPSDO, read over UHD |
 | As configured | `SOUNDER_ARGS` from `/etc/default/ionozond` | whatever that says |
 
-The dechirp reference starts at `centre - sample_rate / 2`, so the centre is
-the sweep's start plus half the sample rate. NIC2 sweeps from 7.5 MHz, so it
-needs 17.5 MHz at 20 MS/s on the HackRF and 20 MHz at 25 MS/s on the N210. A
-start that is off by `Δf` reads as a delay error of `Δf / rate`: 100 Hz at
+Set **Начало свипа, МГц** in the sounder's schedule to the transmitter's
+sweep start in MHz. The console writes it as `f0` in Hz in `chirp_config.py`.
+A blank or zero field preserves the legacy window, which assumes the sweep
+starts at `centre - sample_rate / 2`. With `f0` set, either receiver starts
+when the sweep reaches that lower edge and stops at the sweep end or upper
+band edge, whichever comes first. The receiver skips the sounding if the
+sweep starts above the lower edge or ends before it enters the band.
+
+For NIC2, set the sweep start to 7.5 MHz. At 20 MS/s with a centre of
+23.5 MHz, the receiver starts 60 s into a 100 kHz/s sweep and records
+13.5–20 MHz of a 125 s sounding. The filename and header time identify the
+scheduled sounding. A start that is off by `Δf` reads as a delay error of `Δf / rate`: 100 Hz at
 100 kHz/s is 1 ms, or 300 km.
 
 The HackRF has no timestamps. The sounder starts `hackrf_transfer` two seconds

@@ -85,8 +85,8 @@ static void dump(const char *path)
               h.start_year, h.start_month, h.start_day,
               h.start_hour, h.start_minute, h.start_second,
               h.start_daynumber, h.start_epoch);
-  std::printf("  chirpt %u  cf %u Hz  dur %u s  rate %u Hz/s  rep %u s\n",
-              h.chirpt, h.cf, h.dur, h.rate, h.rep);
+  std::printf("  chirpt %u  cf %u Hz  dur %g s  rate %u Hz/s  rep %u s\n",
+              h.chirpt, h.cf, h.duration(), h.rate, h.rep);
   std::printf("  rmin %d  rmax %d  dec %u  sample_rate %u Hz  -> if_rate %.0f Hz\n",
               h.rmin, h.rmax, h.dec, h.sample_rate, if_rate);
   std::printf("  whiten %u  whiten_len %u  whiten_n %u\n",
@@ -98,24 +98,26 @@ static void dump(const char *path)
   CHECK((size - (long)sizeof(lfs_header)) % 8 == 0);
   /* Recorded duration should agree with the advertised session length. */
   double secs = samples / if_rate;
-  CHECK(secs > 0.0 && secs <= (double)h.dur + 1.0);
+  CHECK(secs > 0.0 && secs <= h.duration() + 1.0);
 }
 
 /* A header with the newer format_ver 1.1 / size 512 must be rejected. */
 static void test_rejects_v11()
 {
   std::printf("\nrejects format_ver 1.1:\n");
-  const char *tmp = "/tmp/bad_ver.lfs";
   lfs_header h;
   h.format_ver  = 1.1f;
   h.header_size = 512;
-  FILE *f = std::fopen(tmp, "wb");
+  FILE *f = std::tmpfile();
+  if (!f) {
+    std::printf("  FAIL: could not open temporary capture.\n");
+    ++failures;
+    return;
+  }
   std::fwrite(&h, 1, sizeof(h), f);
   /* one sample of payload so feof() is not hit */
   double pad = 0; std::fwrite(&pad, 1, 8, f);
-  std::fclose(f);
-
-  f = std::fopen(tmp, "rb");
+  std::rewind(f);
   lfs_header out;
   bool ok = lfsheader_read(f, out);
   std::fclose(f);
@@ -123,9 +125,24 @@ static void test_rejects_v11()
   if (!ok) std::printf("  ok, rejected as expected\n");
 }
 
+static void the_header_preserves_fractional_duration()
+{
+  lfs_header h;
+  h.dur = 65;
+  const double seconds = 65.25;
+  memcpy(h.reserved + 8, "DURS", 4);
+  memcpy(h.reserved + 12, &seconds, sizeof(seconds));
+
+  if (h.duration() != seconds) {
+    std::printf("  FAIL: the header did not preserve fractional duration.\n");
+    ++failures;
+  }
+}
+
 int main(int argc, char **argv)
 {
   test_layout();
+  the_header_preserves_fractional_duration();
   test_rejects_v11();
   for (int i = 1; i < argc; ++i)
     dump(argv[i]);

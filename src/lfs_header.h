@@ -54,6 +54,8 @@ struct lfs_header {
   uint32_t whiten_n;           // 0x0D8
   char     reserved[292];      // 0x0DC .. 0x1FF
 
+  double duration() const;
+
   lfs_header()
   {
     /* memcpy, not strncpy: these are fixed 4-char fields with no NUL. */

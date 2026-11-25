@@ -1,6 +1,9 @@
 import os
+import signal
 import subprocess
 import sys
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 import echo_window
@@ -225,3 +228,71 @@ def test_sweep_keeps_files_that_are_not_captures(tmp_path):
     other.write_bytes(os.urandom(31))
     rx_dechirp.sweep_scratch(str(tmp_path))
     assert other.exists(), "a file that is not a capture was removed"
+
+
+@pytest.mark.parametrize("duration", [125, 250])
+def test_an_unset_sweep_start_keeps_the_old_window(duration):
+    assert rx_dechirp.recording_window(23.5e6, 20e6, 100e3, duration) == (0, duration), "the legacy capture window changed"
+
+
+@pytest.mark.parametrize("duration, expected", [(125, 65), (300, 200)])
+def test_a_sweep_below_the_band_starts_later_and_records_only_the_overlap(duration, expected):
+    assert rx_dechirp.recording_window(23.5e6, 20e6, 100e3, duration, 7.5e6) == (60, expected), "the window did not match the part of the sweep in the band"
+
+
+@pytest.mark.parametrize("duration", [59, 60])
+def test_a_band_at_or_above_the_sweep_end_is_refused(duration):
+    with pytest.raises(ValueError, match="ends before reaching the receiver band") as error:
+        rx_dechirp.recording_window(23.5e6, 20e6, 100e3, duration, 7.5e6)
+    assert error.value, "a sweep with no usable overlap was not refused"
+
+
+def test_a_sweep_start_above_the_band_bottom_is_refused():
+    with pytest.raises(ValueError, match="starts above the bottom of the receiver band") as error:
+        rx_dechirp.recording_window(23.5e6, 20e6, 100e3, 125, 14e6)
+    assert error.value, "a sweep above the band bottom was not refused"
+
+
+def test_the_next_capture_uses_band_entry_order_and_keeps_its_scheduled_slot():
+    midnight = 1770163200
+    shifted = {"name": "shifted", "rep": 300, "chirpt": 15}
+    unshifted = {"name": "unshifted", "rep": 300, "chirpt": 90}
+    windows = [(unshifted, 0, 125), (shifted, 60, 65)]
+    assert rx_dechirp.pick_next(windows, now=midnight + 20) == (shifted, midnight + 15, midnight + 75, 65), "the next capture missed a sweep already in progress or lost its scheduled slot"
+
+
+def test_the_capture_header_keeps_the_scheduled_slot_and_describes_the_recorded_band(tmp_path):
+    station = {"name": "NIC2", "lat": 35, "lon": 34, "chirpt": 15,
+               "cf": 23.5e6, "f0": 7.525e6, "dur": 125, "rate": 100e3, "rep": 300}
+    cfg = {"rx_station": {"lat": 35, "lon": 34}}
+    slot = 1770163215
+    _, duration = rx_dechirp.recording_window(23.5e6, 20e6, 100e3, 125, station["f0"])
+    path = tmp_path / "NIC2_20260204_000015.lfs"
+    path.write_bytes(rx_dechirp.lfs_header(cfg, station, slot, 20e6, 625, False, duration))
+    header = lfp_products.read_lfs_header(path)
+    geo = lfp_products.geometry(header, 1024, 32000)
+    assert (header["start_epoch"], geo["freq_min_mhz"], geo["freq_max_mhz"]) == (slot, 13.5, 20.025), "the header lost the scheduled time or the frequency span of the recording"
+
+
+
+@pytest.mark.parametrize("backend", [rx_dechirp.run_live, rx_dechirp.run_hackrf])
+def test_a_receiver_skips_an_unusable_band_without_starting_a_capture(backend, monkeypatch, tmp_path, capsys):
+    def unexpected(*args, **kwargs):
+        pytest.fail("the receiver attempted to start a capture outside the sweep")
+
+    monkeypatch.setattr(rx_dechirp, "Radio", lambda *args: SimpleNamespace(sr=20e6, nbuf=3, spb=4096))
+    monkeypatch.setattr(rx_dechirp, "Publication", lambda *args: SimpleNamespace(announce=lambda *args: None))
+    monkeypatch.setattr(rx_dechirp, "capture_one", unexpected)
+    monkeypatch.setattr(subprocess, "Popen", unexpected)
+    monkeypatch.setattr(signal, "signal", lambda *args: None)
+    station = {"name": "NIC2", "cf": 23.5e6, "f0": 7.5e6, "dur": 59, "rate": 100e3,
+               "rep": 300, "chirpt": 15}
+    monkeypatch.setattr(rx_dechirp, "pick_next", lambda *args, **kwargs: (station, 0))
+    monkeypatch.setattr(rx_dechirp, "enough_disk", lambda *args: True)
+    opts = SimpleNamespace(outdir=str(tmp_path), duration=0, no_gpsdo=True, threads=False,
+                           hackrf_workdir=str(tmp_path), hackrf_gain=24, hackrf_vga=0,
+                           hackrf_amp=False, count=1, min_free_gb=0)
+    rc = backend(opts, {"sample_rate": 20e6, "dec": 625}, [station])
+    refused = [line for line in capsys.readouterr().out.splitlines() if line.startswith("  *** NIC2:")]
+    expected = (2, ["  *** NIC2: the sweep ends before reaching the receiver band."], [])
+    assert (rc, refused, list(tmp_path.rglob("*.lfs"))) == expected, "the receiver did not report one refusal and skip the capture"

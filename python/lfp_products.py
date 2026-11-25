@@ -134,6 +134,11 @@ def read_lfs_header(path):
     if len(raw) < LFS_HEADER_SIZE or raw[:4] != b"LFSG":
         raise ValueError("%s is not an .lfs capture" % path)
     f = struct.unpack(_LFS_STRUCT, raw)
+    duration = f[20]
+    if f[30][8:12] == b"DURS":
+        seconds = struct.unpack_from("<d", f[30], 12)[0]
+        if duration <= seconds < duration + 1:
+            duration = seconds
     return {
         "format_ver": f[1], "header_size": f[3],
         "tx_name": f[4].split(b"\0")[0].decode("latin-1"),
@@ -143,7 +148,7 @@ def read_lfs_header(path):
         "start_year": f[10], "start_daynumber": f[11], "start_month": f[12],
         "start_day": f[13], "start_hour": f[14], "start_minute": f[15],
         "start_second": f[16], "start_epoch": f[17],
-        "chirpt": f[18], "cf": f[19], "dur": f[20], "rate": f[21],
+        "chirpt": f[18], "cf": f[19], "dur": duration, "rate": f[21],
         "rep": f[22], "rmin": f[23], "rmax": f[24],
         "dec": f[25], "sample_rate": f[26],
         "whiten": f[27], "whiten_len": f[28], "whiten_n": f[29],
@@ -696,7 +701,7 @@ def write(path, meta, sections, producer="ionozond", producer_version="lfp 1.0")
     struct.pack_into("<q", head, 0xC0, int(meta["start_epoch"]) * 1000)
     struct.pack_into("<IIII", head, 0xC8, meta["cf"], meta["rate"],
                      meta["sample_rate"], meta["dec"])
-    struct.pack_into("<HH", head, 0xD8, meta["dur"], meta["whiten"])
+    struct.pack_into("<HH", head, 0xD8, int(meta["dur"]), meta["whiten"])
     struct.pack_into("<II", head, 0xDC, meta["whiten_len"], meta["whiten_n"])
     struct.pack_into("<III", head, 0xE4, meta["fft_count"], meta["spec_count"],
                      meta["spec_point_count"])

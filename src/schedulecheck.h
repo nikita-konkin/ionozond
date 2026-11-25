@@ -32,7 +32,7 @@ struct ScheduleEntry {
     bool    active;
     bool    rx;
     /* As typed: the checks have to see "56,38" to say what is wrong with it. */
-    QString rep, chirpt, rate, dur, cf, lat, lon;
+    QString rep, chirpt, rate, dur, cf, lat, lon, f0;
     int     fft;        // 0 = the parameters dialog's
 
     ScheduleEntry() : active(false), rx(false), fft(0) {}
@@ -90,6 +90,7 @@ QString issueLine(const CheckIssue &issue);
  */
 struct SimStation {
     double rep, chirpt, dur;
+    double offset = 0.0;
     double post;     // s after this station's capture before the next choice
 };
 struct SimCapture {

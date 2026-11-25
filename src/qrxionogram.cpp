@@ -371,7 +371,7 @@ bool QRxIonogram::loadLfsData(const QString &fileName)
     /* ---- axes from the header ---- */
     const double ifRate = (double)h.sample_rate / (double)h.dec;
     const double freqStartMHz = ((double)h.cf - (double)h.sample_rate / 2.0) / HZ_IN_MHZ;
-    const double freqStopMHz  = freqStartMHz + (double)h.dur * (double)h.rate / HZ_IN_MHZ;
+    const double freqStopMHz  = freqStartMHz + h.duration() * (double)h.rate / HZ_IN_MHZ;
 
     const double dKm    = earthDistanceKm(h.tx_latitude, h.tx_longitude,
                                           h.rx_latitude, h.rx_longitude);

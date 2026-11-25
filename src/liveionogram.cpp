@@ -51,19 +51,19 @@ LiveIonogram::LiveIonogram(const QString &lfsPath, const LiveSettings &settings)
     const bool haveHeader = lfsheader_read(fp, m_h);
     std::fclose(fp);
     if (!haveHeader || m_h.dec == 0 || m_h.rate == 0 || m_h.sample_rate == 0
-            || m_h.dur == 0)
+            || m_h.duration() <= 0.0)
         return;
 
     const int N = m_s.fftCount;
     m_ifRate   = (double)m_h.sample_rate / (double)m_h.dec;
-    m_expected = (qint64)(m_ifRate * (double)m_h.dur);
+    m_expected = (qint64)(m_ifRate * m_h.duration());
     const int specCount = (int)(m_expected / N);
     if (specCount <= 0)
         return;
     m_cols = specCount * m_s.overlap;
 
     m_freqMin = ((double)m_h.cf - (double)m_h.sample_rate / 2.0) / HZ_IN_MHZ;
-    m_freqMax = m_freqMin + (double)m_h.dur * (double)m_h.rate / HZ_IN_MHZ;
+    m_freqMax = m_freqMin + m_h.duration() * (double)m_h.rate / HZ_IN_MHZ;
 
     const double ground = groundDistanceKm(m_h.tx_latitude, m_h.tx_longitude,
                                            m_h.rx_latitude, m_h.rx_longitude);

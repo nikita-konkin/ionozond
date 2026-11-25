@@ -112,5 +112,16 @@ g++ $CXXFLAGS $QT_INC -o "$BUILD/test_schedulecheck" \
 "$BUILD/test_schedulecheck" || rc=1
 
 echo
+echo "=== test_scheduledialog ==="
+/usr/lib/qt5/bin/uic "$SRC/src/scheduledialog.ui" -o "$BUILD/ui_scheduledialog.h" || exit 1
+/usr/lib/qt5/bin/moc $QT_INC "$SRC/src/scheduledialog.h" -o "$BUILD/moc_scheduledialog.cpp" || exit 1
+g++ $CXXFLAGS $QT_INC -I"$BUILD" -I"$SRC/src" -o "$BUILD/test_scheduledialog" \
+    "$SRC/tests/test_scheduledialog.cpp" "$SRC/src/scheduledialog.cpp" "$BUILD/moc_scheduledialog.cpp" \
+    "$SRC/src/schedulecheck.cpp" "$SRC/src/common.cpp" "$BUILD/moc_common.cpp" \
+    "$SRC/src/lfs_header.cpp" "$SRC/src/qigcolormap.cpp" "$SRC/src/qigcolormap_tables.cpp" \
+    $QT_LIB -lm || exit 1
+QT_QPA_PLATFORM=offscreen "$BUILD/test_scheduledialog" || rc=1
+
+echo
 [ $rc -eq 0 ] && echo "ALL TESTS PASSED" || echo "SOME TESTS FAILED"
 exit $rc
