@@ -33,8 +33,43 @@ static bool theScheduleDialogKeepsTheSweepStartAfterSaving()
     return ok;
 }
 
+static QTableWidgetItem *centreFrequencyCell(ScheduleDialog &dialog)
+{
+    QTableWidget *table = dialog.findChild<QTableWidget *>(QLatin1String("tblSchedule"));
+    for (int row = 0; table && row < table->rowCount(); ++row) {
+        if (table->verticalHeaderItem(row)->text()
+                == QString::fromUtf8("Частота программного гетеродина USRP, кГц"))
+            return table->item(row, 0);
+    }
+    return nullptr;
+}
+
+static bool theScheduleDialogKeepsAutomaticCentreAfterSaving()
+{
+    QTemporaryDir dir;
+    const QString path = dir.filePath(QLatin1String("schedule.ini"));
+    {
+        QSettings schedule(path, QSettings::IniFormat);
+        schedule.setValue(QLatin1String("NIC2/cf"), QLatin1String("17500"));
+        ScheduleDialog dialog(&schedule);
+        QTableWidgetItem *field = centreFrequencyCell(dialog);
+        if (field)
+            field->setText(QLatin1String("auto"));
+        dialog.WriteSchedule();
+    }
+
+    QSettings reopened(path, QSettings::IniFormat);
+    ScheduleDialog dialog(&reopened);
+    QTableWidgetItem *field = centreFrequencyCell(dialog);
+    const bool ok = field && field->text() == QLatin1String("auto");
+    if (!ok)
+        std::printf("FAIL: the schedule dialog did not reload the saved cf value 'auto'.\n");
+    return ok;
+}
+
 int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
-    return theScheduleDialogKeepsTheSweepStartAfterSaving() ? 0 : 1;
+    const bool sweepStartKept = theScheduleDialogKeepsTheSweepStartAfterSaving();
+    return theScheduleDialogKeepsAutomaticCentreAfterSaving() && sweepStartKept ? 0 : 1;
 }

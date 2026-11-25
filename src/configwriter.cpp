@@ -85,6 +85,9 @@ QString buildChirpConfig(QSettings &schedule, QSettings &config)
                     if (!ok || !std::isfinite(hz) || hz == 0.0)
                         continue;
                     value = QString::number(hz, 'g', 16);
+                } else if (key == QLatin1String("cf")
+                           && value.trimmed().compare(QLatin1String("auto"), Qt::CaseInsensitive) == 0) {
+                    value = QLatin1String("'auto'");
                 } else if (needsE3(key)) {
                     value += QLatin1String("e3");
                 }
