@@ -169,3 +169,21 @@ def test_pps_latch_a_second_behind_the_gpsdo_counts_as_received():
 def test_pps_latch_far_from_the_gpsdo_counts_as_missing():
     second = np.random.randint(1.7e9, 1.9e9)
     assert not rx_dechirp.pps_latched(float(np.random.uniform(0, 1e5)), float(second)), "a radio still counting from boot passed as PPS-locked"
+
+
+def test_scratch_goes_to_the_first_writable_directory(tmp_path):
+    memory, disk = tmp_path / "shm", tmp_path / "captures"
+    memory.mkdir()
+    disk.mkdir()
+    assert rx_dechirp.scratch_dir((str(memory), str(disk))) == str(memory), "the capture did not go to the first writable directory"
+
+
+def test_scratch_skips_a_directory_that_is_missing(tmp_path):
+    disk = tmp_path / "captures"
+    disk.mkdir()
+    assert rx_dechirp.scratch_dir((str(tmp_path / "shm"), str(disk))) == str(disk), "the capture went to a directory that does not exist"
+
+
+def test_scratch_falls_back_to_the_last_directory_when_none_exists(tmp_path):
+    last = str(tmp_path / "captures")
+    assert rx_dechirp.scratch_dir((str(tmp_path / "shm"), last)) == last, "the capture had no directory when none existed yet"

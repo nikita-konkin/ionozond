@@ -2096,6 +2096,21 @@ class RawDechirp:
         self.sink.close()
 
 
+def scratch_dir(candidates):
+    """Where hackrf_transfer writes its raw capture: the first of `candidates`
+    that exists and is writable, else the last one.
+
+    A capture on disk is flushed by the kernel about 30 s after it is written,
+    and while ext4 writes a gigabyte out, hackrf_transfer's write blocks long
+    enough for the HackRF to drop samples (issue #14). Memory (/dev/shm) has no
+    such flush, so it comes first.
+    """
+    for path in candidates:
+        if os.path.isdir(path) and os.access(path, os.W_OK):
+            return path
+    return candidates[-1]
+
+
 def hackrf_tail(path, lines=5):
     """The last lines hackrf_transfer wrote, for a failure message."""
     try:
@@ -2137,7 +2152,8 @@ def run_hackrf(opts, cfg, sounders):
     outroot = opts.outdir or cfg.get("data_dir", ".")
     os.makedirs(outroot, exist_ok=True)
     log = Logger(outroot)
-    workdir = opts.hackrf_workdir
+    workdir = opts.hackrf_workdir or scratch_dir(
+        ("/dev/shm", os.path.expanduser("~/captures")))
     os.makedirs(workdir, exist_ok=True)
     raw = os.path.join(workdir, "hackrf-%d.cs8" % os.getpid())
     chatter = os.path.join(workdir, "hackrf-%d.log" % os.getpid())
@@ -2641,8 +2657,11 @@ def main():
                     help="HackRF VGA gain dB (0..62, step 2)")
     ap.add_argument("--hackrf-amp", type=int, default=0,
                     help="HackRF RF amp 0=off 1=on (usually harmful below 30 MHz)")
-    ap.add_argument("--hackrf-workdir", default=os.path.expanduser("~/captures"),
-                    help="where hackrf_transfer leaves its temporary capture")
+    ap.add_argument("--hackrf-workdir", default=None,
+                    help="where hackrf_transfer leaves its temporary capture; "
+                         "default /dev/shm when writable, else ~/captures, "
+                         "because a capture on disk drops samples while the "
+                         "kernel flushes it")
     ap.add_argument("--hackrf-lead", type=float, default=2.0,
                     help="seconds to start hackrf_transfer before t0; the "
                          "measured excess is trimmed so sample 0 lands on t0. "
