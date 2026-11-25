@@ -1,3 +1,6 @@
+import os
+import subprocess
+import sys
 import numpy as np
 import pytest
 import echo_window
@@ -187,3 +190,38 @@ def test_scratch_skips_a_directory_that_is_missing(tmp_path):
 def test_scratch_falls_back_to_the_last_directory_when_none_exists(tmp_path):
     last = str(tmp_path / "captures")
     assert rx_dechirp.scratch_dir((str(tmp_path / "shm"), last)) == last, "the capture had no directory when none existed yet"
+
+
+def ended():
+    """The id of a process that has already exited."""
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    return proc.pid
+
+
+def test_sweep_removes_the_capture_of_a_process_that_is_gone(tmp_path):
+    raw = tmp_path / ("hackrf-%d.cs8" % ended())
+    raw.write_bytes(os.urandom(97))
+    rx_dechirp.sweep_scratch(str(tmp_path))
+    assert not raw.exists(), "a capture left by a stopped process was not removed"
+
+
+def test_sweep_removes_the_log_of_a_process_that_is_gone(tmp_path):
+    chatter = tmp_path / ("hackrf-%d.log" % ended())
+    chatter.write_text("fclose() done")
+    rx_dechirp.sweep_scratch(str(tmp_path))
+    assert not chatter.exists(), "a log left by a stopped process was not removed"
+
+
+def test_sweep_keeps_the_capture_of_a_running_process(tmp_path):
+    raw = tmp_path / ("hackrf-%d.cs8" % os.getpid())
+    raw.write_bytes(os.urandom(53))
+    rx_dechirp.sweep_scratch(str(tmp_path))
+    assert raw.exists(), "the capture of a running process was removed"
+
+
+def test_sweep_keeps_files_that_are_not_captures(tmp_path):
+    other = tmp_path / "ad_mailbox_89128_shm"
+    other.write_bytes(os.urandom(31))
+    rx_dechirp.sweep_scratch(str(tmp_path))
+    assert other.exists(), "a file that is not a capture was removed"

@@ -41,6 +41,7 @@ import calendar
 import math
 import os
 import queue
+import re
 import shutil
 import struct
 import sys
@@ -2111,6 +2112,38 @@ def scratch_dir(candidates):
     return candidates[-1]
 
 
+def sweep_scratch(workdir):
+    """Remove captures and logs that stopped runs left in `workdir`.
+
+    The console stops the sounder with SIGTERM and then SIGKILL, so a run can
+    end without deleting its raw file. In /dev/shm one leftover 8 GB file is
+    enough to cut every following capture short (issue #19). Files of a
+    process that is still running are kept.
+    """
+    removed = []
+    for name in sorted(os.listdir(workdir)):
+        found = re.match(r"hackrf-(\d+)\.(cs8|log)$", name)
+        if found is None or alive(int(found.group(1))):
+            continue
+        try:
+            os.remove(os.path.join(workdir, name))
+            removed.append(name)
+        except OSError:
+            pass
+    return removed
+
+
+def alive(pid):
+    """Whether a process with this id exists."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def hackrf_tail(path, lines=5):
     """The last lines hackrf_transfer wrote, for a failure message."""
     try:
@@ -2155,6 +2188,7 @@ def run_hackrf(opts, cfg, sounders):
     workdir = opts.hackrf_workdir or scratch_dir(
         ("/dev/shm", os.path.expanduser("~/captures")))
     os.makedirs(workdir, exist_ok=True)
+    stale = sweep_scratch(workdir)
     raw = os.path.join(workdir, "hackrf-%d.cs8" % os.getpid())
     chatter = os.path.join(workdir, "hackrf-%d.log" % os.getpid())
 
@@ -2182,6 +2216,8 @@ def run_hackrf(opts, cfg, sounders):
         log("  timing   host clock -- no GPSDO/PPS on a HackRF, so the delay")
         log("           axis is good to this host's clock (1 ms ~ 300 km)")
     log("  scratch  %s" % raw)
+    if stale:
+        log("  scratch  removed %s left by stopped runs" % ", ".join(stale))
 
     def now_utc():
         return utc.now() if (utc is not None and utc.valid) else time.time()
