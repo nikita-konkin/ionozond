@@ -192,6 +192,7 @@ const double HZ_IN_MHZ              = 1e6;
 /* Axis titles. */
 const char *const AXIS_FREQ_TITLE       = "f, MHz";
 const char *const TIME_AXIS_TITLE_TEXT  = "t, ms";
+const char *const HEIGHT_AXIS_TITLE_TEXT = "h, km";
 const char *const DELAY_AXIS_TITLE_TEXT = "t, ms";
 
 /* Settings locations: the original builds these from $HOME rather than
@@ -216,6 +217,8 @@ inline double timeMsFromHeightKm(double heightKm)
 
 inline double heightKmFromTimeMs(double timeMs)
 { return LIGHT_SPEED_KM_S * (timeMs / MILLISECONDS_IN_SECOND); }
+
+double ionogramHeightStepKm(double minTimeMs, double maxTimeMs);
 
 /*
  * DigitalClock - the green UTC readout in the control panel.
