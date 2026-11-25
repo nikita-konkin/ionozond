@@ -6,6 +6,8 @@
 #include <QStringList>
 #include <QTextStream>
 
+#include <cmath>
+
 namespace {
 
 /* Keys of the sounder dict whose value is in kHz in the .ini and has to be
@@ -77,8 +79,15 @@ QString buildChirpConfig(QSettings &schedule, QSettings &config)
                     continue;
 
                 QString value = pythonValue(schedule.value(key).toString());
-                if (needsE3(key))
+                if (key == QLatin1String("f0")) {
+                    bool ok = false;
+                    const double hz = value.toDouble(&ok) * 1e6;
+                    if (!ok || !std::isfinite(hz) || hz == 0.0)
+                        continue;
+                    value = QString::number(hz, 'g', 16);
+                } else if (needsE3(key)) {
                     value += QLatin1String("e3");
+                }
 
                 line += QLatin1Char(',');
                 line += QLatin1Char('\'');

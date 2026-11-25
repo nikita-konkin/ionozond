@@ -194,7 +194,7 @@ void checkGeneral(const CheckConfig &cfg, QList<CheckIssue> &out)
 
 struct Station {
     QString name;
-    double  rep, chirpt, rateKHz, dur, cfKHz;
+    double  rep, chirpt, rateKHz, dur, cfKHz, f0MHz, offset;
 };
 
 void checkStation(const Station &s, int fft, const CheckConfig &cfg,
@@ -219,7 +219,7 @@ void checkStation(const Station &s, int fft, const CheckConfig &cfg,
     /* The capture band is fs wide and the sweep starts at its bottom edge.
      * Half a second of slack: Sodankyla's 500.0084 kHz/s over 50 s is past
      * the edge by under a millisecond. */
-    if (srHz > 0.0 && rateHz > 0.0 && s.dur - srHz / rateHz >= 0.5) {
+    if (s.f0MHz == 0.0 && srHz > 0.0 && rateHz > 0.0 && s.dur - srHz / rateHz >= 0.5) {
         const double fits = srHz / rateHz;
         add(out, CheckIssue::Warning, n,
             u8("развёртка %1 с × %2 кГц/с = %3 МГц шире полосы приёма %4 МГц: "
@@ -422,7 +422,8 @@ QString fixFor(const QVector<SimStation> &est, const QList<Station> &st,
 
     QStringList ways;
     if (cut)
-        ways << u8("сократите продолжительность у %1 до %2 с").arg(c.name).arg(fixed(d, 0));
+        ways << u8("сократите продолжительность у %1 до %2 с")
+                    .arg(c.name).arg(fixed(std::floor(d + c.offset), 0));
     if (grid >= 0.0)
         ways << u8("записывайте %1 через сеанс (период %2 с, chirptime %3)")
                     .arg(c.name).arg(val(2.0 * c.rep)).arg(val(grid));
@@ -438,6 +439,7 @@ QVector<int> checkCollisions(const QList<Station> &st, QList<CheckIssue> &out)
         s.rep = st.at(i).rep;
         s.chirpt = st.at(i).chirpt;
         s.dur = st.at(i).dur;
+        s.offset = st.at(i).offset;
         s.post = 0.0;
         zero[i] = s;
         s.post = processingEstimateS(s.dur);
@@ -622,6 +624,7 @@ bool levelLess(const CheckIssue &a, const CheckIssue &b)
 static double nextStart(const SimStation &s, double now)
 {
     /* determine_next: t0 = midnight + chirpt; while t0 - now < 3: t0 += rep */
+    now -= s.offset;
     const double midnight = std::floor(now / DAY_S) * DAY_S;
     const double first = midnight + s.chirpt;
     double t0 = first;
@@ -633,7 +636,7 @@ static double nextStart(const SimStation &s, double now)
         while (t0 - s.rep >= first && t0 - s.rep - now >= SOUNDER_LEAD_S)
             t0 -= s.rep;
     }
-    return t0;
+    return t0 + s.offset;
 }
 
 QVector<SimCapture> simulateSounder(const QVector<SimStation> &stations,
@@ -759,6 +762,26 @@ QList<CheckIssue> checkSchedule(const QList<ScheduleEntry> &entries, const Check
         s.rateKHz = v[2];
         s.dur = v[3];
         s.cfKHz = v[4];
+        s.f0MHz = 0.0;
+        s.offset = 0.0;
+        if (!e.f0.trimmed().isEmpty()) {
+            bool valid = false;
+            s.f0MHz = e.f0.toDouble(&valid);
+            if (!valid || !std::isfinite(s.f0MHz * 1e6)) {
+                add(out, CheckIssue::Error, e.name, u8("Начало свипа, МГц — нужно число с точкой"));
+                continue;
+            }
+            if (s.f0MHz != 0.0 && cfg.sampleRateKHz > 0.0) {
+                const double bottomKHz = s.cfKHz - cfg.sampleRateKHz / 2.0;
+                s.offset = (bottomKHz - s.f0MHz * 1e3) / s.rateKHz;
+                s.dur = std::min(s.dur - s.offset, cfg.sampleRateKHz / s.rateKHz);
+                if (s.offset < 0.0 || s.dur <= 0.0) {
+                    add(out, CheckIssue::Error, e.name,
+                        u8("свип не проходит через нижнюю границу полосы приёма"));
+                    continue;
+                }
+            }
+        }
         checkStation(s, e.fft > 0 ? e.fft : cfg.fft, cfg,
                      coordsOk && rxOk, lat, lon, rxLat, rxLon, out);
         active << s;
@@ -801,6 +824,7 @@ QList<ScheduleEntry> readScheduleEntries(QSettings &schedule)
         e.rate   = rawValue(schedule.value(QLatin1String("rate")));
         e.dur    = rawValue(schedule.value(QLatin1String("dur")));
         e.cf     = rawValue(schedule.value(QLatin1String("cf")));
+        e.f0     = rawValue(schedule.value(QLatin1String("f0")));
         e.lat    = rawValue(schedule.value(QLatin1String("lat")));
         e.lon    = rawValue(schedule.value(QLatin1String("lon")));
         e.fft    = schedule.value(QLatin1String("fft_count")).toInt();

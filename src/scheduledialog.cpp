@@ -69,6 +69,7 @@ ScheduleDialog::ScheduleDialog(QSettings *scheduleSettings, QWidget *parent)
             << QString::fromUtf8("Скорость перестройки ЛЧМ сигнала, кГц/с")
             << QString::fromUtf8("Продолжительность сеанса, с")
             << QString::fromUtf8("Частота программного гетеродина USRP, кГц")
+            << QString::fromUtf8("Начало свипа, МГц")
             << QString::fromUtf8("Широта (Ю-, С+)")
             << QString::fromUtf8("Долгота (З-, В+)")
             << QString::fromUtf8("Длина БПФ, точек")
@@ -139,7 +140,7 @@ QComboBox *ScheduleDialog::detailCombo(const QString &general, const QList<int> 
 
 void ScheduleDialog::addStationColumn(const QString &name, bool active, const QString &rep,
                                       const QString &chirpt, const QString &rate,
-                                      const QString &dur, const QString &cf,
+                                      const QString &dur, const QString &cf, const QString &f0,
                                       const QString &lat, const QString &lon,
                                       int fft, int pad, int overlap)
 {
@@ -158,6 +159,7 @@ void ScheduleDialog::addStationColumn(const QString &name, bool active, const QS
     ui->tblSchedule->setItem(RowRate,   col, new QTableWidgetItem(rate));
     ui->tblSchedule->setItem(RowDur,    col, new QTableWidgetItem(dur));
     ui->tblSchedule->setItem(RowCf,     col, new QTableWidgetItem(cf));
+    ui->tblSchedule->setItem(RowF0,     col, new QTableWidgetItem(f0));
     ui->tblSchedule->setItem(RowLat,    col, new QTableWidgetItem(lat));
     ui->tblSchedule->setItem(RowLon,    col, new QTableWidgetItem(lon));
 
@@ -262,6 +264,8 @@ QList<ScheduleEntry> ScheduleDialog::tableEntries() const
             QTableWidgetItem *it = ui->tblSchedule->item(rows[k], col);
             *texts[k] = it ? it->text() : QString();
         }
+        QTableWidgetItem *f0 = ui->tblSchedule->item(RowF0, col);
+        e.f0     = f0 ? f0->text() : QString();
         e.fft    = fft ? fft->currentData().toInt() : 0;
         out << e;
     }
@@ -292,6 +296,7 @@ void ScheduleDialog::ReadSchedule()
                          m_settings->value(QLatin1String("rate")).toString(),
                          m_settings->value(QLatin1String("dur")).toString(),
                          m_settings->value(QLatin1String("cf")).toString(),
+                         m_settings->value(QLatin1String("f0")).toString(),
                          m_settings->value(QLatin1String("lat")).toString(),
                          m_settings->value(QLatin1String("lon")).toString(),
                          m_settings->value(QLatin1String("fft_count")).toInt(),
@@ -340,6 +345,14 @@ void ScheduleDialog::WriteSchedule()
             QTableWidgetItem *it = ui->tblSchedule->item(rows[k], col);
             m_settings->setValue(QLatin1String(keys[k]), it ? it->text() : QString());
         }
+
+        const QString f0 = ui->tblSchedule->item(RowF0, col)->text().trimmed();
+        bool validF0 = false;
+        const double startMHz = f0.toDouble(&validF0);
+        if (f0.isEmpty() || (validF0 && startMHz == 0.0))
+            m_settings->remove(QLatin1String("f0"));
+        else
+            m_settings->setValue(QLatin1String("f0"), f0);
 
         /* "General" is the key's absence, not a 0: every key in the group
          * goes into the station's dict in chirp_config.py, and a station with
@@ -393,7 +406,7 @@ void ScheduleDialog::on_btnAdd_clicked()
     /* newStationParamDefaultValues @0x6cf4a0 in the original. */
     addStationColumn(name, false,
                      QLatin1String("300"), QLatin1String("0"), QLatin1String("100"),
-                     QLatin1String("250"), QLatin1String("12500"),
+                     QLatin1String("250"), QLatin1String("12500"), QString(),
                      QLatin1String("0"), QLatin1String("0"));
     createRxList();
 }

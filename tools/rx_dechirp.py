@@ -100,6 +100,9 @@ def pack_lfs_header(tx_name, tx_lat, tx_lon, rx_name, rx_lat, rx_lon,
                     start_epoch, chirpt, cf, dur, rate, rep, rmin, rmax,
                     dec, sample_rate, whiten, whiten_len, whiten_n):
     t = time.gmtime(start_epoch)
+    reserved = RESERVED
+    if dur != int(dur):
+        reserved = RESERVED[:8] + struct.pack("<4sd", b"DURS", dur) + RESERVED[20:]
     raw = struct.pack(
         LFS_STRUCT,
         b"LFSG", LFS_FORMAT_VER, b"fmt ", LFS_HEADER_SIZE,
@@ -109,7 +112,7 @@ def pack_lfs_header(tx_name, tx_lat, tx_lon, rx_name, rx_lat, rx_lon,
         t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec,
         int(start_epoch), int(chirpt), int(cf), int(dur), int(rate), int(rep),
         int(rmin), int(rmax), int(dec), int(sample_rate),
-        1 if whiten else 0, int(whiten_len), int(whiten_n), RESERVED)
+        1 if whiten else 0, int(whiten_len), int(whiten_n), reserved)
     assert len(raw) == LFS_TOTAL, len(raw)
     return raw
 
@@ -469,6 +472,38 @@ def product_grid(cfg, sounder, pad_default, overlap_default):
     overlap = int(sounder.get("iono_overlap")
                   or cfg.get("iono_overlap", overlap_default) or 1)
     return fft, max(1, pad), max(1, overlap)
+
+
+def recording_window(cf, sr, rate, duration, f0=None):
+    """Return the offset and length in seconds of the usable capture."""
+    if not f0:
+        offset, length = 0.0, duration
+    else:
+        bottom = cf - sr / 2.0
+        if f0 > bottom:
+            raise ValueError("the sweep starts above the bottom of the receiver band")
+        if not math.isfinite(f0) or not math.isfinite(rate) or rate <= 0:
+            raise ValueError("the sweep start must be finite and the sweep rate must be positive and finite")
+        offset = (bottom - f0) / rate
+        length = min(duration - offset, sr / rate)
+    if not 0 < length < math.inf:
+        raise ValueError("the sweep ends before reaching the receiver band")
+    return offset, length
+
+
+def recording_windows(sounders, sr, duration_override, log):
+    """Calculate the recording window for each usable sounder."""
+    windows = []
+    for s in sounders:
+        try:
+            offset, duration = recording_window(s["cf"], sr, s["rate"], s["dur"], s.get("f0"))
+        except ValueError as exc:
+            log("  *** %s: %s." % (s["name"], exc))
+            continue
+        if duration_override:
+            duration = min(duration, duration_override) if s.get("f0") else duration_override
+        windows.append((s, offset, duration))
+    return windows
 
 
 def determine_next(rep, chirpt, now=None):
@@ -881,14 +916,13 @@ class Radio:
             return None
 
 
-def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
+def capture_one(radio, opts, cfg, sounder, t0, t1, dur, path, log, stop):
     """Record and dechirp one sounding. Returns a dict describing what happened."""
 
     uhd = radio.uhd
     sr, dec, spb = radio.sr, radio.dec, radio.spb
     cf = float(sounder["cf"])
     rate = float(sounder["rate"])
-    dur = float(opts.duration if opts.duration else sounder["dur"])
     f0 = -sr / 2.0
 
     result = {"path": path, "sounder": sounder["name"], "t0": t0,
@@ -901,12 +935,12 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
 
     radio.tune(cf)
 
-    header = lfs_header(cfg, sounder, t0, sr, dec, cfg.get("whiten", False))
+    header = lfs_header(cfg, sounder, t0, sr, dec, cfg.get("whiten", False), dur)
 
     # Stream commands name a time in the radio's own base, so the target has to
     # be expressed in that base -- and which clock is authoritative decides how.
     #
-    # GPS-locked, the radio holds real UTC and t0 is already in its base. That
+    # GPS-locked, the radio holds real UTC and t1 is already in its base. That
     # is the configuration that produced a correct ionogram, with the host's
     # clock reading 3.9 s different at the time: correcting for that offset
     # would have started the sweep 3.9 s late, which at 100 kHz/s is 390 kHz of
@@ -918,11 +952,11 @@ def capture_one(radio, opts, cfg, sounder, t0, path, log, stop):
     if offset is None:
         log("  *** cannot read the radio's clock; assuming it matches ours")
         offset = 0.0
-    target = t0 if radio.authority == "radio" else t0 + offset
+    target = t1 if radio.authority == "radio" else t1 + offset
 
     # Wait in short steps -- so a stop signal is acted on within half a second
     # rather than whenever the radio next returns -- and measure the remaining
-    # time in the radio's base, not this host's. Waiting until "t0 minus five
+    # time in the radio's base, not this host's. Waiting until "t1 minus five
     # seconds" by a host clock 3.9 s adrift leaves only 1.1 s of real lead,
     # which is how a correctly scheduled capture still managed to miss its own
     # start.
@@ -1400,24 +1434,17 @@ def report(result, opts, sr, dec, log):
     return 1
 
 
-def pick_next(sounders, now=None):
-    """The station whose next chirp comes soonest.
-
-    One receiver can only follow one sweep at a time. The original ran several
-    in parallel threads, one per receiver; with a single radio the useful
-    equivalent is simply to take whichever is due first.
-
-    `now` lets a caller substitute a better clock -- a GPSDO read over UHD, for
-    a HackRF that has no time input of its own.
-    """
+def pick_next(windows, now=None):
+    """Return the sounder, scheduled slot, capture start and length."""
     if now is None:
         now = time.time()
-    best, best_t = None, None
-    for s in sounders:
-        t = determine_next(s["rep"], s["chirpt"], now)
-        if best_t is None or t < best_t:
-            best, best_t = s, t
-    return best, best_t
+    best = None
+    for s, offset, duration in windows:
+        t0 = determine_next(s["rep"], s["chirpt"], now - offset)
+        t1 = t0 + offset
+        if best is None or t1 < best[2]:
+            best = s, t0, t1, duration
+    return best
 
 
 def enough_disk(root, need_bytes, floor_bytes, log):
@@ -1720,13 +1747,15 @@ class Publication:
             log("  *** sidecar failed: %s" % exc)
 
 
-def lfs_header(cfg, sounder, t0, sr, dec, whiten):
+def lfs_header(cfg, sounder, t0, sr, dec, whiten, duration):
     """The 512-byte .lfs header for one sounding at this station."""
     rx = cfg.get("rx_station", {"name": "", "lat": 0.0, "lon": 0.0})
+    if not sounder.get("f0"):
+        duration = int(sounder["dur"])
     return pack_lfs_header(
         sounder["name"], sounder["lat"], sounder["lon"],
         rx.get("name", ""), rx.get("lat", 0.0), rx.get("lon", 0.0),
-        int(t0), sounder["chirpt"], float(sounder["cf"]), sounder["dur"],
+        int(t0), sounder["chirpt"], float(sounder["cf"]), duration,
         float(sounder["rate"]), sounder["rep"],
         sounder.get("rmin", 0), sounder.get("rmax", 5000), dec, sr,
         whiten, cfg.get("whiten_len", 8192), cfg.get("whiten_n", 20000))
@@ -1745,20 +1774,23 @@ def run_live(opts, cfg, sounders):
     log("sounder    %s%s"
         % (", ".join(s["name"] for s in sounders),
            "" if len(sounders) == 1 else "  (whichever is due first)"))
+    band_bottom = first["cf"] - sr / 2
+    sweep_start = first.get("f0") or band_bottom
     log("  centre   %.3f MHz, sweeping %.3f -> %.3f MHz at %g kHz/s"
-        % (first["cf"] / 1e6, (first["cf"] - sr / 2) / 1e6,
-           (first["cf"] - sr / 2 + first["dur"] * first["rate"]) / 1e6,
-           first["rate"] / 1e3))
+        % (first["cf"] / 1e6, sweep_start / 1e6,
+           (sweep_start + first["dur"] * first["rate"]) / 1e6, first["rate"] / 1e3))
     log("  sampling %.3f MS/s, dec %d -> %.0f Hz out" % (sr / 1e6, dec, sr / dec))
     log("  archive  %s" % outroot)
     if opts.duration:
-        log("  duration %g s -- SHORTENED for a test; the header still says %d"
-            % (opts.duration, first["dur"]))
-
-    publication = Publication(opts, cfg, outroot, log)
-    publication.announce(sr, dec, sounders)
+        log("  duration %g s requested for a test" % opts.duration)
 
     radio = Radio(opts, cfg, float(first["cf"]))
+    windows = recording_windows(sounders, radio.sr, opts.duration, log)
+    if not windows:
+        return 2
+
+    publication = Publication(opts, cfg, outroot, log)
+    publication.announce(radio.sr, dec, [s for s, _, _ in windows])
     if not opts.no_gpsdo:
         radio.discipline(log)
     # Say it here rather than leave UHD's warning to be scrolled past. This has
@@ -1803,9 +1835,8 @@ def run_live(opts, cfg, sounders):
     failures = 0
 
     while not stop["now"]:
-        sounder, t0 = pick_next(sounders)
-        dur = float(opts.duration if opts.duration else sounder["dur"])
-        need = LFS_TOTAL + int((sr / dec) * dur) * 8
+        sounder, t0, t1, dur = pick_next(windows)
+        need = LFS_TOTAL + int((radio.sr / dec) * dur) * 8
 
         stamp = time.gmtime(t0)
         day = time.strftime("%Y.%m.%d", stamp)
@@ -1819,7 +1850,9 @@ def run_live(opts, cfg, sounders):
             % (sounder["name"],
                time.strftime("%Y-%m-%d %H:%M:%S", stamp), t0 - time.time(),
                day, name))
-        status(sounder["name"], "waiting", int(t0), int(t0 + dur))
+        if t1 != t0:
+            log("  recording starts %.3f s after the scheduled slot" % (t1 - t0))
+        status(sounder["name"], "waiting", int(t1), int(t1 + dur))
 
         if not enough_disk(outroot, need, floor_bytes, log):
             skips += 1
@@ -1832,7 +1865,7 @@ def run_live(opts, cfg, sounders):
                 break
             # Sit out this window rather than spinning: the next one is a whole
             # repetition period away and nothing will have changed before then.
-            while time.time() < t0 + dur and not stop["now"]:
+            while time.time() < t1 + dur and not stop["now"]:
                 time.sleep(1.0)
             continue
         skips = 0
@@ -1845,7 +1878,7 @@ def run_live(opts, cfg, sounders):
             break
 
         try:
-            result = capture_one(radio, opts, cfg, sounder, t0,
+            result = capture_one(radio, opts, cfg, sounder, t0, t1, dur,
                                  os.path.join(outdir, name), log, stop)
         except Exception as exc:
             # One bad sounding must not end an unattended run -- but it must
@@ -1869,7 +1902,7 @@ def run_live(opts, cfg, sounders):
             if limit and done >= limit:
                 break
             # Sit out the rest of this window rather than hammering it.
-            while time.time() < t0 + dur and not stop["now"]:
+            while time.time() < t1 + dur and not stop["now"]:
                 time.sleep(1.0)
             continue
 
@@ -2049,7 +2082,7 @@ class RawDechirp:
 
     The console draws a live ionogram by following a .lfs as it lengthens, so
     the HackRF path writes one during the capture rather than after it. Sample
-    `start` of the raw file is t0, the first sample of the sounding, and the
+    `start` of the raw file is t1, the first sample of the recording, and the
     .lfs stops after `want` output samples, one sounding's worth. Work is done
     in steps of `step` input samples, so a call never holds up the size probes
     that time the stream for longer than one step takes.
@@ -2174,8 +2207,7 @@ def run_hackrf(opts, cfg, sounders):
     if sr > HACKRF_MAX_RATE:
         print("HackRF One samples at most 20 MS/s; this config asks for %.3f MS/s."
               % (sr / 1e6))
-        print("Lower the sample rate and keep rate x dur within it, then")
-        print("rebuild chirp_config.py.")
+        print("Lower the sample rate and rebuild chirp_config.py.")
         return 2
     if sr < 2e6:
         print("HackRF One cannot sample below 2 MS/s; config asks for %.3f MS/s."
@@ -2185,6 +2217,10 @@ def run_hackrf(opts, cfg, sounders):
     outroot = opts.outdir or cfg.get("data_dir", ".")
     os.makedirs(outroot, exist_ok=True)
     log = Logger(outroot)
+    windows = recording_windows(sounders, sr, opts.duration, log)
+    if not windows:
+        return 2
+    sounders = [s for s, _, _ in windows]
     workdir = opts.hackrf_workdir or scratch_dir(
         ("/dev/shm", os.path.expanduser("~/captures")))
     os.makedirs(workdir, exist_ok=True)
@@ -2199,7 +2235,7 @@ def run_hackrf(opts, cfg, sounders):
     log("  sampling %.3f MS/s, dec %d -> %.0f Hz out" % (sr / 1e6, dec, sr / dec))
     for s in sounders:
         span = float(s["rate"]) * float(s["dur"])
-        flag = "" if span <= sr + 1e-3 else "  *** WIDER THAN THE BAND"
+        flag = "  *** WIDER THAN THE BAND" if not s.get("f0") and span > sr + 1e-3 else ""
         log("  station  %-12s rate %g kHz/s, dur %g s -> %.2f MHz sweep%s"
             % (s["name"], s["rate"] / 1e3, s["dur"], span / 1e6, flag))
     log("  gain     LNA %d dB, VGA %d dB, RF amp %s"
@@ -2247,12 +2283,11 @@ def run_hackrf(opts, cfg, sounders):
         # scheduled slot" -- otherwise testing would wait up to a whole rep.
         # The start still has to be far enough ahead for the lead to fit.
         if opts.duration:
-            sounder = sounders[0]
-            t0 = now_utc() + lead + 1.0
+            sounder, offset, dur = windows[0]
+            t1 = now_utc() + lead + 1.0
+            t0 = t1 - offset
         else:
-            sounder, t0 = pick_next(sounders, now=now_utc())
-
-        dur = float(opts.duration if opts.duration else sounder["dur"])
+            sounder, t0, t1, dur = pick_next(windows, now=now_utc())
         stamp = time.gmtime(t0)
         day = time.strftime("%Y.%m.%d", stamp)
         name = "%s_%04d%02d%02d_%02d%02d%02d.lfs" % (
@@ -2267,16 +2302,19 @@ def run_hackrf(opts, cfg, sounders):
             % (sounder["name"],
                time.strftime("%Y-%m-%d %H:%M:%S", stamp), t0 - now_utc(),
                day, name))
-        status(sounder["name"], "waiting", int(t0), int(t0 + dur))
+        if t1 != t0:
+            log("  recording starts %.3f s after the scheduled slot" % (t1 - t0))
+        status(sounder["name"], "waiting", int(t1), int(t1 + dur))
 
-        # Start early and trim, rather than starting at t0 and living with the
+        # Start early and trim, rather than starting at t1 and living with the
         # ~0.6-0.8 s between process launch and the first captured sample.
-        # The excess is discarded by sample count, so sample 0 lands on t0.
-        while now_utc() < t0 - lead and not stop["now"]:
+        # The excess is discarded by sample count, so sample 0 lands on t1.
+        while now_utc() < t1 - lead and not stop["now"]:
             time.sleep(0.05)
         if stop["now"]:
             break
 
+        header = lfs_header(cfg, sounder, t0, sr, dec, False, dur)
         nsamp = int(sr * (dur + lead))
         want = int(sr * dur) // dec
         log("  capturing %g s + %.2f s lead (%d samples)" % (dur, lead, nsamp))
@@ -2302,7 +2340,7 @@ def run_hackrf(opts, cfg, sounders):
 
         # Timestamp the samples by watching the capture grow: hackrf_transfer
         # has no timestamps of its own, and its stdio is buffered by a second.
-        # Once t0 is on disk the .lfs is started from the estimate so far, so
+        # Once t1 is on disk the .lfs is started from the estimate so far, so
         # the console can draw the sweep as it arrives.
         probes = []
         tick = 0.0
@@ -2324,14 +2362,13 @@ def run_hackrf(opts, cfg, sounders):
                 fault = ("hackrf_transfer stalled at %d bytes" % last[0]
                          if last[0] else "hackrf_transfer wrote nothing")
                 break
-            if probes and live is None and probes[-1][0] > t0:
-                trim = int(round((t0 - stream_epoch(probes, sr)) * sr))
+            if probes and live is None and probes[-1][0] > t1:
+                trim = int(round((t1 - stream_epoch(probes, sr)) * sr))
                 if trim < 0:
-                    fault = ("stream began %.0f ms after t0"
+                    fault = ("stream began %.0f ms after band entry"
                              % (-trim / sr * 1e3))
                     break
-                live = RawDechirp(raw, path,
-                                  lfs_header(cfg, sounder, t0, int(sr), dec, False),
+                live = RawDechirp(raw, path, header,
                                   sr, float(sounder["rate"]), dec, trim, want)
             if live is not None:
                 live.advance(size, False)
@@ -2350,11 +2387,11 @@ def run_hackrf(opts, cfg, sounders):
         if fault is None and rc != 0:
             fault = "hackrf_transfer failed (rc=%d)" % rc
         if fault is None and live is None:
-            fault = "the capture never reached t0"
+            fault = "the capture never reached band entry"
 
         if fault is None:
-            final = int(round((t0 - stream_epoch(probes, sr)) * sr))
-            log("  timing   stream start from %d size probes, %+.0f ms vs t0"
+            final = int(round((t1 - stream_epoch(probes, sr)) * sr))
+            log("  timing   stream start from %d size probes, %+.0f ms vs band entry"
                 % (len(probes), -final / sr * 1e3))
             if final - trim > drift * sr:
                 # The minimum only ever falls, so a later probe can move the
@@ -2363,8 +2400,7 @@ def run_hackrf(opts, cfg, sounders):
                 log("  timing   start moved %.3f ms after the live dechirp began;"
                     " dechirping again" % ((final - trim) / sr * 1e3))
                 live.close()
-                live = RawDechirp(raw, path,
-                                  lfs_header(cfg, sounder, t0, int(sr), dec, False),
+                live = RawDechirp(raw, path, header,
                                   sr, float(sounder["rate"]), dec, final, want)
             live.advance(os.path.getsize(raw), True)
             live.close()
@@ -2560,22 +2596,23 @@ def repair_header(opts, cfg, sounder):
 
     sr = float(cfg["sample_rate"])
     dec = int(cfg["dec"])
-    rx = cfg.get("rx_station", {"name": "", "lat": 0.0, "lon": 0.0})
+    try:
+        _, duration = recording_window(sounder["cf"], sr, sounder["rate"],
+                                       sounder["dur"], sounder.get("f0"))
+    except ValueError as exc:
+        print("Cannot repair %s because %s." % (path, exc))
+        return 2
+
     samples = size // 8
-    expected = int((sr / dec) * sounder["dur"])
+    expected = int((sr / dec) * duration)
     print("  %s" % path)
     print("  %d samples, %.1f s at %.0f Hz (a full sounding is %d)"
           % (samples, samples / (sr / dec), sr / dec, expected))
     print("  start %s UTC, from the filename"
           % time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(t0)))
 
-    header = pack_lfs_header(
-        m.group("name"), sounder["lat"], sounder["lon"],
-        rx.get("name", ""), rx.get("lat", 0.0), rx.get("lon", 0.0),
-        t0, sounder["chirpt"], sounder["cf"], sounder["dur"], sounder["rate"],
-        sounder["rep"], sounder.get("rmin", 0), sounder.get("rmax", 5000),
-        dec, sr, cfg.get("whiten", False), cfg.get("whiten_len", 8192),
-        cfg.get("whiten_n", 20000))
+    header = lfs_header(cfg, dict(sounder, name=m.group("name")), t0, sr, dec,
+                        cfg.get("whiten", False), duration)
 
     tmp = path + ".repairing"
     with open(tmp, "wb") as out:
@@ -2699,8 +2736,8 @@ def main():
                          "because a capture on disk drops samples while the "
                          "kernel flushes it")
     ap.add_argument("--hackrf-lead", type=float, default=2.0,
-                    help="seconds to start hackrf_transfer before t0; the "
-                         "measured excess is trimmed so sample 0 lands on t0. "
+                    help="seconds to start hackrf_transfer before band entry; the "
+                         "measured excess is trimmed so sample 0 lands at band entry. "
                          "Launch-to-stream was ~0.77 s on this host, so 2 s "
                          "leaves margin for a slower USB enumeration")
     ap.add_argument("--time-from-usrp", default="",

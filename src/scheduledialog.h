@@ -56,14 +56,14 @@ private:
      * the original: per-station overrides of the parameters dialog, kept out
      * of schedule.ini altogether while they say "general". */
     enum Row {
-        RowActive = 0, RowRep, RowChirpt, RowRate, RowDur, RowCf,
+        RowActive = 0, RowRep, RowChirpt, RowRate, RowDur, RowCf, RowF0,
         RowLat, RowLon, RowFft, RowCell, RowIonoPad, RowIonoOverlap,
         RowDelete, RowCount
     };
 
     void addStationColumn(const QString &name, bool active, const QString &rep,
                           const QString &chirpt, const QString &rate,
-                          const QString &dur, const QString &cf,
+                          const QString &dur, const QString &cf, const QString &f0,
                           const QString &lat, const QString &lon,
                           int fft = 0, int pad = 0, int overlap = 0);
     /* A combo whose first entry, data 0, means "as in the parameters dialog". */

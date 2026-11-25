@@ -69,6 +69,10 @@ def read_header(path):
         "whiten_len": u32(0x0D4),
         "whiten_n": u32(0x0D8),
     }
+    if raw[0x0E4:0x0E8] == b"DURS":
+        seconds = struct.unpack_from("<d", raw, 0x0E8)[0]
+        if h["dur"] <= seconds < h["dur"] + 1:
+            h["dur"] = seconds
     return h
 
 
@@ -125,7 +129,7 @@ def main():
           % (h["start_year"], h["start_month"], h["start_day"],
              h["start_hour"], h["start_minute"], h["start_second"],
              h["start_daynumber"], h["start_epoch"]))
-    print("sounding    cf %.3f MHz, rate %g kHz/s, dur %d s, rep %d s, chirpt %d s"
+    print("sounding    cf %.3f MHz, rate %g kHz/s, dur %g s, rep %d s, chirpt %d s"
           % (h["cf"] / 1e6, h["rate"] / 1e3, h["dur"], h["rep"], h["chirpt"]))
     print("sampling    %d Hz / dec %d = %g Hz  (range %d..%d km)"
           % (h["sample_rate"], h["dec"], if_rate, h["rmin"], h["rmax"]))
