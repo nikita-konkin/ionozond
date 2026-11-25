@@ -159,3 +159,21 @@ def test_raw_dechirp_leaves_a_short_capture_short(tmp_path):
     live.advance(2 * count, True)
     live.close()
     assert live.written() < count, "a short capture was reported as a whole sounding"
+
+
+def test_scratch_goes_to_the_first_writable_directory(tmp_path):
+    memory, disk = tmp_path / "shm", tmp_path / "captures"
+    memory.mkdir()
+    disk.mkdir()
+    assert rx_dechirp.scratch_dir((str(memory), str(disk))) == str(memory), "the capture did not go to the first writable directory"
+
+
+def test_scratch_skips_a_directory_that_is_missing(tmp_path):
+    disk = tmp_path / "captures"
+    disk.mkdir()
+    assert rx_dechirp.scratch_dir((str(tmp_path / "shm"), str(disk))) == str(disk), "the capture went to a directory that does not exist"
+
+
+def test_scratch_falls_back_to_the_last_directory_when_none_exists(tmp_path):
+    last = str(tmp_path / "captures")
+    assert rx_dechirp.scratch_dir((str(tmp_path / "shm"), last)) == last, "the capture had no directory when none existed yet"
