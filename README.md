@@ -185,6 +185,17 @@ For NIC2, set the sweep start to 7.5 MHz. At 20 MS/s with a centre of
 scheduled sounding. A start that is off by `Δf` reads as a delay error of `Δf / rate`: 100 Hz at
 100 kHz/s is 1 ms, or 300 km.
 
+For automatic tuning on a HackRF, set `'cf': 'auto'` in the sounder's entry
+in the `chirp_config.py` passed to the receiver. Set `f0` to the transmitter's
+sweep start and use the full sweep duration in `dur`. The receiver starts
+with its lower edge at `f0` and reads the `.lfp` for the latest sounding
+of that station in the receiver's dated output folders. It moves the band to leave
+2 MHz above the detected echo top, within the sweep when the sweep is at
+least as wide as the receiver band. Set `auto_band_margin` in Hz on the same
+sounder to change the margin. A missing sidecar or undetected echo restores
+the default band. Use a separate config file for this setting if the
+console regenerates your `chirp_config.py`.
+
 The HackRF has no timestamps. The sounder starts `hackrf_transfer` two seconds
 early (`--hackrf-lead`), watches the capture file grow, and takes the stream
 start as the earliest time consistent with every size it saw. That discards
